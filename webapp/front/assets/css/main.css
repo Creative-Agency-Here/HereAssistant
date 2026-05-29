@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { color-scheme: dark; }
+  body {
+    @apply bg-bg text-text font-sans antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+  ::selection { @apply bg-accent/30; }
+}
+
+@layer components {
+  .card {
+    @apply bg-bg-card border border-line rounded-xl p-4;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg
+           bg-bg-soft border border-line text-text-soft hover:text-text hover:border-accent/40
+           transition;
+  }
+  .btn-danger { @apply hover:border-err/50 hover:text-err; }
+  .chip {
+    @apply inline-flex items-center px-2 py-0.5 rounded-md text-xs
+           bg-bg-soft border border-line text-text-soft;
+  }
+}
+
+/* Рендер markdown в просмотре диалога (.md) */
+@layer components {
+  .md { @apply text-sm leading-relaxed break-words; }
+  .md > :first-child { @apply mt-0; }
+  .md p { @apply my-2; }
+  .md h1 { @apply text-lg font-semibold mt-3 mb-1; }
+  .md h2 { @apply text-base font-semibold mt-3 mb-1; }
+  .md h3 { @apply text-sm font-semibold mt-2 mb-1; }
+  .md ul { @apply list-disc pl-5 my-2; }
+  .md ol { @apply list-decimal pl-5 my-2; }
+  .md li { @apply my-0.5; }
+  .md a { @apply text-accent underline; }
+  .md strong { @apply font-semibold text-text; }
+  .md code { @apply bg-bg-soft border border-line rounded px-1 py-0.5 text-xs font-mono; }
+  .md pre { @apply bg-bg border border-line rounded-lg p-3 my-2 overflow-x-auto; }
+  .md pre code { @apply bg-transparent border-0 p-0; }
+  .md blockquote { @apply border-l-2 border-line pl-3 text-text-soft my-2; }
+  .md hr { @apply border-line my-3; }
+  /* таблицы — главное, ради чего всё */
+  .md table { @apply my-2 text-xs border-collapse w-full; }
+  .md th, .md td { @apply border border-line px-2 py-1 text-left align-top; }
+  .md th { @apply bg-bg-soft font-semibold; }
+  .md .md-scroll { @apply overflow-x-auto; }
+}

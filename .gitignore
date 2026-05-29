@@ -1,0 +1,18 @@
+.env
+.runtime/
+bridge.sqlite3
+workspace/
+*.log
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# node / nuxt (фронт) — зависимости и сборки не коммитим
+node_modules/
+webapp/front/.nuxt/
+webapp/front/.output/
+webapp/front/dist/
+
+# локальная авто-память и настройки IDE/агента (личное, не код)
+memory/
+.claude/
