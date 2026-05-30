@@ -7,6 +7,7 @@ Production через PM2:    pm2 start ecosystem.config.js
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import sys
@@ -53,6 +54,11 @@ async def auth_middleware(request: web.Request, handler):
         # WebSocket в браузере не умеет слать заголовки — initData приходит в ?tma=
         init_data = request.query.get("tma", "")
     user = validate_init_data(init_data)
+    # Фолбэк для браузера/десктопа (нет Telegram initData): секретный ключ.
+    if not user and config.WEBAPP_ACCESS_KEY:
+        key = request.headers.get("X-Access-Key", "") or request.query.get("key", "")
+        if key and hmac.compare_digest(key, config.WEBAPP_ACCESS_KEY):
+            user = {"id": config.ADMIN_ID or 0, "first_name": "key", "username": "key"}
     if not user:
         return web.json_response({"error": "unauthorized"}, status=401)
 
@@ -74,7 +80,7 @@ def _cors_response(resp: web.StreamResponse, request: web.Request) -> web.Stream
     allowed = _allowed_origin(origin)
     if allowed:
         resp.headers["Access-Control-Allow-Origin"] = allowed
-        resp.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
+        resp.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, X-Access-Key"
         resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
         resp.headers["Access-Control-Allow-Credentials"] = "true"
     return resp

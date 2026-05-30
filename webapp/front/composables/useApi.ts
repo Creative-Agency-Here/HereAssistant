@@ -18,10 +18,12 @@ declare global {
 
 export function useApi<T = unknown>(path: string, opts: UseFetchOptions<T> = {}) {
   const config = useRuntimeConfig()
-  const initData = (typeof window !== 'undefined' && window.Telegram?.WebApp?.initData) || ''
+  const initData = getInitData()    // Telegram (с кэшем)
+  const key = getAccessKey()        // секретный ключ для браузера/десктопа
 
   const headers: Record<string, string> = { ...(opts.headers as any) }
   if (initData) headers.Authorization = `tma ${initData}`
+  if (key) headers['X-Access-Key'] = key
 
   return useFetch<T>(path, {
     baseURL: config.public.apiBase,

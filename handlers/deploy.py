@@ -115,7 +115,9 @@ async def post_restart_report(bot: Bot) -> bool:
         f"Версия: {version.short(old_hash)} → {v_after['short']} ({v_after['files']} файлов)",
     ]
     if changes:
-        msg_lines.append(f"\nИзменено файлов: {len(changes)}")
+        total_a = sum(ch.get("added", 0) for ch in changes)
+        total_r = sum(ch.get("removed", 0) for ch in changes)
+        msg_lines.append(f"\nИзменено файлов: {len(changes)} (всего +{total_a} −{total_r} строк)")
         for ch in changes[:15]:
             mark = {"modified": "✎", "added": "+", "removed": "-"}.get(ch["kind"], "?")
             msg_lines.append(f"  {mark} {ch['file']}  +{ch['added']} −{ch['removed']}")

@@ -16,8 +16,11 @@ export function useLiveLog() {
 
   const wsUrl = computed(() => {
     const base = config.public.apiBase.replace(/^http/, 'ws')
-    const initData = (typeof window !== 'undefined' && window.Telegram?.WebApp?.initData) || ''
-    const q = initData ? `?tma=${encodeURIComponent(initData)}` : ''
+    const initData = getInitData()
+    const key = getAccessKey()
+    let q = ''
+    if (initData) q = `?tma=${encodeURIComponent(initData)}`
+    else if (key) q = `?key=${encodeURIComponent(key)}`
     return `${base}/ws${q}`
   })
 

@@ -35,10 +35,13 @@ async def handler(request: web.Request) -> web.WebSocketResponse:
     try:
         while not ws.closed:
             await asyncio.sleep(TICK_SEC)
-            # 1) новые строки лога
-            last_inode_pos = await _stream_new_lines(ws, last_inode_pos)
-            # 2) статус задачи
-            await _send_status(ws)
+            if ws.closed:
+                break
+            try:
+                last_inode_pos = await _stream_new_lines(ws, last_inode_pos)
+                await _send_status(ws)
+            except (ConnectionResetError, RuntimeError):
+                break  # клиент отключился — выходим, не спамим лог "closing transport"
     except asyncio.CancelledError:
         pass
     except Exception as e:
@@ -83,22 +86,23 @@ async def _stream_new_lines(ws: web.WebSocketResponse, last_pos: int) -> int:
             f.seek(last_pos)
             data = f.read(size - last_pos)
         new_lines = data.decode("utf-8", errors="replace").splitlines()
-        if new_lines:
-            await ws.send_str(json.dumps({"type": "log_append", "lines": new_lines}))
-        return size
     except Exception as e:
-        log.warning("stream log failed: %s", e)
+        log.warning("read log failed: %s", e)
         return last_pos
+    if new_lines:
+        await ws.send_str(json.dumps({"type": "log_append", "lines": new_lines}))  # ошибки отправки — наружу
+    return size
 
 
 async def _send_status(ws: web.WebSocketResponse):
     try:
         task = repo.get_active_task()
         actions = repo.get_recent_actions(limit=5)
-        await ws.send_str(json.dumps({
-            "type": "status",
-            "task": task,
-            "recent_actions": actions,
-        }, ensure_ascii=False))
     except Exception as e:
-        log.warning("send status failed: %s", e)
+        log.warning("status build failed: %s", e)
+        return
+    await ws.send_str(json.dumps({
+        "type": "status",
+        "task": task,
+        "recent_actions": actions,
+    }, ensure_ascii=False))  # ошибки отправки — наружу, цикл оборвётся

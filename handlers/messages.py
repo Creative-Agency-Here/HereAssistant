@@ -99,19 +99,21 @@ def _format_signature(model: str | None, duration_s: float, edits: list) -> str:
         total_added = sum(e.get("added", 0) for e in edits)
         total_removed = sum(e.get("removed", 0) for e in edits)
         if total_added or total_removed:
-            parts.append(f"+{total_added} −{total_removed} строк")
-        # уникальные файлы по имени, в порядке появления
-        files: list[str] = []
+            parts.append(f"всего +{total_added} −{total_removed} строк")
+        # агрегируем +/- ПО КАЖДОМУ файлу (в порядке появления)
+        agg: dict[str, list[int]] = {}
         for e in edits:
             name = os.path.basename((e.get("file") or "?").rstrip("/\\")) or "?"
-            if name not in files:
-                files.append(name)
-        n = len(files)
+            cur = agg.setdefault(name, [0, 0])
+            cur[0] += e.get("added", 0)
+            cur[1] += e.get("removed", 0)
+        n = len(agg)
         word = "файл" if n == 1 else ("файла" if 2 <= n <= 4 else "файлов")
-        if n <= 3:
-            parts.append(f"{n} {word}: " + ", ".join(files))
+        per_file = [f"{name} +{a}/−{r}" for name, (a, r) in agg.items()]
+        if n <= 4:
+            parts.append(f"{n} {word}: " + ", ".join(per_file))
         else:
-            parts.append(f"{n} {word}: " + ", ".join(files[:3]) + f" +ещё {n - 3}")
+            parts.append(f"{n} {word}: " + ", ".join(per_file[:4]) + f" +ещё {n - 4}")
     parts.append(f"обновлено {time.strftime('%H:%M:%S')}")
     return "\n\n— " + " · ".join(parts)
 
@@ -198,8 +200,9 @@ async def _flush_pending(bot: Bot, key: tuple[int, int]):
                 voice_transcripts.append(text)
                 if status_msg:
                     try:
-                        await status_msg.edit_text(f"🎙 расшифровано: {text[:200]}"
-                                                   + ("…" if len(text) > 200 else ""))
+                        # показываем расшифровку ЦЕЛИКОМ (с запасом под лимит Telegram 4096)
+                        preview = text if len(text) <= 3900 else text[:3900] + "\n…(расшифровка обрезана по лимиту Telegram)"
+                        await status_msg.edit_text(f"🎙 расшифровано:\n{preview}")
                     except Exception:
                         pass
             except Exception as e:
@@ -560,9 +563,12 @@ async def _process_message(bot: Bot, message: Message, conv,
             repo.update_conv(conv["id"], provider_session_id=new_session)
 
         # Журнал изменений: полный дифф каждой правки (отдельный слой, core.changes).
-        # Временные файлы из .runtime (диагностические скрипты бота) — не показываем.
-        _full_edits = [e for e in (meta.get("edits") or [])
-                       if ".runtime" not in (e.get("file") or "").replace("\\", "/")]
+        # НЕ журналим временные/секретные файлы (диагностика, askpass с паролями, /tmp и т.п.).
+        def _skip_edit(f: str) -> bool:
+            f = (f or "").replace("\\", "/").lower()
+            return (".runtime" in f or "/temp/" in f or "appdata/local/temp" in f
+                    or "askpass" in f or "/tmp/" in f or f.endswith(".env"))
+        _full_edits = [e for e in (meta.get("edits") or []) if not _skip_edit(e.get("file"))]
         try:
             changes.record_edits(thread_id=thread_id, account=account["label"],
                                   model=conv["model"], edits=_full_edits)
@@ -634,6 +640,8 @@ async def _process_message(bot: Bot, message: Message, conv,
         if _full_edits and config.WEBAPP_URL:
             web_url = (f"{config.WEBAPP_URL}/edits?thread={thread_id}"
                        f"&since={int(t0)}&until={int(time.time()) + 5}")
+            if config.WEBAPP_ACCESS_KEY:
+                web_url += f"&key={config.WEBAPP_ACCESS_KEY}"
             try:
                 edits_markup = InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(

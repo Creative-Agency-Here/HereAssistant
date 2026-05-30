@@ -90,6 +90,10 @@ BACKUP_RETENTION_COUNT: int = int(os.environ.get("BACKUP_RETENTION_COUNT", "20")
 # Должен быть https с валидным сертификатом — иначе Telegram кнопку не примет.
 WEBAPP_URL: str = os.environ.get("WEBAPP_URL", "https://assistant.hereagency.ru").strip()
 
+# Секретный ключ доступа к вебапу из браузера/десктопа (где нет Telegram initData).
+# Открыть ?key=<этот ключ> один раз — фронт запомнит и будет слать на каждый запрос.
+WEBAPP_ACCESS_KEY: str = os.environ.get("WEBAPP_ACCESS_KEY", "").strip()
+
 RU_SYSTEM_INSTRUCTION = (
     "Ты — личный ассистент пользователя через Telegram-бот. "
     "Отвечай на русском языке. "
