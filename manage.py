@@ -328,17 +328,23 @@ def logo():
         print(f"  {B}{M}HERE{X}{D} · A S S I S T A N T · мульти-CLI Telegram-мост{X}")
         return
     # --- ASCII-фолбэк: знак-локап + вордмарк HERE ---
-    # Одна строка сетки = одна строка вывода (один блок █ на клетку). Два
-    # «ползунка» как в logo-white.svg: белый квадрат слева + фиол стойка-язычок
-    # вниз в фиол ленту (верх); белая стойка вниз из белой ленты + фиол квадрат
-    # справа (низ). W=белый, P=фиолетовый. 6 строк — под высоту HERE.
+    # Один блок █ на клетку (1 строка сетки = 1 строка вывода). Два «ползунка» как
+    # в logo-white.svg: бел.квадрат слева-верх (парит) + фиол.язычок-стойка справа
+    # (в ленту); бел.язычок слева-низ (стойка из ленты) + фиол.квадрат справа-низ
+    # (парит). W=белый, P=фиолетовый.
     glyph = [
-        " WW      PP ",   # белый квадрат слева, фиол язычок справа
-        "         PP ",   # фиол стойка вниз в ленту
-        "PPPPPPPPPPPP",   # фиолетовая лента
-        "WWWWWWWWWWWW",   # белая лента
-        " WW         ",   # белая стойка вниз
-        " WW      PP ",   # белый низ стойки, фиол квадрат справа
+        "    WWWW     PPPP ",
+        "    WWWW     PPPP ",
+        "             PPPP ",
+        "  PPPPPPPPPPPPPPPP ",
+        "  PPPPPPPPPPPPPPPP ",
+        "                  ",
+        "                  ",
+        "  WWWWWWWWWWWWWWWW ",
+        "  WWWWWWWWWWWWWWWW ",
+        "    WWWW           ",
+        "    WWWW     PPPP ",
+        "    WWWW     PPPP ",
     ]
 
     def clr(ch):
@@ -358,13 +364,12 @@ def logo():
         "██║  ██║███████╗██║  ██║███████╗",
         "╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝",
     ]
-    blank = " " * len(glyph[0])
-    start = (len(word) - len(mark)) // 2  # знак ниже HERE — центрируем
-    for i, wl in enumerate(word):
-        mi = i - start
-        ml = mark[mi] if 0 <= mi < len(mark) else blank
-        print(f"   {ml}     {B}{M}{wl}{X}")
-    print(f"   {D}· A S S I S T A N T ·  мульти-CLI Telegram-мост{X}")
+    word_start = (len(mark) - len(word)) // 2  # HERE по центру знака
+    for i, ml in enumerate(mark):
+        wi = i - word_start
+        wl = word[wi] if 0 <= wi < len(word) else ""
+        print(f"  {ml}   {B}{M}{wl}{X}")
+    print(f"  {D}· A S S I S T A N T ·  мульти-CLI Telegram-мост{X}")
 
 
 def header():
