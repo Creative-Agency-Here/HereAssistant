@@ -19,6 +19,34 @@ pm2 start ecosystem.config.js --only here-assistant-bot,here-assistant-api
 Провайдеры и auth-homes: [docs/providers.md](docs/providers.md). Модель угроз: [SECURITY.md](SECURITY.md). Как контрибьютить: [CONTRIBUTING.md](CONTRIBUTING.md).
 Windows-запуск (`start_bot.bat`) поддерживается как legacy.
 
+## Меню управления (manage.py)
+
+Управление ботом — интерактивное меню `manage.py` (аккаунты, логин провайдеров,
+`.env`, зависимости, запуск). На сервере запускается из корня проекта:
+
+```bash
+python3 manage.py
+```
+
+Меню: **2** — добавить аккаунт и залогинить провайдера (Claude/Codex/Gemini),
+**1** — показать аккаунты, **7** — открыть `.env`, **8** — запустить бота.
+
+Если бот развёрнут на удалённом сервере под пользователем `here` в
+`/opt/hereassistant`, удобно завести на своей машине одну команду
+(`~/.zshrc` / `~/.bashrc`):
+
+```bash
+hereassistant() {
+  ssh -t <ssh-хост> 'TERM=xterm-256color sudo -u here -i bash -lc \
+    "cd /opt/hereassistant && python3 manage.py"'
+}
+```
+
+После `source ~/.zshrc` (или нового окна терминала) меню открывается одной
+командой: `hereassistant`. `TERM=xterm-256color` убирает предупреждение о
+неизвестном типе терминала. Для пиксельного логотипа в терминалах с графикой
+(Ghostty/Kitty/iTerm2) запусти без подмены TERM или с `HEREASSISTANT_LOGO=image`.
+
 ## Архитектура
 
 ```
