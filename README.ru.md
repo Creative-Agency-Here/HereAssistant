@@ -43,9 +43,7 @@ hereassistant() {
 ```
 
 После `source ~/.zshrc` (или нового окна терминала) меню открывается одной
-командой: `hereassistant`. `TERM=xterm-256color` убирает предупреждение о
-неизвестном типе терминала. Для пиксельного логотипа в терминалах с графикой
-(Ghostty/Kitty/iTerm2) запусти без подмены TERM или с `HEREASSISTANT_LOGO=image`.
+командой: `hereassistant`.
 
 ## Архитектура
 
