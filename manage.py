@@ -325,37 +325,40 @@ def logo():
     if proto and LOGO_PNG.exists() and _emit_logo_image(proto):
         print(f"  {B}{M}HERE{X}{D} · A S S I S T A N T · мульти-CLI Telegram-мост{X}")
         return
-    # --- ASCII-фолбэк ---
-    # Прямоугольники знака (x0,y0,x1,y1,цвет) в системе координат viewBox 200×218.
-    rects = [
-        (49, 20, 78, 49, "W"),      # верх-лево квадрат
-        (117, 20, 146, 61, "P"),    # верх-право брус
-        (20, 62, 180, 95, "P"),     # верхняя лента (фиолет)
-        (20, 127, 180, 160, "W"),   # нижняя лента (белая)
-        (49, 132, 78, 198, "W"),    # низ-лево брус
-        (117, 168, 146, 198, "P"),  # низ-право квадрат (фиолет)
+    # --- ASCII-фолбэк: знак-локап (даунскейл фирменного арта) + вордмарк HERE ---
+    # Сетка знака 18×20 (W=белый, P=фиолетовый, пробел=фон), рендер half-block.
+    glyph = [
+        "   WW    PP       ",
+        "   WW    PP       ",
+        "   WW    PP       ",
+        "         PP       ",
+        "         PPP      ",
+        "PP   PPPPPPPPP    ",
+        "PPPPPPPPPPPPPPP   ",
+        "PPPPPPPPPPPPPPP   ",
+        "PPPPPPPP          ",
+        "                  ",
+        "                  ",
+        "                  ",
+        "WWW WWWWWWWWWWW   ",
+        "WWWWWWWWWWWWWWW   ",
+        "WWWWWWWWWWWWWWW   ",
+        "WWWWWWWW          ",
+        "  WWW             ",
+        "  WWW    PP       ",
+        "  WWW    PP       ",
+        "  WWW    PP       ",
     ]
-    # Знак 22×20 «квадратных» пикселей (half-block) — при этом размере угловые
-    # квадраты попадают в цельные блоки, а не рвутся на границе строк.
-    cols, rows = 22, 20
-    grid = [[None] * cols for _ in range(rows)]
-    for x0, y0, x1, y1, c in rects:
-        for r in range(rows):
-            yy = (r + 0.5) / rows * 218
-            if not (y0 <= yy < y1):
-                continue
-            for col in range(cols):
-                xx = (col + 0.5) / cols * 200
-                if x0 <= xx < x1:
-                    grid[r][col] = c
 
-    def clr(c):
-        return M if c == "P" else W
+    def clr(ch):
+        return M if ch == "P" else W
 
-    for r in range(0, rows, 2):
+    mark = []
+    for r in range(0, len(glyph), 2):
         s = ""
-        for col in range(cols):
-            t, b = grid[r][col], grid[r + 1][col]
+        for col in range(len(glyph[0])):
+            t = glyph[r][col].strip()
+            b = glyph[r + 1][col].strip() if r + 1 < len(glyph) else ""
             if t and b:
                 s += f"{clr(t)}█{X}"
             elif t:
@@ -364,8 +367,22 @@ def logo():
                 s += f"{clr(b)}▄{X}"
             else:
                 s += " "
-        print("   " + s)
-    print(f"   {B}{M}H E R E{X}{D}   ·   мульти-CLI Telegram-мост{X}")
+        mark.append(s)
+
+    # Вордмарк HERE (ANSI-Shadow), вертикально по центру знака.
+    word = [
+        "██╗  ██╗███████╗██████╗ ███████╗",
+        "██║  ██║██╔════╝██╔══██╗██╔════╝",
+        "███████║█████╗  ██████╔╝█████╗  ",
+        "██╔══██║██╔══╝  ██╔══██╗██╔══╝  ",
+        "██║  ██║███████╗██║  ██║███████╗",
+        "╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝",
+    ]
+    start = (len(mark) - len(word)) // 2
+    for i, ml in enumerate(mark):
+        wl = word[i - start] if 0 <= i - start < len(word) else ""
+        print(f"  {ml}   {B}{M}{wl}{X}")
+    print(f"  {D}· A S S I S T A N T ·  мульти-CLI Telegram-мост{X}")
 
 
 def header():
