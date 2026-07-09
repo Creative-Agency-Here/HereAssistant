@@ -327,22 +327,25 @@ def logo():
     if proto and LOGO_PNG.exists() and _emit_logo_image(proto):
         print(f"  {B}{M}HERE{X}{D} · A S S I S T A N T · мульти-CLI Telegram-мост{X}")
         return
-    # --- ASCII-фолбэк: знак-локап (чистый симметричный знак) + вордмарк HERE ---
-    # Сетка знака 12×12 (W=белый, P=фиолетовый, пробел=фон): квадраты вплотную к
-    # сплошным лентам (слияние), зеркально верх/низ. Рост — 6 строк, как у HERE.
+    # --- ASCII-фолбэк: знак-локап (растр реального лого) + вордмарк HERE ---
+    # Сетка 14×14 по точным координатам logo-white.svg (плотная обрезка):
+    # белый квадрат слева + фиолетовый язычок справа сверху, две плотные ленты,
+    # белый язычок снизу-слева + фиолетовый квадрат справа. W=бел, P=фиол.
     glyph = [
-        "  WW    PP  ",
-        "  WW    PP  ",
-        "PPPPPPPPPPPP",
-        "PPPPPPPPPPPP",
-        "            ",
-        "            ",
-        "            ",
-        "            ",
-        "WWWWWWWWWWWW",
-        "WWWWWWWWWWWW",
-        "  WW    PP  ",
-        "  WW    PP  ",
+        "   WW   PPP   ",
+        "   WW   PPP   ",
+        "        PPP   ",
+        "PPPPPPPPPPPPPP",
+        "PPPPPPPPPPPPPP",
+        "PPPPPPPPPPPPPP",
+        "              ",
+        "              ",
+        "WWWWWWWWWWWWWW",
+        "WWWWWWWWWWWWWW",
+        "WWWWWWWWWWWWWW",
+        "   WW         ",
+        "   WW   PPP   ",
+        "   WW   PPP   ",
     ]
 
     def clr(ch):
