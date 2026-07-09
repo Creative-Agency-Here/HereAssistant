@@ -327,45 +327,25 @@ def logo():
     if proto and LOGO_PNG.exists() and _emit_logo_image(proto):
         print(f"  {B}{M}HERE{X}{D} · A S S I S T A N T · мульти-CLI Telegram-мост{X}")
         return
-    # --- ASCII-фолбэк: знак-локап (растр реального лого) + вордмарк HERE ---
-    # Сетка 14×14 по точным координатам logo-white.svg (плотная обрезка):
-    # белый квадрат слева + фиолетовый язычок справа сверху, две плотные ленты,
-    # белый язычок снизу-слева + фиолетовый квадрат справа. W=бел, P=фиол.
+    # --- ASCII-фолбэк: знак-локап + вордмарк HERE ---
+    # Одна строка сетки = одна строка вывода (один блок █ на клетку): элементы по
+    # 2 (WW/PP ≈ квадрат), ленты — тонкие в один ряд, один пробел между ними.
+    # W=белый, P=фиолетовый. Похоже на реальный logo-white.svg (два «ползунка»).
     glyph = [
-        "   WW   PPP   ",
-        "   WW   PPP   ",
-        "        PPP   ",
-        "PPPPPPPPPPPPPP",
-        "PPPPPPPPPPPPPP",
-        "PPPPPPPPPPPPPP",
-        "              ",
-        "              ",
-        "WWWWWWWWWWWWWW",
-        "WWWWWWWWWWWWWW",
-        "WWWWWWWWWWWWWW",
-        "   WW         ",
-        "   WW   PPP   ",
-        "   WW   PPP   ",
+        "  WW       PP  ",   # верх: белый квадрат слева + фиол язычок справа
+        " PPPPPPPPPPPPP ",   # фиолетовая лента
+        "               ",   # пропуск
+        " WWWWWWWWWWWWW ",   # белая лента
+        "  WW       PP  ",   # низ: белый язычок слева + фиол квадрат справа
     ]
 
     def clr(ch):
         return M if ch == "P" else W
 
-    mark = []
-    for r in range(0, len(glyph), 2):
-        s = ""
-        for col in range(len(glyph[0])):
-            t = glyph[r][col].strip()
-            b = glyph[r + 1][col].strip() if r + 1 < len(glyph) else ""
-            if t and b:
-                s += f"{clr(t)}█{X}"
-            elif t:
-                s += f"{clr(t)}▀{X}"
-            elif b:
-                s += f"{clr(b)}▄{X}"
-            else:
-                s += " "
-        mark.append(s)
+    mark = [
+        "".join(f"{clr(c)}█{X}" if c in "WP" else " " for c in row)
+        for row in glyph
+    ]
 
     # Вордмарк HERE (ANSI-Shadow), вертикально по центру знака.
     word = [
@@ -376,11 +356,13 @@ def logo():
         "██║  ██║███████╗██║  ██║███████╗",
         "╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝",
     ]
-    start = (len(mark) - len(word)) // 2
-    for i, ml in enumerate(mark):
-        wl = word[i - start] if 0 <= i - start < len(word) else ""
-        print(f"  {ml}   {B}{M}{wl}{X}")
-    print(f"  {D}· A S S I S T A N T ·  мульти-CLI Telegram-мост{X}")
+    blank = " " * len(glyph[0])
+    start = (len(word) - len(mark)) // 2  # знак ниже HERE — центрируем
+    for i, wl in enumerate(word):
+        mi = i - start
+        ml = mark[mi] if 0 <= mi < len(mark) else blank
+        print(f"   {ml}     {B}{M}{wl}{X}")
+    print(f"   {D}· A S S I S T A N T ·  мульти-CLI Telegram-мост{X}")
 
 
 def header():
