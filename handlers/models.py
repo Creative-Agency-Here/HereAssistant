@@ -59,7 +59,7 @@ async def cmd_model(message: Message, command: CommandObject):
 
 @router.callback_query(F.data.startswith("mdl:set:"))
 async def cb_model_set(query: CallbackQuery):
-    if not query.from_user or query.from_user.id != config.ADMIN_ID:
+    if not query.from_user or query.from_user.id not in config.ADMIN_IDS:
         await query.answer("Доступ запрещён", show_alert=True)
         return
     model = query.data.split(":", 2)[-1]

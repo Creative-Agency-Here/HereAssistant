@@ -68,14 +68,25 @@ _load_env_file(ENV_PATH)
 
 TELEGRAM_TOKEN: str = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 
-_admin_raw = os.environ.get("ADMIN_TELEGRAM_ID", "").strip()
-ADMIN_ID: Optional[int] = (
-    int(_admin_raw) if _admin_raw and _admin_raw != "PASTE_HERE" and _admin_raw.lstrip("-").isdigit()
-    else None
-)
+def _parse_admin_ids(raw: str) -> list[int]:
+    """Список Telegram-ID из строки через запятую (PASTE_HERE/мусор отбрасываем)."""
+    out: list[int] = []
+    for part in (raw or "").replace(";", ",").split(","):
+        p = part.strip()
+        if p and p != "PASTE_HERE" and p.lstrip("-").isdigit():
+            out.append(int(p))
+    return out
+
+
+# Основной способ — ADMIN_IDS (список); ADMIN_TELEGRAM_ID — легаси (один админ).
+ADMIN_IDS: list[int] = _parse_admin_ids(os.environ.get("ADMIN_IDS", ""))
+if not ADMIN_IDS:
+    ADMIN_IDS = _parse_admin_ids(os.environ.get("ADMIN_TELEGRAM_ID", ""))
+# Первый в списке — «главный» админ (обратная совместимость с ADMIN_ID).
+ADMIN_ID: Optional[int] = ADMIN_IDS[0] if ADMIN_IDS else None
 
 CLAIM_CODE: str = os.environ.get("CLAIM_CODE", "").strip()
-if not ADMIN_ID and not CLAIM_CODE:
+if not ADMIN_IDS and not CLAIM_CODE:
     CLAIM_CODE = secrets.token_urlsafe(8)
     append_env("CLAIM_CODE", CLAIM_CODE)
     os.environ["CLAIM_CODE"] = CLAIM_CODE

@@ -28,8 +28,7 @@ def _admin_ids() -> set[int]:
             p = part.strip()
             if p.lstrip("-").isdigit():
                 ids.add(int(p))
-    if config.ADMIN_ID is not None:
-        ids.add(config.ADMIN_ID)
+    ids.update(config.ADMIN_IDS)
     return ids
 
 

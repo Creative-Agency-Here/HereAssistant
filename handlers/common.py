@@ -8,9 +8,8 @@ from utils.markdown import markdown_to_html, split_for_telegram
 
 
 def is_admin(message: Message) -> bool:
-    return (config.ADMIN_ID is not None
-            and message.from_user
-            and message.from_user.id == config.ADMIN_ID)
+    return bool(message.from_user
+                and message.from_user.id in config.ADMIN_IDS)
 
 
 async def send_long(message: Message, text: str, html_already: bool = False):
