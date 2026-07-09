@@ -272,9 +272,60 @@ def badge(text: str, fg: str = BLACK, bg: str = BG_G) -> str:
     return f"{bg}{fg} {text} {X}"
 
 
+LOGO_PNG = BASE_DIR / "assets" / "logo.png"
+
+
+def _term_graphics() -> str:
+    """Какой протокол картинок поддерживает терминал: 'kitty' | 'iterm' | ''.
+    Переопределяется HEREASSISTANT_LOGO=ascii|image."""
+    force = os.environ.get("HEREASSISTANT_LOGO", "").strip().lower()
+    if force == "ascii":
+        return ""
+    term = os.environ.get("TERM", "").lower()
+    prog = os.environ.get("TERM_PROGRAM", "").lower()
+    # Ghostty/Kitty (TERM переживает ssh: xterm-ghostty/xterm-kitty)
+    if "ghostty" in term or "kitty" in term or os.environ.get("KITTY_WINDOW_ID"):
+        return "kitty"
+    if prog == "iterm.app" or "wezterm" in prog:
+        return "iterm"
+    return ""
+
+
+def _emit_logo_image(proto: str, cols: int = 16) -> bool:
+    """Вывести реальный PNG-логотип через графику терминала. True при успехе."""
+    try:
+        import base64
+        data = LOGO_PNG.read_bytes()
+    except Exception:
+        return False
+    b64 = base64.standard_b64encode(data)
+    if proto == "iterm":
+        sys.stdout.write(
+            f"\033]1337;File=inline=1;width={cols};preserveAspectRatio=1:"
+            f"{b64.decode()}\a\n"
+        )
+        return True
+    if proto == "kitty":
+        # Kitty graphics protocol: PNG (f=100), показать (a=T), c колонок; чанки по 4096.
+        chunks = [b64[i:i + 4096] for i in range(0, len(b64), 4096)]
+        for i, ch in enumerate(chunks):
+            more = 1 if i < len(chunks) - 1 else 0
+            ctrl = f"f=100,a=T,c={cols}," if i == 0 else ""
+            sys.stdout.write(f"\033_G{ctrl}m={more};{ch.decode()}\033\\")
+        sys.stdout.write("\n")
+        return True
+    return False
+
+
 def logo():
-    """Фирменный знак Here (растеризация logo-white.svg): два квадрата сверху,
-    две ленты-потока и два блока снизу; белые блоки + фиолетовый акцент #AB60F6."""
+    """Фирменный логотип Here. В терминалах с графикой (Ghostty/Kitty/iTerm2) —
+    настоящий PNG; иначе ASCII-локап (знак logo-white.svg + вордмарк HERE)."""
+    print()
+    proto = _term_graphics()
+    if proto and LOGO_PNG.exists() and _emit_logo_image(proto):
+        print(f"  {B}{M}HERE{X}{D} · A S S I S T A N T · мульти-CLI Telegram-мост{X}")
+        return
+    # --- ASCII-фолбэк ---
     # Прямоугольники знака (x0,y0,x1,y1,цвет) в системе координат viewBox 200×218.
     rects = [
         (49, 20, 78, 49, "W"),      # верх-лево квадрат
@@ -325,7 +376,6 @@ def logo():
         "╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝",
     ]
 
-    print()
     for i in range(6):
         print(f"  {mark[i]}  {B}{M}{word[i]}{X}")
     print(f"  {D}· A S S I S T A N T ·  мульти-CLI Telegram-мост{X}")
