@@ -24,6 +24,8 @@ from webapp.api.routes import now as route_now
 from webapp.api.routes import history as route_history
 from webapp.api.routes import ws as route_ws
 from webapp.api.routes import changes as route_changes
+from webapp.api.routes import status as route_status
+from webapp.api.routes import tasks as route_tasks
 
 log = logging.getLogger("webapp.api")
 logging.basicConfig(level=logging.INFO,
@@ -39,7 +41,19 @@ WEBAPP_DOMAIN = os.environ.get("WEBAPP_DOMAIN", "").strip()
 @web.middleware
 async def auth_middleware(request: web.Request, handler):
     # health-check без авторизации
-    if request.path in ("/api/health",):
+    if request.path in ("/api/health", "/health"):
+        return await handler(request)
+
+    # Сервисный API (/api/v1/*) — ТОЛЬКО Bearer SERVICE_API_TOKEN.
+    # Пустой токен = сервисный API отключён (503), а не открыт.
+    if request.path.startswith("/api/v1/"):
+        if not config.SERVICE_API_TOKEN:
+            return web.json_response({"error": "service api disabled"}, status=503)
+        auth = request.headers.get("Authorization", "")
+        token = auth[7:] if auth.startswith("Bearer ") else ""
+        if not token or not hmac.compare_digest(token, config.SERVICE_API_TOKEN):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        request["service"] = True
         return await handler(request)
 
     if DEV_SKIP_AUTH:
@@ -99,17 +113,24 @@ def _allowed_origin(origin: str) -> str:
 
 
 async def health(request: web.Request) -> web.Response:
-    return web.json_response({"ok": True, "version": "0.1.0"})
+    return web.json_response({"ok": True, "version": config.APP_VERSION})
 
 
 def create_app() -> web.Application:
     app = web.Application(middlewares=[cors_middleware, auth_middleware])
     app.router.add_get("/api/health", health)
+    app.router.add_get("/health", health)  # alias для nginx/uptime-мониторинга
+    app.router.add_get("/api/status", route_status.handler)
     app.router.add_get("/api/now", route_now.handler)
     app.router.add_get("/api/history", route_history.list_handler)
     app.router.add_get("/api/history/{conv_id}", route_history.get_handler)
     app.router.add_get("/api/changes", route_changes.list_handler)
     app.router.add_get("/ws", route_ws.handler)
+    # Сервисный API (SERVICE_API_TOKEN; private/local проекты невидимы)
+    app.router.add_post("/api/v1/tasks", route_tasks.create)
+    app.router.add_get("/api/v1/tasks", route_tasks.list_)
+    app.router.add_get("/api/v1/tasks/{task_id}", route_tasks.get)
+    app.router.add_patch("/api/v1/tasks/{task_id}", route_tasks.patch)
     return app
 
 

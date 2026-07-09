@@ -1,11 +1,31 @@
+# секреты и окружение
 .env
+.env.*
+!.env.example
+
+# runtime, БД, рабочие каталоги
 .runtime/
 bridge.sqlite3
+*.sqlite
+*.sqlite3
+*.db
 workspace/
 *.log
+logs/
+downloads/
+
+# python
 __pycache__/
 *.pyc
 .pytest_cache/
+.venv/
+venv/
+
+# файлы авторизации провайдеров (CLI auth homes)
+credentials.json
+.credentials.json
+auth.json
+oauth_creds.json
 
 # node / nuxt (фронт) — зависимости и сборки не коммитим
 node_modules/
@@ -16,3 +36,4 @@ webapp/front/dist/
 # локальная авто-память и настройки IDE/агента (личное, не код)
 memory/
 .claude/
+.hereassistant/

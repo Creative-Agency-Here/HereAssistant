@@ -1,3 +1,5 @@
-aiogram>=3.13
+aiogram>=3.13,<4
+aiohttp>=3.9,<4
 faster-whisper>=1.2
 Pillow>=10.0
+PyYAML>=6.0

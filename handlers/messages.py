@@ -13,7 +13,7 @@ from aiogram.types import (BufferedInputFile, Message,
                            InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo)
 
 import providers
-from core import config, events, changes
+from core import config, events, changes, project_config
 from utils import locks, whisper
 from utils.files import download_attachment
 from utils.markdown import html_escape, markdown_to_html
@@ -268,10 +268,20 @@ async def _process_message(bot: Bot, message: Message, conv,
     user_id = message.from_user.id
     key = (chat_id, thread_id)
 
+    # Privacy-политика проекта (.hereassistant/project.yml по cwd; default private).
+    # Решает, что можно сохранять в БД/журналы. Метрики (длины/токены/время) — можно всегда.
+    policy = project_config.policy_for(conv["cwd"] or config.DEFAULT_CWD)
+
     # лок мы не используем — у нас «отмена предыдущей», а не очередь
-    events.log("message_in", user_id=user_id, chat_id=chat_id, thread_id=thread_id,
-               payload={"text_preview": user_text[:500], "len": len(user_text),
-                        "attachment": str(attachment_path) if attachment_path else None})
+    if project_config.can_store_messages(policy):
+        events.log("message_in", user_id=user_id, chat_id=chat_id, thread_id=thread_id,
+                   payload={"text_preview": user_text[:500], "len": len(user_text),
+                            "attachment": str(attachment_path) if attachment_path else None})
+    else:
+        # private/local без разрешения: только метаданные, без текста и имён файлов
+        events.log("message_in", user_id=user_id, chat_id=chat_id, thread_id=thread_id,
+                   payload={"len": len(user_text), "private": True,
+                            "attachment": bool(attachment_path)})
 
     t0 = time.time()
 
@@ -536,8 +546,10 @@ async def _process_message(bot: Bot, message: Message, conv,
         else:
             prompt = repo.build_prompt_with_history(conv, user_text)
 
-        repo.save_message(conv["id"], "user", user_text,
-                          provider=account["provider"], model=conv["model"])
+        # Содержимое сообщений пишем только с разрешения политики проекта.
+        if project_config.can_store_messages(policy):
+            repo.save_message(conv["id"], "user", user_text,
+                              provider=account["provider"], model=conv["model"])
 
         text, new_session, meta = await prov.run(
             prompt=prompt,
@@ -550,8 +562,9 @@ async def _process_message(bot: Bot, message: Message, conv,
 
         duration_s = time.time() - t0
 
-        repo.save_message(conv["id"], "assistant", text,
-                          provider=account["provider"], model=conv["model"])
+        if project_config.can_store_messages(policy):
+            repo.save_message(conv["id"], "assistant", text,
+                              provider=account["provider"], model=conv["model"])
 
         # Markdown-таблицы в Telegram нечитаемы — вырезаем их и шлём картинками.
         table_pngs: list[bytes] = []
@@ -569,20 +582,28 @@ async def _process_message(bot: Bot, message: Message, conv,
             return (".runtime" in f or "/temp/" in f or "appdata/local/temp" in f
                     or "askpass" in f or "/tmp/" in f or f.endswith(".env"))
         _full_edits = [e for e in (meta.get("edits") or []) if not _skip_edit(e.get("file"))]
-        try:
-            changes.record_edits(thread_id=thread_id, account=account["label"],
-                                  model=conv["model"], edits=_full_edits)
-        except Exception as _e:
-            log.warning("changes journal failed: %s", _e)
+        # Полные диффы — только если политика проекта разрешает журнал правок.
+        if project_config.can_store_file_changes(policy):
+            try:
+                changes.record_edits(thread_id=thread_id, account=account["label"],
+                                      model=conv["model"], edits=_full_edits)
+            except Exception as _e:
+                log.warning("changes journal failed: %s", _e)
 
+        _out_payload = {"out_len": len(text)}
+        if project_config.can_store_messages(policy):
+            _out_payload["edits"] = changes.trim_edits_for_events(_full_edits)
+            _out_payload["tool_uses"] = meta.get("tool_uses")
+        else:
+            # приватный проект: без содержимого правок и лога инструментов
+            _out_payload["private"] = True
+            _out_payload["edits_count"] = len(_full_edits)
         events.log("message_out", user_id=user_id, chat_id=chat_id, thread_id=thread_id,
                    account_label=account["label"], provider=account["provider"],
                    model=conv["model"],
                    tokens_in=meta.get("tokens_in"), tokens_out=meta.get("tokens_out"),
                    duration_ms=int(duration_s * 1000),
-                   payload={"out_len": len(text),
-                            "edits": changes.trim_edits_for_events(_full_edits),
-                            "tool_uses": meta.get("tool_uses")})
+                   payload=_out_payload)
 
         # ---------- финальная отправка ----------
         signature = _format_signature(conv["model"], duration_s, meta.get("edits") or [])
@@ -751,9 +772,13 @@ async def _process_message(bot: Bot, message: Message, conv,
 
     except Exception as e:
         log.exception("handler error")
+        # Текст ошибки может содержать фрагменты приватного вывода CLI — гейтим.
+        _err_payload = {"type": type(e).__name__}
+        if project_config.can_store_messages(policy):
+            _err_payload["message"] = str(e)[:500]
         events.log("error", user_id=user_id, chat_id=chat_id, thread_id=thread_id,
                    duration_ms=int((time.time() - t0) * 1000),
-                   payload={"type": type(e).__name__, "message": str(e)[:500]})
+                   payload=_err_payload)
         err_text = html_escape(f"Ошибка: {type(e).__name__}: {str(e)[:1500]}")
         if ps["msg"] is not None:
             try:

@@ -20,9 +20,11 @@ SHARED_MEMORY = config.BASE_DIR / "memory"
 
 
 def _is_junction(p: Path) -> bool:
-    """True если p — NTFS junction/symlink."""
-    if not p.exists():
+    """True если p — симлинк (POSIX) или NTFS junction/symlink (Windows)."""
+    if not p.exists() and not p.is_symlink():
         return False
+    if os.name != "nt":
+        return p.is_symlink()
     try:
         # На Windows reparse-point = FILE_ATTRIBUTE_REPARSE_POINT (0x400)
         attrs = p.lstat().st_file_attributes if hasattr(p.lstat(), "st_file_attributes") else 0
@@ -47,8 +49,15 @@ def _merge_into_shared(src_dir: Path, shared: Path) -> None:
 
 
 def _make_junction(link: Path, target: Path) -> bool:
-    """NTFS junction. Возвращает True при успехе."""
+    """Каталожная ссылка: POSIX — symlink, Windows — NTFS junction. True при успехе."""
     link.parent.mkdir(parents=True, exist_ok=True)
+    if os.name != "nt":
+        try:
+            os.symlink(target, link, target_is_directory=True)
+            return True
+        except OSError as e:
+            log.warning("symlink failed for %s: %s", link, e)
+            return False
     # cmd mklink /J <link> <target> — junction для каталогов, без админ-прав
     rc = os.system(f'cmd /c mklink /J "{link}" "{target}" >nul 2>&1')
     return rc == 0

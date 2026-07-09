@@ -2,6 +2,21 @@
 
 Личный Telegram-бот → несколько CLI-ассистентов (Claude Code, Codex, Gemini). Один админ, изоляция аккаунтов, переключение моделей, статистика, самоперезапуск.
 
+**Privacy-first:** по умолчанию каждый проект `private` — содержимое сообщений и диффы не сохраняются, во внешние системы (CRM) ничего не уходит. Ослабляется только явным `.hereassistant/project.yml` в конкретном проекте — см. [docs/privacy.md](docs/privacy.md).
+
+## Быстрый старт (Ubuntu, production)
+
+```bash
+git clone <repo-url> hereassistant && cd hereassistant
+bash scripts/bootstrap_ubuntu.sh     # venv + зависимости + сборка фронта + .env
+# заполнить .env, залогинить CLI (docs/providers.md), затем:
+pm2 start ecosystem.config.js --only here-assistant-bot,here-assistant-api
+```
+
+Полный runbook (nginx, HTTPS, автозапуск): [docs/ubuntu-pm2-nginx.md](docs/ubuntu-pm2-nginx.md).
+Провайдеры и auth-homes: [docs/providers.md](docs/providers.md). Модель угроз: [SECURITY.md](SECURITY.md). Как контрибьютить: [CONTRIBUTING.md](CONTRIBUTING.md).
+Windows-запуск (`start_bot.bat`, `node.exe`) поддерживается как legacy.
+
 ## Архитектура
 
 ```

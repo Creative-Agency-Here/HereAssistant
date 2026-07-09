@@ -22,9 +22,20 @@ LOCK_FILE = config.STATE_DIR / "bot.lock"
 
 
 def _is_pid_alive(pid: int) -> bool:
-    """Жив ли процесс с таким PID. Windows-вариант через tasklist."""
+    """Жив ли процесс с таким PID. POSIX — os.kill(pid, 0); Windows — tasklist."""
     if pid <= 0:
         return False
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)  # сигнал 0 — только проверка существования
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            # процесс есть, но не наш — считаем живым
+            return True
+        except Exception:
+            return True
     try:
         # tasklist выдаёт CSV; ищем точное совпадение PID
         result = subprocess.run(
@@ -74,6 +85,10 @@ def ensure_single_instance():
         other_pid, other_ts = info
         if other_pid != os.getpid() and _is_pid_alive(other_pid):
             uptime_min = int((time.time() - other_ts) / 60)
+            kill_hint = (
+                f"taskkill /PID {other_pid} /F" if os.name == "nt"
+                else f"kill {other_pid}"
+            )
             sys.stderr.write(
                 "\n" + "=" * 60 + "\n"
                 "  Бот уже запущен.\n"
@@ -81,7 +96,7 @@ def ensure_single_instance():
                 f"  Lock-файл: {LOCK_FILE}\n"
                 "\n"
                 "  Чтобы запустить новый — сначала остановите старый\n"
-                f"  (taskkill /PID {other_pid} /F) или удалите lock-файл,\n"
+                f"  ({kill_hint}) или удалите lock-файл,\n"
                 "  если процесс на самом деле не работает.\n"
                 + "=" * 60 + "\n"
             )

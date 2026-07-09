@@ -1,16 +1,23 @@
-// PM2-конфиг — поднимает бот и web-API одним инстансом.
-// Запуск:  pm2 start ecosystem.config.js
-// Логи:    pm2 logs / pm2 logs here-assistant-bot
-// Стоп:    pm2 stop ecosystem.config.js
-// Автостарт при перезагрузке Windows:  pm2 save && pm2 startup
+// PM2-конфиг — бот и web-API. Кроссплатформенный (Ubuntu — основной путь).
 //
-// Требования: PM2 (npm i -g pm2), Python 3.12 в PATH (или абсолютный путь
-// в interpreter), nginx и Memurai ставятся отдельно.
+// Production (Ubuntu):
+//   pm2 start ecosystem.config.js --only here-assistant-bot,here-assistant-api
+//   pm2 save && pm2 startup
+//   Фронтенд в проде PM2 НЕ нужен: nginx отдаёт статику из webapp/front/.output/public
+//   (см. docs/ubuntu-pm2-nginx.md).
+//
+// Dev-фронт (только разработка): pm2 start ecosystem.config.js --only here-assistant-front-dev
+// Логи: pm2 logs here-assistant-bot / here-assistant-api
 
 const path = require('path')
+const fs = require('fs')
 
-// Windows: PM2 ищет python.exe в PATH. Если не находит — пропиши абсолютный путь.
-const PYTHON = process.env.HEREASSISTANT_PYTHON || 'python'
+// Python: 1) HEREASSISTANT_PYTHON из env; 2) локальный .venv; 3) системный.
+const VENV_PYTHON = process.platform === 'win32'
+  ? path.join(__dirname, '.venv', 'Scripts', 'python.exe')
+  : path.join(__dirname, '.venv', 'bin', 'python')
+const PYTHON = process.env.HEREASSISTANT_PYTHON
+  || (fs.existsSync(VENV_PYTHON) ? VENV_PYTHON : (process.platform === 'win32' ? 'python' : 'python3'))
 
 module.exports = {
   apps: [
@@ -52,6 +59,7 @@ module.exports = {
       },
       // Dev-окружение — без HMAC-проверки initData, чтобы открывать UI напрямую в браузере.
       // Запуск:  pm2 start ecosystem.config.js --only here-assistant-api --env development
+      // В проде НИКОГДА: WEBAPP_DEV_SKIP_AUTH=1 отключает авторизацию целиком.
       env_development: {
         PYTHONUNBUFFERED: '1',
         PYTHONIOENCODING: 'utf-8',
@@ -64,11 +72,11 @@ module.exports = {
       merge_logs: true,
     },
     {
-      // Nuxt dev-сервер. PM2 на Windows плохо обрабатывает interpreter+.mjs
-      // (форк-контейнер пробует загрузить как CommonJS и подсовывает не тот файл).
-      // Поэтому запускаем node.exe напрямую как exec-команду — interpreter:'none'.
-      name: 'here-assistant-front',
-      script: 'node.exe',
+      // ТОЛЬКО для разработки: Nuxt dev-сервер с HMR. В production фронт — статика
+      // из `npm run generate`, которую отдаёт nginx; этот процесс там не запускают.
+      // interpreter:'none' + системный node — работает и на Linux, и на Windows.
+      name: 'here-assistant-front-dev',
+      script: process.platform === 'win32' ? 'node.exe' : 'node',
       args: 'node_modules/nuxt/bin/nuxt.mjs dev --port 3000',
       cwd: path.join(__dirname, 'webapp', 'front'),
       interpreter: 'none',

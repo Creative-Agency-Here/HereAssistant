@@ -94,6 +94,14 @@ WEBAPP_URL: str = os.environ.get("WEBAPP_URL", "https://assistant.hereagency.ru"
 # Открыть ?key=<этот ключ> один раз — фронт запомнит и будет слать на каждый запрос.
 WEBAPP_ACCESS_KEY: str = os.environ.get("WEBAPP_ACCESS_KEY", "").strip()
 
+# Версия приложения (для /health и /api/status).
+APP_VERSION = "0.2.0"
+
+# Токен сервисного API (/api/v1/*) для внешних систем (например, CRM).
+# ПУСТОЙ по умолчанию = сервисные эндпоинты отключены (503), а не открыты.
+# Токен НЕ обходит privacy-политику проектов: private/local невидимы всегда.
+SERVICE_API_TOKEN: str = os.environ.get("SERVICE_API_TOKEN", "").strip()
+
 RU_SYSTEM_INSTRUCTION = (
     "Ты — личный ассистент пользователя через Telegram-бот. "
     "Отвечай на русском языке. "
