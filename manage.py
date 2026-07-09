@@ -335,8 +335,9 @@ def logo():
         (49, 132, 78, 198, "W"),    # низ-лево брус
         (117, 168, 146, 198, "P"),  # низ-право квадрат (фиолет)
     ]
-    # Компактный знак: 12×12 «квадратных» пикселей (half-block) = 6 строк.
-    cols, rows = 12, 12
+    # Знак 22×20 «квадратных» пикселей (half-block) — при этом размере угловые
+    # квадраты попадают в цельные блоки, а не рвутся на границе строк.
+    cols, rows = 22, 20
     grid = [[None] * cols for _ in range(rows)]
     for x0, y0, x1, y1, c in rects:
         for r in range(rows):
@@ -351,7 +352,6 @@ def logo():
     def clr(c):
         return M if c == "P" else W
 
-    mark = []
     for r in range(0, rows, 2):
         s = ""
         for col in range(cols):
@@ -364,21 +364,8 @@ def logo():
                 s += f"{clr(b)}▄{X}"
             else:
                 s += " "
-        mark.append(s)
-
-    # Вордмарк HERE (ANSI-Shadow) — справа от знака, тот же рост (6 строк).
-    word = [
-        "██╗  ██╗███████╗██████╗ ███████╗",
-        "██║  ██║██╔════╝██╔══██╗██╔════╝",
-        "███████║█████╗  ██████╔╝█████╗  ",
-        "██╔══██║██╔══╝  ██╔══██╗██╔══╝  ",
-        "██║  ██║███████╗██║  ██║███████╗",
-        "╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝",
-    ]
-
-    for i in range(6):
-        print(f"  {mark[i]}  {B}{M}{word[i]}{X}")
-    print(f"  {D}· A S S I S T A N T ·  мульти-CLI Telegram-мост{X}")
+        print("   " + s)
+    print(f"   {B}{M}H E R E{X}{D}   ·   мульти-CLI Telegram-мост{X}")
 
 
 def header():
