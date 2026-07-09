@@ -273,36 +273,19 @@ def badge(text: str, fg: str = BLACK, bg: str = BG_G) -> str:
 
 
 def logo():
-    """Фирменный логотип HERE: блочный знак (белые блоки + фиолетовый акцент
-    #AB60F6, повторяет геометрию logo-white.svg) рядом с вордмарком HERE."""
-    # Знак: 'W'=белый блок, 'P'=фиолетовый акцент, ' '=пусто.
-    glyph = [
-        "W    W",
-        "WWWWWW",
-        "     W",
-        "W    W",
-        "W    P",
-    ]
-    word = [
+    """Фирменный вордмарк HERE (ANSI-Shadow) в фиолетовом #AB60F6 + тэглайн."""
+    art = [
         "██╗  ██╗███████╗██████╗ ███████╗",
         "██║  ██║██╔════╝██╔══██╗██╔════╝",
         "███████║█████╗  ██████╔╝█████╗  ",
         "██╔══██║██╔══╝  ██╔══██╗██╔══╝  ",
+        "██║  ██║███████╗██║  ██║███████╗",
         "╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝",
     ]
-
-    def cell(ch):
-        if ch == "P":
-            return f"{M}██{X}"
-        if ch == "W":
-            return f"{W}██{X}"
-        return "  "
-
     print()
-    for i in range(5):
-        mark = "".join(cell(c) for c in glyph[i])
-        print(f"  {B}{mark}{X}   {B}{M}{word[i]}{X}")
-    print(f"  {D}· A S S I S T A N T ·   мульти-CLI Telegram-мост{X}")
+    for ln in art:
+        print(f"  {B}{M}{ln}{X}")
+    print(f"  {D}·  A S S I S T A N T  ·  мульти-CLI Telegram-мост{X}")
 
 
 def header():
