@@ -204,8 +204,11 @@ def env_state() -> dict:
         k = k.strip(); v = v.strip()
         if k == "TELEGRAM_BOT_TOKEN":
             out["token_set"] = bool(v) and v != "PASTE_HERE"
-        elif k == "ADMIN_TELEGRAM_ID":
-            out["admin_set"] = bool(v) and v != "PASTE_HERE" and v.lstrip("-").isdigit()
+        elif k in ("ADMIN_IDS", "ADMIN_TELEGRAM_ID"):
+            # админ задан, если есть хоть один валидный числовой id
+            ids = [p.strip() for p in v.replace(";", ",").split(",")]
+            if any(p and p != "PASTE_HERE" and p.lstrip("-").isdigit() for p in ids):
+                out["admin_set"] = True
         elif k == "CLAIM_CODE":
             out["claim_pending"] = bool(v)
     return out

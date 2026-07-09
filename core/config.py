@@ -139,8 +139,9 @@ def env_state() -> dict:
         k = k.strip(); v = v.strip()
         if k == "TELEGRAM_BOT_TOKEN":
             out["token_set"] = bool(v) and v != "PASTE_HERE"
-        elif k == "ADMIN_TELEGRAM_ID":
-            out["admin_set"] = bool(v) and v != "PASTE_HERE" and v.lstrip("-").isdigit()
+        elif k in ("ADMIN_IDS", "ADMIN_TELEGRAM_ID"):
+            if _parse_admin_ids(v):
+                out["admin_set"] = True
         elif k == "CLAIM_CODE":
             out["claim_pending"] = bool(v)
     return out
