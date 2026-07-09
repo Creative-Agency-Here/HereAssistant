@@ -88,7 +88,8 @@ BACKUP_RETENTION_COUNT: int = int(os.environ.get("BACKUP_RETENTION_COUNT", "20")
 
 # URL веб-приложения (Telegram Mini App). Для /web и menu-кнопки.
 # Должен быть https с валидным сертификатом — иначе Telegram кнопку не примет.
-WEBAPP_URL: str = os.environ.get("WEBAPP_URL", "https://assistant.hereagency.ru").strip()
+# Пустой = WebApp-кнопка не показывается (задай WEBAPP_URL в .env).
+WEBAPP_URL: str = os.environ.get("WEBAPP_URL", "").strip()
 
 # Секретный ключ доступа к вебапу из браузера/десктопа (где нет Telegram initData).
 # Открыть ?key=<этот ключ> один раз — фронт запомнит и будет слать на каждый запрос.
