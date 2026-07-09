@@ -273,19 +273,47 @@ def badge(text: str, fg: str = BLACK, bg: str = BG_G) -> str:
 
 
 def logo():
-    """Фирменный вордмарк HERE (ANSI-Shadow) в фиолетовом #AB60F6 + тэглайн."""
-    art = [
-        "██╗  ██╗███████╗██████╗ ███████╗",
-        "██║  ██║██╔════╝██╔══██╗██╔════╝",
-        "███████║█████╗  ██████╔╝█████╗  ",
-        "██╔══██║██╔══╝  ██╔══██╗██╔══╝  ",
-        "██║  ██║███████╗██║  ██║███████╗",
-        "╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝",
+    """Фирменный знак Here (растеризация logo-white.svg): два квадрата сверху,
+    две ленты-потока и два блока снизу; белые блоки + фиолетовый акцент #AB60F6."""
+    # Прямоугольники знака (x0,y0,x1,y1,цвет) в системе координат viewBox 200×218.
+    rects = [
+        (49, 20, 78, 49, "W"),      # верх-лево квадрат
+        (117, 20, 146, 61, "P"),    # верх-право брус
+        (20, 62, 180, 95, "P"),     # верхняя лента (фиолет)
+        (20, 127, 180, 160, "W"),   # нижняя лента (белая)
+        (49, 132, 78, 198, "W"),    # низ-лево брус
+        (117, 168, 146, 198, "P"),  # низ-право квадрат (фиолет)
     ]
+    cols, rows = 26, 16
+    grid = [[None] * cols for _ in range(rows)]
+    for x0, y0, x1, y1, c in rects:
+        for r in range(rows):
+            yy = (r + 0.5) / rows * 218
+            if not (y0 <= yy < y1):
+                continue
+            for col in range(cols):
+                xx = (col + 0.5) / cols * 200
+                if x0 <= xx < x1:
+                    grid[r][col] = c
+
+    def clr(c):
+        return M if c == "P" else W
+
     print()
-    for ln in art:
-        print(f"  {B}{M}{ln}{X}")
-    print(f"  {D}·  A S S I S T A N T  ·  мульти-CLI Telegram-мост{X}")
+    for r in range(0, rows, 2):
+        line = ""
+        for col in range(cols):
+            t, b = grid[r][col], grid[r + 1][col]
+            if t and b:
+                line += f"{clr(t)}█{X}"
+            elif t:
+                line += f"{clr(t)}▀{X}"
+            elif b:
+                line += f"{clr(b)}▄{X}"
+            else:
+                line += " "
+        print("  " + line)
+    print(f"  {D}HERE · A S S I S T A N T · мульти-CLI Telegram-мост{X}")
 
 
 def header():
