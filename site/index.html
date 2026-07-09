@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HereAssistant — Telegram bridge to Claude Code, Codex & Gemini CLI</title>
+<meta name="description" content="Open-source Telegram bot that bridges you to CLI coding agents on your own machine. Privacy-first: projects are private by default.">
+<meta property="og:title" content="HereAssistant">
+<meta property="og:description" content="Telegram → Claude Code / Codex / Gemini CLI on your own machine. Privacy-first, MIT.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
+<style>
+  :root {
+    --bg: #0f0f11; --card: #18181c; --card2: #1e1e24;
+    --primary: #AB60F6; --secondary: #61D16C;
+    --text: #e8e8ec; --muted: #9a9aa6; --border: rgba(255,255,255,.08);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  code, pre { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; }
+  a { color: var(--primary); text-decoration: none; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  /* язык: показываем только активный */
+  [data-lang="en"] .ru, [data-lang="ru"] .en { display: none !important; }
+
+  /* nav */
+  nav { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(16px);
+        background: rgba(15,15,17,.8); border-bottom: 1px solid var(--border); }
+  .nav-in { display: flex; align-items: center; gap: 24px; height: 64px; }
+  .logo { font-weight: 800; font-size: 18px; color: var(--text); }
+  .logo b { color: var(--primary); }
+  .nav-links { display: flex; gap: 20px; margin-left: auto; align-items: center; }
+  .nav-links a { color: var(--muted); font-size: 14px; font-weight: 600; }
+  .nav-links a:hover { color: var(--text); }
+  .lang-btn { cursor: pointer; border: 1px solid var(--border); background: var(--card);
+              color: var(--muted); border-radius: 999px; padding: 5px 14px; font-size: 12px;
+              font-weight: 700; }
+  .lang-btn:hover { color: var(--text); border-color: var(--primary); }
+  .gh-btn { background: var(--primary); color: #fff !important; border-radius: 999px;
+            padding: 8px 18px; font-weight: 700; font-size: 14px; transition: opacity .2s; }
+  .gh-btn:hover { opacity: .85; }
+
+  /* hero */
+  .hero { padding: 88px 0 64px; display: grid; grid-template-columns: 1.1fr .9fr;
+          gap: 48px; align-items: center; }
+  .hero h1 { font-size: 46px; line-height: 1.15; font-weight: 800; letter-spacing: -.02em; }
+  .hero h1 .grad { background: linear-gradient(90deg, var(--primary), var(--secondary));
+                   -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero p.sub { margin-top: 20px; font-size: 18px; color: var(--muted); max-width: 520px; }
+  .cta-row { margin-top: 32px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .cta { border-radius: 12px; padding: 13px 26px; font-weight: 700; font-size: 15px;
+         display: inline-flex; align-items: center; gap: 8px; }
+  .cta.main { background: var(--primary); color: #fff; box-shadow: 0 8px 32px rgba(171,96,246,.35); }
+  .cta.main:hover { transform: translateY(-1px); }
+  .cta.ghost { border: 1px solid var(--border); color: var(--text); background: var(--card); }
+  .cta.ghost:hover { border-color: var(--primary); }
+  .badges { margin-top: 26px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .badge { font-size: 12px; font-weight: 700; color: var(--muted); border: 1px solid var(--border);
+           border-radius: 999px; padding: 4px 12px; }
+  .badge b { color: var(--secondary); }
+
+  /* терминал-мокап */
+  .term { background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+          overflow: hidden; box-shadow: 0 24px 80px rgba(0,0,0,.5); font-size: 13px; }
+  .term-bar { display: flex; gap: 6px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  .dot { width: 11px; height: 11px; border-radius: 50%; background: #333; }
+  .dot:nth-child(1){background:#ff5f57}.dot:nth-child(2){background:#febc2e}.dot:nth-child(3){background:#28c840}
+  .term-body { padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+  .msg { max-width: 85%; border-radius: 12px; padding: 9px 13px; line-height: 1.5; }
+  .msg.user { align-self: flex-end; background: var(--primary); color: #fff; }
+  .msg.bot { align-self: flex-start; background: var(--card2); color: var(--text); }
+  .msg .tools { color: var(--muted); font-size: 11px; font-family: ui-monospace, monospace; }
+  .msg .okline { color: var(--secondary); }
+
+  /* секции */
+  section { padding: 72px 0; }
+  h2 { font-size: 32px; font-weight: 800; letter-spacing: -.01em; margin-bottom: 12px; }
+  .sec-sub { color: var(--muted); max-width: 640px; margin-bottom: 40px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+          padding: 24px; }
+  .card .icon { font-size: 24px; margin-bottom: 12px; }
+  .card h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+  .card p { font-size: 14px; color: var(--muted); }
+
+  /* privacy */
+  .privacy { background: linear-gradient(180deg, rgba(171,96,246,.06), transparent); }
+  .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-bottom: 28px; }
+  .mode { border-radius: 16px; padding: 22px; border: 1px solid var(--border); background: var(--card); }
+  .mode.def { border-color: rgba(97,209,108,.4); }
+  .mode .tag { display: inline-block; font-size: 11px; font-weight: 800; text-transform: uppercase;
+               letter-spacing: .08em; border-radius: 999px; padding: 3px 10px; margin-bottom: 12px; }
+  .mode.def .tag { background: rgba(97,209,108,.15); color: var(--secondary); }
+  .mode .tag { background: rgba(171,96,246,.15); color: var(--primary); }
+  .mode h3 { font-family: ui-monospace, monospace; font-size: 18px; margin-bottom: 8px; }
+  .mode p { font-size: 13.5px; color: var(--muted); }
+  pre.code { background: #0a0a0c; border: 1px solid var(--border); border-radius: 14px;
+             padding: 20px; overflow-x: auto; font-size: 13px; line-height: 1.6; }
+  .c-key { color: var(--primary); } .c-str { color: var(--secondary); } .c-cmt { color: #5a5a66; }
+
+  /* footer */
+  footer { border-top: 1px solid var(--border); padding: 36px 0; }
+  .foot { display: flex; align-items: center; gap: 18px; color: var(--muted); font-size: 13px; }
+  .foot a { color: var(--muted); font-weight: 600; }
+  .foot a:hover { color: var(--text); }
+  .foot .right { margin-left: auto; }
+
+  @media (max-width: 860px) {
+    .hero { grid-template-columns: 1fr; padding-top: 48px; }
+    .hero h1 { font-size: 34px; }
+    .grid3, .modes { grid-template-columns: 1fr; }
+    .nav-links a.hide-m { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap nav-in">
+    <div class="logo">Here<b>Assistant</b></div>
+    <div class="nav-links">
+      <a href="#features" class="hide-m"><span class="en">Features</span><span class="ru">Возможности</span></a>
+      <a href="#privacy" class="hide-m"><span class="en">Privacy</span><span class="ru">Приватность</span></a>
+      <a href="#start" class="hide-m"><span class="en">Quick start</span><span class="ru">Быстрый старт</span></a>
+      <button class="lang-btn" onclick="toggleLang()"><span class="en">RU</span><span class="ru">EN</span></button>
+      <a class="gh-btn" href="https://github.com/Creative-Agency-Here/HereAssistant" target="_blank" rel="noopener">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero wrap">
+  <div>
+    <h1>
+      <span class="en">Your coding agents,<br>one <span class="grad">Telegram</span> away</span>
+      <span class="ru">Твои кодинг-агенты<br>в одном <span class="grad">Telegram</span></span>
+    </h1>
+    <p class="sub">
+      <span class="en">An open-source bot that bridges Telegram to Claude Code, Codex and Gemini CLI running on your own machine. Ship code from your phone — on your existing AI subscriptions, no per-token bills.</span>
+      <span class="ru">Опенсорс-бот, соединяющий Telegram с Claude Code, Codex и Gemini CLI на твоей машине. Пиши код с телефона — на своих подписках, без потокенной оплаты API.</span>
+    </p>
+    <div class="cta-row">
+      <a class="cta main" href="https://github.com/Creative-Agency-Here/HereAssistant" target="_blank" rel="noopener">
+        <span class="en">Get the code</span><span class="ru">Забрать код</span>
+      </a>
+      <a class="cta ghost" href="https://github.com/Creative-Agency-Here/HereAssistant/blob/master/docs/ubuntu-pm2-nginx.md" target="_blank" rel="noopener">
+        <span class="en">Deploy guide</span><span class="ru">Гайд по развёртыванию</span>
+      </a>
+    </div>
+    <div class="badges">
+      <span class="badge">MIT</span>
+      <span class="badge">Python · aiogram · Nuxt 3</span>
+      <span class="badge"><b>●</b> <span class="en">private by default</span><span class="ru">private по умолчанию</span></span>
+    </div>
+  </div>
+
+  <div class="term">
+    <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+    <div class="term-body">
+      <div class="msg user">
+        <span class="en">Fix the failing auth test and push to the feature branch</span>
+        <span class="ru">Почини падающий тест авторизации и запушь в feature-ветку</span>
+      </div>
+      <div class="msg bot">
+        <div class="tools">⚙ claude-code · opus</div>
+        <div class="tools">▸ Read tests/test_auth.py<br>▸ Edit src/auth/session.py<br>▸ Bash pytest tests/ -q<br>▸ Bash git commit && git push</div>
+        <div class="okline">✓ 24 passed · pushed to feature/session-fix</div>
+      </div>
+      <div class="msg user">
+        <span class="en">Now do the same from Gemini — compare approaches</span>
+        <span class="ru">Теперь то же через Gemini — сравни подходы</span>
+      </div>
+      <div class="msg bot"><div class="tools">⚙ switching account → gemini · 2.5-pro …</div></div>
+    </div>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <h2><span class="en">What's inside</span><span class="ru">Что внутри</span></h2>
+    <p class="sec-sub">
+      <span class="en">Full agentic CLIs, not chat-completion APIs. Everything runs on your hardware, under your accounts.</span>
+      <span class="ru">Полноценные агентные CLI, а не chat-API. Всё работает на твоём железе, под твоими аккаунтами.</span>
+    </p>
+    <div class="grid3">
+      <div class="card"><div class="icon">🔀</div>
+        <h3><span class="en">Three providers, one chat</span><span class="ru">Три провайдера, один чат</span></h3>
+        <p><span class="en">Claude Code, Codex and Gemini CLI as isolated subprocesses. Switch accounts and models with inline buttons mid-conversation.</span>
+           <span class="ru">Claude Code, Codex и Gemini CLI как изолированные подпроцессы. Переключай аккаунты и модели инлайн-кнопками прямо в диалоге.</span></p>
+      </div>
+      <div class="card"><div class="icon">🔐</div>
+        <h3><span class="en">Account isolation</span><span class="ru">Изоляция аккаунтов</span></h3>
+        <p><span class="en">Each subscription lives in its own auth home. Several accounts of the same provider coexist without clobbering each other.</span>
+           <span class="ru">Каждая подписка живёт в своём auth-каталоге. Несколько аккаунтов одного провайдера уживаются, не затирая друг друга.</span></p>
+      </div>
+      <div class="card"><div class="icon">📡</div>
+        <h3><span class="en">Live progress</span><span class="ru">Живой прогресс</span></h3>
+        <p><span class="en">Streaming progress message while the agent works: current tool, edited files, elapsed time. Interrupt by just sending a new message.</span>
+           <span class="ru">Стриминг прогресса, пока агент работает: текущий инструмент, правки, время. Прерывание — просто новым сообщением.</span></p>
+      </div>
+      <div class="card"><div class="icon">🧠</div>
+        <h3><span class="en">Native sessions & shared memory</span><span class="ru">Нативные сессии и общая память</span></h3>
+        <p><span class="en">Claude sessions resume natively; Gemini reads Claude's project memory. Context survives without storing your data.</span>
+           <span class="ru">Сессии Claude продолжаются нативно; Gemini читает память Claude по проекту. Контекст живёт без сохранения твоих данных.</span></p>
+      </div>
+      <div class="card"><div class="icon">🖥️</div>
+        <h3><span class="en">Web Mini App</span><span class="ru">Web Mini App</span></h3>
+        <p><span class="en">History, live status and a file-change journal with full diffs — right inside Telegram or in the browser.</span>
+           <span class="ru">История, живой статус и журнал правок с полными диффами — прямо в Telegram или в браузере.</span></p>
+      </div>
+      <div class="card"><div class="icon">🎙️</div>
+        <h3><span class="en">Files & voice</span><span class="ru">Файлы и голос</span></h3>
+        <p><span class="en">Send documents, photos and voice notes; speech is transcribed locally with faster-whisper. Long answers come back as Markdown files.</span>
+           <span class="ru">Отправляй документы, фото и войсы; речь распознаётся локально через faster-whisper. Длинные ответы приходят Markdown-файлами.</span></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="privacy" class="privacy">
+  <div class="wrap">
+    <h2><span class="en">Private by default. Really.</span><span class="ru">Private по умолчанию. По-настоящему.</span></h2>
+    <p class="sec-sub">
+      <span class="en">No config file — no storage, no sync. Prompts, results and diffs are never written or sent anywhere. Relaxing this requires an explicit per-project file; even the service API token cannot see private projects.</span>
+      <span class="ru">Нет конфиг-файла — нет хранения и синка. Промпты, ответы и диффы никуда не пишутся и не отправляются. Ослабить это можно только явным файлом в конкретном проекте; даже сервисный API-токен не видит приватные проекты.</span>
+    </p>
+    <div class="modes">
+      <div class="mode def"><span class="tag">default</span>
+        <h3>private</h3>
+        <p><span class="en">Nothing stored, nothing synced. Only anonymous metrics: tokens, duration, counters.</span>
+           <span class="ru">Ничего не хранится, ничего не синкается. Только обезличенные метрики: токены, длительность, счётчики.</span></p>
+      </div>
+      <div class="mode"><span class="tag">opt-in</span>
+        <h3>local</h3>
+        <p><span class="en">History stored locally if you say so. External systems can never see it.</span>
+           <span class="ru">История хранится локально, если ты так решил. Внешние системы её не видят никогда.</span></p>
+      </div>
+      <div class="mode"><span class="tag">opt-in</span>
+        <h3>crm</h3>
+        <p><span class="en">Explicit integration: each data type (commits, deploys, diffs…) goes out only under its own flag.</span>
+           <span class="ru">Явная интеграция: каждый тип данных (коммиты, деплои, диффы…) уходит только под своим флагом.</span></p>
+      </div>
+    </div>
+<pre class="code"><span class="c-cmt"># &lt;project&gt;/.hereassistant/project.yml — the only way to open a project up</span>
+<span class="c-key">mode:</span> <span class="c-str">"crm"</span>
+<span class="c-key">crm_project_id:</span> <span class="c-str">"my-project"</span>
+<span class="c-key">sync:</span>
+  <span class="c-key">enabled:</span> true
+  <span class="c-key">send_commits:</span> true   <span class="c-cmt"># metadata — yes</span>
+  <span class="c-key">send_prompts:</span> false  <span class="c-cmt"># content — no</span>
+  <span class="c-key">send_diffs:</span> false</pre>
+  </div>
+</section>
+
+<section id="start">
+  <div class="wrap">
+    <h2><span class="en">Quick start</span><span class="ru">Быстрый старт</span></h2>
+    <p class="sec-sub">
+      <span class="en">Ubuntu, no Docker: PM2 keeps the bot and API alive, nginx serves the static Mini App.</span>
+      <span class="ru">Ubuntu, без Docker: PM2 держит бота и API, nginx отдаёт статику Mini App.</span>
+    </p>
+<pre class="code">git clone https://github.com/Creative-Agency-Here/HereAssistant.git &amp;&amp; cd HereAssistant
+bash scripts/bootstrap_ubuntu.sh          <span class="c-cmt"># venv + deps + frontend build + .env</span>
+<span class="c-cmt"># fill .env, log in your CLI providers, then:</span>
+pm2 start ecosystem.config.js --only here-assistant-bot,here-assistant-api</pre>
+    <p style="margin-top:18px; font-size:14px; color:var(--muted)">
+      <span class="en">Full runbook with nginx and HTTPS: <a href="https://github.com/Creative-Agency-Here/HereAssistant/blob/master/docs/ubuntu-pm2-nginx.md">docs/ubuntu-pm2-nginx.md</a>. Read <a href="https://github.com/Creative-Agency-Here/HereAssistant/blob/master/SECURITY.md">SECURITY.md</a> first — this is a remote-code-execution gateway by design.</span>
+      <span class="ru">Полный runbook с nginx и HTTPS: <a href="https://github.com/Creative-Agency-Here/HereAssistant/blob/master/docs/ubuntu-pm2-nginx.md">docs/ubuntu-pm2-nginx.md</a>. Сначала прочитай <a href="https://github.com/Creative-Agency-Here/HereAssistant/blob/master/SECURITY.md">SECURITY.md</a> — это шлюз удалённого выполнения кода by design.</span>
+    </p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot">
+    <span>© 2026 <a href="https://hereagency.ru" target="_blank" rel="noopener">Creative Agency Here</a></span>
+    <span>MIT License</span>
+    <a class="right" href="https://github.com/Creative-Agency-Here/HereAssistant" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</footer>
+
+<script>
+  // Переключение языка: атрибут на <html>, выбор запоминается.
+  function toggleLang() {
+    const el = document.documentElement;
+    const next = el.dataset.lang === 'en' ? 'ru' : 'en';
+    el.dataset.lang = next;
+    el.lang = next;
+    try { localStorage.setItem('ha-lang', next); } catch (e) {}
+  }
+  // Стартовый язык: сохранённый выбор, иначе — язык браузера.
+  (function () {
+    let lang = null;
+    try { lang = localStorage.getItem('ha-lang'); } catch (e) {}
+    if (lang !== 'ru' && lang !== 'en') {
+      lang = (navigator.language || '').toLowerCase().startsWith('ru') ? 'ru' : 'en';
+    }
+    document.documentElement.dataset.lang = lang;
+    document.documentElement.lang = lang;
+  })();
+</script>
+</body>
+</html>
