@@ -5,12 +5,14 @@ HereAssistant — единый менеджер.
     python manage.py
 """
 
+import json
 import os
 import shutil
 import sqlite3
 import subprocess
 import sys
 import time
+import urllib.request
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -272,6 +274,98 @@ def badge(text: str, fg: str = BLACK, bg: str = BG_G) -> str:
     return f"{bg}{fg} {text} {X}"
 
 
+# ---------- инфо для шапки ----------
+
+_BOT_CACHE = {"done": False, "username": None}
+
+
+def _env_val(key: str) -> str:
+    """Прочитать значение ключа из .env (без внешних зависимостей)."""
+    if not ENV_PATH.exists():
+        return ""
+    for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
+        s = line.strip()
+        if not s or s.startswith("#") or "=" not in s:
+            continue
+        k, _, v = s.partition("=")
+        if k.strip() == key:
+            return v.strip().strip('"').strip("'")
+    return ""
+
+
+def _bot_username():
+    """@username бота через getMe (один сетевой запрос за процесс, кэшируется)."""
+    if _BOT_CACHE["done"]:
+        return _BOT_CACHE["username"]
+    _BOT_CACHE["done"] = True
+    token = _env_val("TELEGRAM_BOT_TOKEN")
+    if not token or token == "PASTE_HERE":
+        return None
+    try:
+        with urllib.request.urlopen(
+            f"https://api.telegram.org/bot{token}/getMe", timeout=4
+        ) as r:
+            d = json.load(r)
+        if d.get("ok"):
+            _BOT_CACHE["username"] = "@" + d["result"]["username"]
+    except Exception:
+        pass
+    return _BOT_CACHE["username"]
+
+
+def _admin_ids() -> list[str]:
+    """Список Telegram-ID админов из .env (ADMIN_IDS или легаси ADMIN_TELEGRAM_ID)."""
+    raw = _env_val("ADMIN_IDS") or _env_val("ADMIN_TELEGRAM_ID")
+    return [
+        p.strip()
+        for p in raw.replace(";", ",").split(",")
+        if p.strip() and p.strip() != "PASTE_HERE" and p.strip().lstrip("-").isdigit()
+    ]
+
+
+def _account_usage(label: str) -> dict:
+    """Потребление аккаунта за окно лимита подписки (5ч — как у Claude Max):
+    сколько запросов и токенов, и не прилетал ли недавно rate-limit."""
+    out = {"msgs": 0, "tokens": 0, "limited": False, "reset": None}
+    try:
+        c = sqlite3.connect(DB_PATH)
+        c.row_factory = sqlite3.Row
+        cutoff = int(time.time()) - 5 * 3600
+        row = c.execute(
+            "SELECT COUNT(*) n, COALESCE(SUM(tokens_in),0)+COALESCE(SUM(tokens_out),0) tok "
+            "FROM events WHERE account_label=? AND event_type='message_out' AND timestamp>=?",
+            (label, cutoff),
+        ).fetchone()
+        out["msgs"] = row["n"] or 0
+        out["tokens"] = row["tok"] or 0
+        # Недавний rate-limit (последний час) — признак упёртого лимита.
+        rl = c.execute(
+            "SELECT payload,timestamp FROM events WHERE account_label=? "
+            "AND (event_type='rate_limit' OR payload LIKE '%rate_limit%') "
+            "ORDER BY id DESC LIMIT 1",
+            (label,),
+        ).fetchone()
+        c.close()
+        if rl and rl["timestamp"] >= int(time.time()) - 3600:
+            out["limited"] = True
+            try:
+                pl = json.loads(rl["payload"] or "{}")
+                out["reset"] = pl.get("rate_limit_reset") or pl.get("reset")
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return out
+
+
+def _fmt_tokens(n: int) -> str:
+    if n >= 1_000_000:
+        return f"{n/1_000_000:.1f}M"
+    if n >= 1000:
+        return f"{n/1000:.0f}k"
+    return str(n)
+
+
 def logo():
     """Логотип в шапке: вордмарк HERE (ANSI-Shadow) в фиолетовом #AB60F6 + тэглайн."""
     art = [
@@ -303,63 +397,70 @@ def header():
     print(box_mid(f"{D}проект: {BASE_DIR}{X}"))
     print(f"{C}├{'─' * 62}┤{X}")
 
-    # env state — РАЗДЕЛЬНО токен и админ
     es = env_state()
-    if not es["exists"]:
-        env_line = f".env       {badge('NOT FOUND', BLACK, BG_R)}"
+
+    # Бот — конкретное @имя (не абстрактный «OK»)
+    bot = _bot_username()
+    if bot:
+        print(box_mid(f"Бот        {G}{bot}{X}"))
+    elif es.get("token_set"):
+        print(box_mid(f"Бот        {G}токен есть{X} {D}(имя не получено — нет сети?){X}"))
     else:
-        token_b = badge("OK", BLACK, BG_G) if es["token_set"] else badge("ПУСТО", BLACK, BG_R)
-        if es["admin_set"]:
-            admin_b = badge("OK", BLACK, BG_G)
-        elif es["claim_pending"]:
-            admin_b = badge("ОЖИДАЕТ CLAIM", BLACK, BG_Y)
-        else:
-            admin_b = badge("не задан", BLACK, BG_Y)
-        env_line = f"Telegram   token: {token_b}   admin: {admin_b}"
-    print(box_mid(env_line))
+        print(box_mid(f"Бот        {R}токен не задан{X} {D}— пункт «Настройки → .env»{X}"))
 
-    # CLI
-    cli_parts = []
-    for v in PROVIDERS.values():
-        if has_cmd(v["bin"]):
-            cli_parts.append(badge(v["bin"], BLACK, BG_G))
-        else:
-            cli_parts.append(badge(v["bin"], W, BG_R))
-    print(box_mid(f"CLI        {'  '.join(cli_parts)}"))
+    # Админ — конкретные ID
+    ids = _admin_ids()
+    if ids:
+        print(box_mid(f"Админ      {G}{', '.join(ids)}{X}"))
+    else:
+        print(box_mid(f"Админ      {Y}не задан{X} {D}(станет админом первый /start){X}"))
 
-    # Аккаунты — сколько и сколько залогинено
+    # Аккаунты — по-простому: «claude · залогинен · юзаж за 5ч»
     accs = list_accounts()
-    logged_count = 0
-    for r in accs:
-        p = next((v for v in PROVIDERS.values() if v["key"] == r["provider"]), None)
-        if p and is_logged_in(p["key"], Path(r["cli_home_path"]))[0]:
-            logged_count += 1
-    if accs:
-        accs_line = f"Аккаунты   {B}{len(accs)}{X} всего, {G}{logged_count} залогинено{X}"
+    if not accs:
+        print(box_mid(f"Аккаунт    {Y}нет{X} {D}— добавь пункт [2]{X}"))
     else:
-        accs_line = f"Аккаунты   {Y}нет{X}"
-    print(box_mid(accs_line))
+        for r in accs:
+            p = next((v for v in PROVIDERS.values() if v["key"] == r["provider"]), None)
+            name = p["bin"] if p else r["provider"]
+            logged = p and is_logged_in(p["key"], Path(r["cli_home_path"]))[0]
+            if not logged:
+                print(box_mid(f"Аккаунт    {B}{name}{X} · {R}нет входа{X} {D}— пункт «Настройки → Перелогин»{X}"))
+                continue
+            u = _account_usage(r["label"])
+            usage = f"{D}за 5ч: {u['msgs']} запр · {_fmt_tokens(u['tokens'])} ток{X}"
+            if u["limited"]:
+                reset = f" до {u['reset']}" if u["reset"] else ""
+                usage = f"{R}лимит подписки{reset}{X}"
+            print(box_mid(f"Аккаунт    {B}{name}{X} · {G}залогинен{X} · {usage}"))
 
     print(box_bot())
 
 
-MENU_ITEMS = [
-    ("1", f"{C}▸{X}  Показать аккаунты"),
-    ("2", f"{G}+{X}  Добавить аккаунт и залогиниться"),
-    ("3", f"{Y}↻{X}  Перелогиниться в существующий"),
-    ("4", f"{R}×{X}  Удалить аккаунт"),
-    ("5", f"{C}▦{X}  Что лежит в .runtime/cli_homes"),
-    ("6", f"{M}⚙{X}  Поставить/обновить зависимости"),
-    ("7", f"{C}✎{X}  Открыть .env"),
-    ("8", f"{G}▶{X}  Запустить бота"),
-    ("0", f"{D}⏻{X}  Выход"),
+# Главное меню — только частое. Редкое спрятано в «Настройки».
+# (клавиша, иконка+цвет, название, подсказка-тултип)
+MENU_MAIN = [
+    ("1", f"{C}▸{X}", "Аккаунты", "список подключённых CLI-аккаунтов и вход"),
+    ("2", f"{G}+{X}", "Добавить аккаунт", "подключить и залогинить Claude / Codex / Gemini"),
+    ("8", f"{G}▶{X}", "Запустить бота", "поднять бота (Ctrl+C — остановить)"),
+    ("9", f"{M}⚙{X}", "Настройки", "перелогин, удаление, зависимости, .env"),
+    ("0", f"{D}⏻{X}", "Выход", ""),
+]
+MENU_SETTINGS = [
+    ("1", f"{Y}↻{X}", "Перелогиниться", "обновить вход существующего аккаунта"),
+    ("2", f"{R}×{X}", "Удалить аккаунт", "отключить аккаунт и стереть его вход"),
+    ("3", f"{C}▦{X}", "Файлы аккаунтов", "что лежит в .runtime/cli_homes"),
+    ("4", f"{M}⚙{X}", "Зависимости", "поставить/обновить pip + npm"),
+    ("5", f"{C}✎{X}", "Открыть .env", "токен бота, админы, настройки"),
+    ("0", f"{D}←{X}", "Назад", ""),
 ]
 
 
-def menu():
+def render_menu(items):
     print()
-    for k, label in MENU_ITEMS:
-        print(f"  {B}[{k}]{X}  {label}")
+    for k, icon, name, desc in items:
+        tip = f"   {D}— {desc}{X}" if desc else ""
+        print(f"  {B}[{k}]{X}  {icon}  {name}{tip}")
     print(f"\n{D}нажми клавишу (без Enter){X} › ", end="", flush=True)
     return getch()
 
@@ -621,23 +722,39 @@ def start_bot():
 
 
 # ---------- главный цикл ----------
+def settings_menu():
+    """Подменю «Настройки»: редкие/служебные действия."""
+    while True:
+        header()
+        print(f"\n  {B}{M}Настройки{X}")
+        choice = render_menu(MENU_SETTINGS)
+        print(choice)
+        if choice == "1": login_existing()
+        elif choice == "2": remove_account()
+        elif choice == "3": show_disk_state()
+        elif choice == "4": install_all()
+        elif choice == "5": edit_env()
+        elif choice in ("0", "\x1b", "q", "Q"):
+            return
+        else:
+            print(f"{R}Не понял.{X}")
+        press_any_key()
+
+
 def main():
     db_init()
     ensure_env()
     while True:
         header()
-        choice = menu()
+        choice = render_menu(MENU_MAIN)
         print(choice)
         if choice == "1": show_accounts()
         elif choice == "2": add_account_interactive()
-        elif choice == "3": login_existing()
-        elif choice == "4": remove_account()
-        elif choice == "5": show_disk_state()
-        elif choice == "6": install_all()
-        elif choice == "7": edit_env()
         elif choice == "8":
             start_bot()
-            # после остановки бота — сразу обратно в меню без paus'ы
+            continue  # после остановки бота — сразу обратно в меню
+        elif choice == "9":
+            settings_menu()
             continue
         elif choice in ("0", "\x1b", "q", "Q"):
             print(f"\n{D}Пока.{X}")
