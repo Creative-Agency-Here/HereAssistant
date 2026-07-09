@@ -304,6 +304,7 @@ def _emit_logo_image(proto: str, cols: int = 16) -> bool:
             f"\033]1337;File=inline=1;width={cols};preserveAspectRatio=1:"
             f"{b64.decode()}\a\n"
         )
+        sys.stdout.flush()
         return True
     if proto == "kitty":
         # Kitty graphics protocol: PNG (f=100), показать (a=T), c колонок; чанки по 4096.
@@ -313,6 +314,7 @@ def _emit_logo_image(proto: str, cols: int = 16) -> bool:
             ctrl = f"f=100,a=T,c={cols}," if i == 0 else ""
             sys.stdout.write(f"\033_G{ctrl}m={more};{ch.decode()}\033\\")
         sys.stdout.write("\n")
+        sys.stdout.flush()
         return True
     return False
 
@@ -379,7 +381,15 @@ def logo():
 
 
 def header():
-    os.system("cls" if os.name == "nt" else "clear")
+    # ANSI-очистка вместо `clear`/`cls` — не читает terminfo, поэтому нет
+    # предупреждения «xterm-ghostty: unknown terminal type» и не нужна подмена
+    # TERM. Значит родной TERM (xterm-ghostty) сохраняется → graphics-протокол
+    # работает и логотип рисуется настоящей картинкой.
+    if os.name == "nt":
+        os.system("cls")
+    else:
+        sys.stdout.write("\033[2J\033[3J\033[H")
+        sys.stdout.flush()
     logo()
     print(box_top())
     title = f"{B}{M}HereAssistant{X}{D} — мульти-CLI Telegram-мост{X}"
