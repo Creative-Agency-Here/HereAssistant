@@ -14,7 +14,7 @@ from aiogram.types import (BufferedInputFile, Message,
 
 import providers
 from core import config, events, changes, project_config
-from utils import locks, whisper
+from utils import locks, whisper, rich
 from utils.files import download_attachment
 from utils.markdown import html_escape, markdown_to_html
 from utils.table_render import replace_tables_with_placeholders
@@ -25,6 +25,8 @@ router = Router()
 log = logging.getLogger("bridge.msg")
 
 PROGRESS_MIN_INTERVAL_SEC = float(os.environ.get("PROGRESS_MIN_INTERVAL_SEC", "1.5"))
+# Троттлинг rich-драфтов (sendRichMessageDraft): анимируемое превью ответа.
+DRAFT_MIN_INTERVAL_SEC = float(os.environ.get("DRAFT_MIN_INTERVAL_SEC", "1.0"))
 PROGRESS_MAX_CHARS = 3500
 PROGRESS_ENABLED = os.environ.get("PROGRESS_ENABLED", "1") in ("1", "true", "yes", "on")
 PROGRESS_CHAIN_LIMIT = int(os.environ.get("PROGRESS_CHAIN_LIMIT", "15"))
@@ -290,6 +292,14 @@ async def _process_message(bot: Bot, message: Message, conv,
     account_label = account["label"] if account else None
     account_notes = account["notes"] if account else None
 
+    # Rich-драфт (Bot API 10.1): живое превью текста ответа в приватном чате.
+    # Гаснет сам при первой ошибке API — тогда текст возвращается в прогресс.
+    draft = {
+        "on": rich.stream_enabled() and message.chat.type == "private",
+        "id": (int(t0 * 1000) % 2_000_000_000) or 1,
+        "last_ts": 0.0,
+    }
+
     # --- TYPING HEARTBEAT ---
     typing_stop = asyncio.Event()
 
@@ -397,8 +407,9 @@ async def _process_message(bot: Bot, message: Message, conv,
                           f"<blockquote expandable>{chain_body}</blockquote>")
 
         # --- частичный текст: режем СЫРОЙ текст ДО конвертации в HTML.
-        # Слайс готового HTML рубит теги/сущности → Telegram "can't parse entities". ---
-        raw_partial = ps["last_partial"] or ""
+        # Слайс готового HTML рубит теги/сущности → Telegram "can't parse entities".
+        # Если текст стримится rich-драфтом — в прогрессе его не дублируем. ---
+        raw_partial = "" if draft["on"] else (ps["last_partial"] or "")
         partial_html = ""
         if raw_partial:
             if len(raw_partial) > PROGRESS_MAX_CHARS:
@@ -505,6 +516,16 @@ async def _process_message(bot: Bot, message: Message, conv,
         if meta:
             ps["last_meta"] = meta
         ps["last_event_ts"] = time.time()
+        # Rich-драфт: анимируемое превью растущего ответа (только текст-дельты).
+        if (draft["on"] and partial_text
+                and event_type in ("assistant_delta", "partial_delta")
+                and time.time() - draft["last_ts"] >= DRAFT_MIN_INTERVAL_SEC):
+            draft["last_ts"] = time.time()
+            ok = await rich.send_draft(bot, chat_id, draft["id"],
+                                       partial_text + " ▍",
+                                       thread_id or None)
+            if not ok:
+                draft["on"] = False  # откат: текст снова в прогресс-сообщении
         force = event_type in ("tool_use", "tool_start")
         await _push(force=force)
 
@@ -566,12 +587,17 @@ async def _process_message(bot: Bot, message: Message, conv,
             repo.save_message(conv["id"], "assistant", text,
                               provider=account["provider"], model=conv["model"])
 
-        # Markdown-таблицы в Telegram нечитаемы — вырезаем их и шлём картинками.
+        # Оригинал ответа (с таблицами) — для rich-финала (Bot API 10.1).
+        raw_answer = text
+        # Markdown-таблицы в Telegram нечитаемы — вырезаем в PNG, но только для
+        # классического пути: rich рендерит таблицы нативно. Если rich-финал не
+        # пройдёт — извлечём таблицы позже, в фолбэке.
         table_pngs: list[bytes] = []
-        try:
-            text, table_pngs = replace_tables_with_placeholders(text)
-        except Exception as e:
-            log.warning("table extraction failed: %s", e)
+        if not rich.enabled():
+            try:
+                text, table_pngs = replace_tables_with_placeholders(text)
+            except Exception as e:
+                log.warning("table extraction failed: %s", e)
         if new_session and new_session != conv["provider_session_id"]:
             repo.update_conv(conv["id"], provider_session_id=new_session)
 
@@ -618,13 +644,49 @@ async def _process_message(bot: Bot, message: Message, conv,
             header_parts.append(f"📝 {html_escape(account_notes)}")
         header_block = (" · ".join(header_parts) + "\n\n") if header_parts else ""
 
+        # ---- Rich Message (Bot API 10.1): финал с нативными таблицами/кодом ----
+        # Успех → классический HTML-путь ниже пропускается (rich_done=True).
+        rich_done = False
+        if rich.enabled() and rich.sanity_check_markdown(raw_answer):
+            md_parts = []
+            hdr_line = " · ".join(p for p in (
+                f"🤖 {conv['model']}" if conv["model"] else "",
+                f"👤 {account_label}" if account_label else "",
+            ) if p)
+            if hdr_line:
+                md_parts.append(hdr_line)
+            md_parts.append(raw_answer)
+            chain_r = (ps["last_meta"] or {}).get("tool_call_log") or []
+            if chain_r:
+                shown = chain_r[:LONG_STEPS_LIMIT]
+                steps = "\n".join(f"{i}. {s}" for i, s in enumerate(shown, 1))
+                more = (f"\n…и ещё {len(chain_r) - len(shown)}"
+                        if len(chain_r) > len(shown) else "")
+                md_parts.append(f"**📋 Шаги ({len(chain_r)})**\n{steps}{more}")
+            md_parts.append(f"---\n{signature.strip()}")
+            if await rich.send_message(bot, chat_id, "\n\n".join(md_parts),
+                                       thread_id or None):
+                rich_done = True
+                # прогресс-сообщение своё отработало — убираем
+                if ps["msg"] is not None:
+                    try:
+                        await ps["msg"].delete()
+                    except Exception:
+                        pass
+        if not rich_done and rich.enabled():
+            # rich не прошёл — достаём таблицы картинками для классического пути
+            try:
+                text, table_pngs = replace_tables_with_placeholders(text)
+            except Exception as e:
+                log.warning("table extraction failed (fallback): %s", e)
+
         # Файлы, которые досылаем после финального текста (большой ответ / много шагов).
         # Каждый элемент: (bytes, filename).
         attachments_to_send: list[tuple[bytes, str]] = []
         ts_tag = time.strftime("%H%M%S")
 
-        # ---- основной текст ----
-        if len(text) > LONG_TEXT_LIMIT:
+        # ---- основной текст ---- (классический путь; при rich_done не используется)
+        if not rich_done and len(text) > LONG_TEXT_LIMIT:
             # длинный → в файл, в чат идёт превью
             text_for_display = _make_preview(text) + "\n\n📄 _Полный ответ — в прикреплённом файле_"
             md_bytes = ("﻿" + text).encode("utf-8")  # UTF-8 BOM для Windows-просмотрщиков
@@ -637,7 +699,7 @@ async def _process_message(bot: Bot, message: Message, conv,
         # Иначе — отдельным файлом, чтобы основной ответ НЕ резался посередине.
         body_html = markdown_to_html(text_for_display)
         sig_html = html_escape(signature)
-        chain = (ps["last_meta"] or {}).get("tool_call_log") or []
+        chain = [] if rich_done else ((ps["last_meta"] or {}).get("tool_call_log") or [])
         chain_block = ""
         if chain:
             base_len = len(header_block) + len(body_html) + len(sig_html)
@@ -712,7 +774,9 @@ async def _process_message(bot: Bot, message: Message, conv,
                 log.warning("final send failed: %s", e)
                 return False
 
-        if ps["msg"] is not None and not ps["overflowed"] and len(final_text) <= 4000:
+        if rich_done:
+            pass  # финал уже ушёл rich-сообщением
+        elif ps["msg"] is not None and not ps["overflowed"] and len(final_text) <= 4000:
             ok = await _with_retry(_final_edit)
             if not ok:
                 await _with_retry(_final_send)

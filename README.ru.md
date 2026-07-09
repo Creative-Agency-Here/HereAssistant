@@ -89,6 +89,16 @@ HereAssistant/
 - `/deploy` — перезапустить процесс с применением изменений
 - `/web` — открыть Mini App
 
+## Rich Messages (Bot API 10.1)
+
+Финальные ответы уходят через `sendRichMessage` (поле `markdown`): нативные
+таблицы, заголовки, код и математика — без PNG-костылей. Текст ответа стримится
+анимируемым превью `sendRichMessageDraft` (только личка; троттлинг
+`DRAFT_MIN_INTERVAL_SEC`). Любая ошибка API → автоматический откат на
+классический HTML-путь (включая рендер таблиц картинками). Выключатели:
+`RICH_MESSAGES=0`, `RICH_STREAM=0`. Реализация — `utils/rich.py` + гейты в
+`handlers/messages.py`.
+
 ## Процессы и запуск (PM2)
 
 Конфиг — `ecosystem.config.js` в корне проекта.
