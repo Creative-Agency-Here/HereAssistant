@@ -284,7 +284,8 @@ def logo():
         (49, 132, 78, 198, "W"),    # низ-лево брус
         (117, 168, 146, 198, "P"),  # низ-право квадрат (фиолет)
     ]
-    cols, rows = 26, 16
+    # Компактный знак: 12×12 «квадратных» пикселей (half-block) = 6 строк.
+    cols, rows = 12, 12
     grid = [[None] * cols for _ in range(rows)]
     for x0, y0, x1, y1, c in rects:
         for r in range(rows):
@@ -299,21 +300,35 @@ def logo():
     def clr(c):
         return M if c == "P" else W
 
-    print()
+    mark = []
     for r in range(0, rows, 2):
-        line = ""
+        s = ""
         for col in range(cols):
             t, b = grid[r][col], grid[r + 1][col]
             if t and b:
-                line += f"{clr(t)}█{X}"
+                s += f"{clr(t)}█{X}"
             elif t:
-                line += f"{clr(t)}▀{X}"
+                s += f"{clr(t)}▀{X}"
             elif b:
-                line += f"{clr(b)}▄{X}"
+                s += f"{clr(b)}▄{X}"
             else:
-                line += " "
-        print("  " + line)
-    print(f"  {D}HERE · A S S I S T A N T · мульти-CLI Telegram-мост{X}")
+                s += " "
+        mark.append(s)
+
+    # Вордмарк HERE (ANSI-Shadow) — справа от знака, тот же рост (6 строк).
+    word = [
+        "██╗  ██╗███████╗██████╗ ███████╗",
+        "██║  ██║██╔════╝██╔══██╗██╔════╝",
+        "███████║█████╗  ██████╔╝█████╗  ",
+        "██╔══██║██╔══╝  ██╔══██╗██╔══╝  ",
+        "██║  ██║███████╗██║  ██║███████╗",
+        "╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝",
+    ]
+
+    print()
+    for i in range(6):
+        print(f"  {mark[i]}  {B}{M}{word[i]}{X}")
+    print(f"  {D}· A S S I S T A N T ·  мульти-CLI Telegram-мост{X}")
 
 
 def header():
