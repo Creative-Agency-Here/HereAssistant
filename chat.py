@@ -12,6 +12,12 @@
 Внутри:  /help — список команд.
 """
 
+# Аннотации — ленивыми строками (PEP 563): в сигнатурах есть `str | None` /
+# `Path | None`, а на Python 3.9 (частый системный на macOS) оператор `|` для
+# типов падает при импорте. С этим импортом синтаксис не вычисляется — чат
+# запускается на 3.9+ без правок аннотаций.
+from __future__ import annotations
+
 import asyncio
 import os
 import sys
@@ -19,8 +25,23 @@ import time
 from pathlib import Path
 
 from core import config, db
-from handlers import repo
 import providers
+
+# Аккаунты читаем напрямую из БД, НЕ через handlers.repo: пакет handlers/__init__
+# тянет все telegram-хендлеры (aiogram) — лишняя тяжёлая зависимость для CLI, и
+# на старом Python она падала на аннотациях, роняя запуск чата из меню.
+
+
+def _db_accounts():
+    with db.conn() as c:
+        return list(c.execute("SELECT * FROM accounts WHERE enabled=1 ORDER BY id"))
+
+
+def _db_account_by_label(label: str):
+    with db.conn() as c:
+        return c.execute(
+            "SELECT * FROM accounts WHERE label=? AND enabled=1", (label,)
+        ).fetchone()
 
 # --- ANSI (как в manage.py; при отсутствии TTY гасим) ---
 _TTY = sys.stdout.isatty()
@@ -70,7 +91,7 @@ class Session:
 
 # ---------- выбор аккаунта ----------
 def _pick_account(preselect: str | None):
-    accounts = [a for a in repo.list_accounts() if a["enabled"]]
+    accounts = [a for a in _db_accounts() if a["enabled"]]
     if not accounts:
         print(f"{R}Нет подключённых аккаунтов.{X} Добавь через: python manage.py")
         sys.exit(1)
@@ -86,7 +107,11 @@ def _pick_account(preselect: str | None):
         owner = "" if a["owner_user_id"] is None else f" {D}(личный){X}"
         print(f"  {B}{i}{X}. {a['label']}  {D}{a['provider']} · {a['default_model'] or '—'}{X}{owner}")
     while True:
-        raw = input(f"{D}номер аккаунта › {X}").strip()
+        try:
+            raw = input(f"{D}номер аккаунта › {X}").strip()
+        except EOFError:
+            print(f"\n{D}ввод закрыт — беру первый аккаунт{X}")
+            return accounts[0]
         if raw.isdigit() and 1 <= int(raw) <= len(accounts):
             return accounts[int(raw) - 1]
         print(f"{R}нет такого номера{X}")
@@ -288,7 +313,7 @@ def _handle_command(sess: Session, line: str) -> bool:
             print(f"  модель: {sess.model or '—'}  {D}(/model <имя> — сменить){X}")
     elif cmd == "/account":
         if arg:
-            a = repo.get_account_by_label(arg)
+            a = _db_account_by_label(arg)
             if a and a["enabled"]:
                 sess.account = a
                 sess.model = a["default_model"]
@@ -367,7 +392,7 @@ async def _repl(sess: Session):
             print(f"\n{Y}⏹ прервано{X}")
 
 
-def main():
+def _run():
     db.init()
     preselect = None
     argv = sys.argv[1:]
@@ -379,10 +404,31 @@ def main():
     account = _pick_account(preselect)
     user_id = config.ADMIN_ID or 0
     sess = Session(account, user_id)
+    asyncio.run(_repl(sess))
+
+
+def main():
+    # Дружелюбно к ошибкам: не роняем сырой traceback (при запуске из меню
+    # manage.py он мелькал и стирался перерисовкой). Показываем причину и,
+    # если это терминал, ждём Enter — чтобы её можно было прочитать.
     try:
-        asyncio.run(_repl(sess))
+        _run()
     except KeyboardInterrupt:
         pass
+    except EOFError:
+        pass  # ввод закрыт (не-интерактивный запуск) — тихо выходим
+    except Exception as e:
+        import traceback
+        print(f"\n{R}✗ Не удалось запустить чат: {e}{X}")
+        print(f"{D}{traceback.format_exc().strip()}{X}")
+        print(f"\n{Y}Подсказка:{X} запускай тем же Python, что и бот "
+              f"(в проекте: {D}.venv/bin/python chat.py{X}), из папки бота "
+              f"(где лежит bridge.sqlite3). Аккаунты добавляются в {D}manage.py{X}.")
+        if sys.stdin.isatty():
+            try:
+                input(f"\n{D}Enter — закрыть…{X}")
+            except (EOFError, KeyboardInterrupt):
+                pass
 
 
 if __name__ == "__main__":

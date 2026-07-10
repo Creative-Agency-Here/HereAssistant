@@ -823,9 +823,10 @@ def main():
         elif choice == "3": show_history()
         elif choice == "4":
             # Терминальный чат — отдельным процессом (свой asyncio-REPL).
+            # НЕ continue: после выхода/ошибки чата делаем паузу (press_any_key
+            # ниже), иначе сообщение об ошибке стёрлось бы перерисовкой меню.
             import subprocess
             subprocess.run([sys.executable, str(BASE_DIR / "chat.py")])
-            continue
         elif choice == "8":
             start_bot()
             continue  # после остановки бота — сразу обратно в меню
