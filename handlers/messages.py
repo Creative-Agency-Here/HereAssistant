@@ -389,8 +389,35 @@ async def _process_message(bot: Bot, message: Message, conv,
             parts.append("Получено:\n" + "\n".join(att_lines))
 
         # --- цепочка шагов (валидный HTML, всегда влезает) ---
+        # Терминальный вид: у каждого шага статус (⏳ идёт / ✓ ок / ✗ ошибка) и,
+        # если тул уже отдал результат, свёрнутое превью вывода строкой «⎿ …».
+        # Fallback на плоский tool_call_log, если провайдер ещё не шлёт steps.
+        _STEP_ICON = {"run": "⏳", "ok": "✓", "err": "✗"}
+        steps = meta.get("steps") or []
         chain_part = ""
-        if chain:
+        if steps:
+            total = len(steps)
+            start = max(0, total - PROGRESS_CHAIN_LIMIT)
+            shown = steps[start:]
+            lines = []
+            if start > 0:
+                lines.append(f"… (показано {len(shown)} из {total})")
+            for i, st in enumerate(shown, start + 1):
+                icon = _STEP_ICON.get(st.get("status"), "•")
+                desc = str(st.get("desc") or st.get("name") or "?")
+                if len(desc) > 200:
+                    desc = desc[:200] + "…"
+                lines.append(f"{i}. {icon} {html_escape(desc)}")
+                res = st.get("result")
+                if res:
+                    res = str(res)
+                    if len(res) > 160:
+                        res = res[:160] + "…"
+                    lines.append(f"    ⎿ <i>{html_escape(res)}</i>")
+            chain_body = "\n".join(lines)
+            chain_part = (f"📋 Шаги ({total})\n"
+                          f"<blockquote expandable>{chain_body}</blockquote>")
+        elif chain:
             total = len(chain)
             start = max(0, total - PROGRESS_CHAIN_LIMIT)
             shown = chain[start:]
@@ -419,15 +446,28 @@ async def _process_message(bot: Bot, message: Message, conv,
             else:
                 partial_html = markdown_to_html(raw_partial)
 
+        # --- рассуждения модели (extended thinking): свёрнутый хвост, пока модель
+        # думает и ещё не начала писать ответ. Как серый курсив в терминале. ---
+        think_part = ""
+        thinking = (meta.get("thinking") or "").strip()
+        if thinking and not raw_partial:
+            tail = thinking[-320:]
+            if len(thinking) > 320:
+                tail = "…" + tail
+            think_part = ("💭 <i>Размышляет</i>\n"
+                          f"<blockquote expandable><i>{html_escape(tail)}</i></blockquote>")
+
         # --- сборка с бюджетом. fixed (голова+шаги) — валидный HTML под лимитом.
         # Текст добавляем только если влезает; не влезает — режем СЫРОЙ хвост или опускаем. ---
         LIMIT, SAFE = 4096, 3800
         fixed = "\n\n".join(parts)
         if chain_part:
             fixed += "\n\n" + chain_part
+        if think_part and len(fixed) + len(think_part) + 2 < SAFE:
+            fixed += "\n\n" + think_part
 
-        if not chain and not raw_partial:
-            return fixed + "\n\n💭 думаю…"
+        if not chain_part and not raw_partial:
+            return fixed + ("" if think_part else "\n\n💭 думаю…")
 
         if partial_html:
             budget = SAFE - len(fixed) - 2
@@ -526,7 +566,9 @@ async def _process_message(bot: Bot, message: Message, conv,
                                        thread_id or None)
             if not ok:
                 draft["on"] = False  # откат: текст снова в прогресс-сообщении
-        force = event_type in ("tool_use", "tool_start")
+        # Форсим перерисовку на смене состояния шага (запуск/результат) — чтобы
+        # статус ✓/✗ и превью вывода появлялись сразу, а не по таймеру.
+        force = event_type in ("tool_use", "tool_start", "tool_result")
         await _push(force=force)
 
     # --- HEARTBEAT: периодически перерисовываем секундомер ---

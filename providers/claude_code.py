@@ -58,6 +58,42 @@ def _extract_text_from_message(msg: dict) -> str:
     return ""
 
 
+def _extract_thinking(block: dict) -> str:
+    """Рассуждения модели (extended thinking): блок thinking или thinking_delta.
+    Показываем их живьём — как серый курсив в терминале Claude Code."""
+    if not isinstance(block, dict):
+        return ""
+    bt = block.get("type")
+    if bt == "thinking":
+        return block.get("thinking", "") or ""
+    if bt == "thinking_delta":
+        return block.get("thinking", "") or block.get("delta", "") or ""
+    return ""
+
+
+def _result_preview(content, limit: int = 200) -> str:
+    """Краткое превью результата тула (stdout Bash, что прочитал Read и т.п.):
+    первые непустые строки, обрезанные. Как свёрнутый вывод «⎿ …» в терминале."""
+    text = ""
+    if isinstance(content, str):
+        text = content
+    elif isinstance(content, list):
+        parts = []
+        for b in content:
+            if isinstance(b, dict):
+                parts.append(b.get("text", "") if b.get("type") == "text" else "")
+            elif isinstance(b, str):
+                parts.append(b)
+        text = "\n".join(parts)
+    text = (text or "").strip()
+    if not text:
+        return ""
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    head = lines[0][:limit] if lines else ""
+    extra = f" (+{len(lines) - 1} стр.)" if len(lines) > 1 else ""
+    return head + extra
+
+
 def _short_tool_desc(name: str, inp: dict) -> str:
     """Короткое описание вызова тула: имя + ключевые аргументы."""
     if not isinstance(inp, dict):
@@ -191,6 +227,11 @@ class ClaudeCodeProvider(CLIProvider):
             "tool_uses": [],                  # имена всех tool_use событий
             "tool_call_log": [],              # подробное описание каждого вызова
             "tool_call_idx": {},              # tool_use_id -> индекс в tool_call_log
+            # Структурированные шаги для прозрачного рендера (как терминал Claude
+            # Code): {id, name, desc, status: run|ok|err, result: превью вывода}.
+            "steps": [],
+            "step_idx": {},                   # tool_use_id -> индекс в steps
+            "thinking": "",                   # накопленные рассуждения модели (хвост)
             "current_tool": None,
             "rate_limit_hits": 0,             # сколько раз словили rate_limit_event
             "rate_limit_reset": None,         # когда сбросится лимит (если CLI сообщил)
@@ -202,14 +243,38 @@ class ClaudeCodeProvider(CLIProvider):
         events_seen = {}
 
         def _record_tool_call(name: str, inp: dict, tool_id: str | None):
-            """Сохранить/обновить описание вызова тула с дедупом по id."""
+            """Сохранить/обновить описание вызова тула с дедупом по id.
+            Параллельно ведём структурированные steps (со статусом run/ok/err)
+            для терминального рендера прогресса."""
             desc = _short_tool_desc(name, inp or {})
+            # steps (по tool_id): при повторном событии обновляем desc, статус не трогаем.
+            if tool_id and tool_id in state["step_idx"]:
+                state["steps"][state["step_idx"][tool_id]]["desc"] = desc
+            else:
+                state["steps"].append({
+                    "id": tool_id, "name": name, "desc": desc,
+                    "status": "run", "result": None,
+                })
+                if tool_id:
+                    state["step_idx"][tool_id] = len(state["steps"]) - 1
+            # tool_call_log — прежний плоский список (журнал/rich-финал его читают).
             if tool_id and tool_id in state["tool_call_idx"]:
                 state["tool_call_log"][state["tool_call_idx"][tool_id]] = desc
                 return
             state["tool_call_log"].append(desc)
             if tool_id:
                 state["tool_call_idx"][tool_id] = len(state["tool_call_log"]) - 1
+
+        def _set_step_result(tool_id: str | None, is_error: bool, preview: str):
+            """Отметить результат шага по tool_use_id: статус ok/err + превью вывода."""
+            idx = state["step_idx"].get(tool_id) if tool_id else None
+            if idx is None:
+                # Результат без известного шага (редко) — не плодим фантомы.
+                return
+            step = state["steps"][idx]
+            step["status"] = "err" if is_error else "ok"
+            if preview:
+                step["result"] = preview
 
         _edit_ids: set = set()
 
@@ -254,6 +319,8 @@ class ClaudeCodeProvider(CLIProvider):
                     "edits": list(state["edits"]),
                     "tool_uses": list(state["tool_uses"]),
                     "tool_call_log": list(state["tool_call_log"]),
+                    "steps": [dict(s) for s in state["steps"]],
+                    "thinking": state["thinking"],
                     "current_tool": state["current_tool"],
                 }
                 await progress(state["text"], event_type, meta_snapshot)
@@ -303,7 +370,15 @@ class ClaudeCodeProvider(CLIProvider):
                     content = msg.get("content") if isinstance(msg, dict) else None
                     if isinstance(content, list):
                         for block in content:
-                            if isinstance(block, dict) and block.get("type") == "tool_use":
+                            if not isinstance(block, dict):
+                                continue
+                            if block.get("type") == "thinking":
+                                th = _extract_thinking(block)
+                                if th and th not in state["thinking"]:
+                                    state["thinking"] = th
+                                    await emit_progress("thinking")
+                                continue
+                            if block.get("type") == "tool_use":
                                 _record_tool_call(
                                     block.get("name") or "?",
                                     block.get("input") or {},
@@ -337,6 +412,12 @@ class ClaudeCodeProvider(CLIProvider):
                         if chunk:
                             state["text"] += chunk
                             await emit_progress("partial_delta")
+                        # Стрим рассуждений модели — показываем живьём (хвост).
+                        elif delta.get("type") == "thinking_delta" or delta.get("thinking"):
+                            tchunk = delta.get("thinking", "")
+                            if tchunk:
+                                state["thinking"] += tchunk
+                                await emit_progress("thinking_delta")
                     elif ev_type == "content_block_start":
                         block = ev.get("content_block", {})
                         bt = block.get("type")
@@ -369,9 +450,38 @@ class ClaudeCodeProvider(CLIProvider):
                     await emit_progress("tool_use")
                     continue
 
-                # ---------- tool_result ----------
+                # ---------- результаты тулов (Claude шлёт их событием type=user) ----------
+                # Внутри message.content лежат блоки tool_result с tool_use_id,
+                # содержимым (stdout/вывод) и is_error. Раньше это выбрасывалось —
+                # теперь берём краткое превью и статус для соответствующего шага.
+                if etype == "user":
+                    msg = evt.get("message", {})
+                    content = msg.get("content") if isinstance(msg, dict) else None
+                    if isinstance(content, list):
+                        got = False
+                        for block in content:
+                            if not isinstance(block, dict) or block.get("type") != "tool_result":
+                                continue
+                            got = True
+                            _set_step_result(
+                                block.get("tool_use_id"),
+                                bool(block.get("is_error")),
+                                _result_preview(block.get("content")),
+                            )
+                        if got:
+                            state["current_tool"] = None
+                            await emit_progress("tool_result")
+                    continue
+
+                # ---------- tool_result (отдельным событием, не внутри user) ----------
                 if etype == "tool_result":
+                    _set_step_result(
+                        evt.get("tool_use_id") or evt.get("id"),
+                        bool(evt.get("is_error")),
+                        _result_preview(evt.get("content") or evt.get("output")),
+                    )
                     state["current_tool"] = None
+                    await emit_progress("tool_result")
                     continue
 
                 # ---------- rate limit ----------
@@ -445,6 +555,7 @@ class ClaudeCodeProvider(CLIProvider):
         state["meta"]["edits"] = state["edits"]
         state["meta"]["tool_uses"] = state["tool_uses"]
         state["meta"]["tool_call_log"] = state["tool_call_log"]
+        state["meta"]["steps"] = state["steps"]
         if state["rate_limit_hits"]:
             state["meta"]["rate_limit_hits"] = state["rate_limit_hits"]
             if state["rate_limit_reset"]:
