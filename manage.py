@@ -101,7 +101,8 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT NOT NULL,
     label TEXT NOT NULL UNIQUE, cli_home_path TEXT NOT NULL,
-    default_model TEXT, enabled INTEGER NOT NULL DEFAULT 1, notes TEXT
+    default_model TEXT, enabled INTEGER NOT NULL DEFAULT 1, notes TEXT,
+    owner_user_id INTEGER
 );
 CREATE TABLE IF NOT EXISTS conversations (
     id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
@@ -124,6 +125,13 @@ def db_init():
     CLI_HOMES_DIR.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(DB_PATH) as conn:
         conn.executescript(SCHEMA)
+        # Миграция: колонка владельца аккаунта (для старых БД).
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()]
+        if "owner_user_id" not in cols:
+            try:
+                conn.execute("ALTER TABLE accounts ADD COLUMN owner_user_id INTEGER")
+            except sqlite3.OperationalError:
+                pass
         conn.commit()
 
 
@@ -423,16 +431,18 @@ def header():
         for r in accs:
             p = next((v for v in PROVIDERS.values() if v["key"] == r["provider"]), None)
             name = p["bin"] if p else r["provider"]
+            owner = r["owner_user_id"] if "owner_user_id" in r.keys() else None
+            who = f"{D}владелец {owner}{X}" if owner else f"{D}общий{X}"
             logged = p and is_logged_in(p["key"], Path(r["cli_home_path"]))[0]
             if not logged:
-                print(box_mid(f"Аккаунт    {B}{name}{X} · {R}нет входа{X} {D}— пункт «Настройки → Перелогин»{X}"))
+                print(box_mid(f"Аккаунт    {B}{name}{X} · {who} · {R}нет входа{X}"))
                 continue
             u = _account_usage(r["label"])
             usage = f"{D}за 5ч: {u['msgs']} запр · {_fmt_tokens(u['tokens'])} ток{X}"
             if u["limited"]:
                 reset = f" до {u['reset']}" if u["reset"] else ""
                 usage = f"{R}лимит подписки{reset}{X}"
-            print(box_mid(f"Аккаунт    {B}{name}{X} · {G}залогинен{X} · {usage}"))
+            print(box_mid(f"Аккаунт    {B}{name}{X} · {who} · {G}залогинен{X} · {usage}"))
 
     print(box_bot())
 
@@ -555,15 +565,21 @@ def add_account_interactive():
     note = input(f"{B}Заметка{X} {D}(email или описание, можно пусто){X}: ").strip()
     model = input(f"{B}Модель{X} {D}(Enter — '{prov['default_model']}'){X}: ").strip() or prov["default_model"]
 
+    # Владелец — Telegram user_id (чей это аккаунт/подписка). Пусто = общий.
+    ids = _admin_ids()
+    hint = f" {D}(админы: {', '.join(ids)}){X}" if ids else ""
+    owner_raw = input(f"{B}Владелец{X} {D}(Telegram user_id; Enter — общий){X}{hint}: ").strip()
+    owner = int(owner_raw) if owner_raw.lstrip("-").isdigit() else None
+
     cli_home = CLI_HOMES_DIR / f"{prov['key']}__{label}"
     cli_home.mkdir(parents=True, exist_ok=True)
 
     with db() as conn:
         try:
             conn.execute(
-                """INSERT INTO accounts(provider, label, cli_home_path, default_model, enabled, notes)
-                   VALUES (?, ?, ?, ?, 1, ?)""",
-                (prov["key"], label, str(cli_home), model, note),
+                """INSERT INTO accounts(provider, label, cli_home_path, default_model, enabled, notes, owner_user_id)
+                   VALUES (?, ?, ?, ?, 1, ?, ?)""",
+                (prov["key"], label, str(cli_home), model, note, owner),
             )
             conn.commit()
         except sqlite3.IntegrityError:

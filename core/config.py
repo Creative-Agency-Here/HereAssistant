@@ -45,6 +45,19 @@ def init_dirs():
         d.mkdir(parents=True, exist_ok=True)
 
 
+def user_workspace(user_id: int) -> Path:
+    """Личный workspace пользователя: workspace/<user_id>/ — проекты разных
+    людей (Паша/Илья) физически разделены, агент ходит только в свою папку."""
+    return WORKSPACE_DIR / str(int(user_id))
+
+
+def user_default_cwd(user_id: int) -> str:
+    """Дефолтная рабочая папка нового диалога пользователя (его личный default)."""
+    d = user_workspace(user_id) / "default"
+    d.mkdir(parents=True, exist_ok=True)
+    return str(d)
+
+
 def append_env(key: str, value: str):
     """Дописать или обновить ключ в .env."""
     if not ENV_PATH.exists():

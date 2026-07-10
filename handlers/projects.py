@@ -59,17 +59,19 @@ async def cmd_project(message: Message, command: CommandObject):
         )
         return
 
-    config.WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
+    # Личный workspace пользователя (проекты Паши и Ильи разделены).
+    ws = config.user_workspace(message.from_user.id)
+    ws.mkdir(parents=True, exist_ok=True)
 
     if args[0] == "list":
-        items = [p for p in config.WORKSPACE_DIR.iterdir() if p.is_dir()]
+        items = [p for p in ws.iterdir() if p.is_dir()]
         if not items:
             await message.answer("Проектов пока нет.")
             return
         conv = repo.get_or_create_conv(message.chat.id, message.message_thread_id or 0,
                                         message.from_user.id)
         cur = conv["project_name"] or ""
-        lines = ["Проекты в workspace/:"]
+        lines = ["Твои проекты:"]
         for p in sorted(items):
             mark = "✓" if p.name == cur else " "
             try:
@@ -86,7 +88,7 @@ async def cmd_project(message: Message, command: CommandObject):
         if safe != name or not safe:
             await message.answer(f"Неверное имя проекта. Используй только буквы/цифры/-_: '{safe}'")
             return
-        proj_dir = config.WORKSPACE_DIR / safe
+        proj_dir = ws / safe
         if args[0] == "new":
             proj_dir.mkdir(parents=True, exist_ok=True)
         elif not proj_dir.exists():

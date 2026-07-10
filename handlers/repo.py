@@ -16,16 +16,23 @@ def get_or_create_conv(chat_id: int, thread_id: int, user_id: int) -> sqlite3.Ro
         if row:
             return row
         now = int(time.time())
+        # Аккаунт: сначала СВОЙ (owner_user_id = этот юзер), иначе общий (owner NULL),
+        # иначе любой включённый. Так у Паши и Ильи свои подписки и лимиты раздельно.
         default_account = c.execute(
-            "SELECT id, default_model FROM accounts WHERE enabled=1 ORDER BY id LIMIT 1"
+            """SELECT id, default_model FROM accounts WHERE enabled=1
+               ORDER BY (owner_user_id = ?) DESC, (owner_user_id IS NULL) DESC, id
+               LIMIT 1""",
+            (user_id,),
         ).fetchone()
         acc_id = default_account["id"] if default_account else None
         model = default_account["default_model"] if default_account else None
+        # Рабочая папка — личная для пользователя (workspace/<user_id>/default).
+        cwd = config.user_default_cwd(user_id)
         c.execute(
             """INSERT INTO conversations
                (user_id, chat_id, thread_id, account_id, model, cwd, project_name, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (user_id, chat_id, thread_id, acc_id, model, config.DEFAULT_CWD, "default", now, now),
+            (user_id, chat_id, thread_id, acc_id, model, cwd, "default", now, now),
         )
         return c.execute(
             "SELECT * FROM conversations WHERE chat_id=? AND thread_id=?",

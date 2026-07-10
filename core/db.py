@@ -21,7 +21,10 @@ CREATE TABLE IF NOT EXISTS accounts (
     cli_home_path   TEXT NOT NULL,
     default_model   TEXT,
     enabled         INTEGER NOT NULL DEFAULT 1,
-    notes           TEXT
+    notes           TEXT,
+    -- Владелец аккаунта (Telegram user_id). NULL = общий (доступен всем админам).
+    -- Диалог пользователя берёт СВОЙ аккаунт, если есть, иначе общий.
+    owner_user_id   INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS conversations (
@@ -101,6 +104,7 @@ CREATE INDEX IF NOT EXISTS idx_changes_file ON file_changes(file, ts);
 MIGRATIONS = [
     # (column_check_table, column_name, alter_sql)
     ("conversations", "project_name", "ALTER TABLE conversations ADD COLUMN project_name TEXT"),
+    ("accounts", "owner_user_id", "ALTER TABLE accounts ADD COLUMN owner_user_id INTEGER"),
 ]
 
 
