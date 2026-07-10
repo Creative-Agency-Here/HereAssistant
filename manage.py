@@ -452,6 +452,7 @@ def header():
 MENU_MAIN = [
     ("1", f"{C}▸{X}", "Аккаунты", "список подключённых CLI-аккаунтов и вход"),
     ("2", f"{G}+{X}", "Добавить аккаунт", "подключить и залогинить Claude / Codex / Gemini"),
+    ("3", f"{C}≡{X}", "История · Аудит", "все обращения в Telegram и SSH-заходы по IP"),
     ("8", f"{G}▶{X}", "Запустить бота", "поднять бота (Ctrl+C — остановить)"),
     ("9", f"{M}⚙{X}", "Настройки", "перелогин, удаление, зависимости, .env"),
     ("0", f"{D}⏻{X}", "Выход", ""),
@@ -476,6 +477,58 @@ def render_menu(items):
 
 
 # ---------- действия ----------
+def _fmt_ts(ts: int) -> str:
+    return time.strftime("%d.%m %H:%M", time.localtime(ts))
+
+
+def show_history():
+    """История/аудит: все обращения в Telegram (кто/когда/аккаунт) + SSH-заходы по IP."""
+    print(f"\n{B}{M}История · Аудит{X}")
+
+    # 1) Обращения в Telegram — из events (метаданные пишутся ВСЕГДА, даже для
+    #    private-проектов; содержимого может не быть, но факт/кто/когда/аккаунт — есть).
+    print(f"\n{B}Обращения в Telegram{X} {D}(кто · когда · какой аккаунт){X}")
+    print(line(width=64))
+    try:
+        c = db()
+        rows = list(c.execute(
+            "SELECT timestamp, event_type, user_id, account_label, "
+            "COALESCE(tokens_in,0)+COALESCE(tokens_out,0) tok "
+            "FROM events WHERE event_type IN ('message_in','message_out','error') "
+            "ORDER BY id DESC LIMIT 30"
+        ))
+        c.close()
+    except Exception:
+        rows = []
+    if not rows:
+        print(f"  {D}пока пусто — боту ещё не писали{X}")
+    else:
+        labels = {"message_in": f"{C}→ запрос{X}", "message_out": f"{G}✓ ответ{X}",
+                  "error": f"{R}✗ ошибка{X}"}
+        for r in rows:
+            et = labels.get(r["event_type"], r["event_type"])
+            acc = r["account_label"] or "-"
+            toks = f" · {_fmt_tokens(r['tok'])} ток" if r["tok"] else ""
+            print(f"  {D}{_fmt_ts(r['timestamp'])}{X}  {et:<18} "
+                  f"user {B}{r['user_id']}{X}  {M}{acc}{X}{D}{toks}{X}")
+
+    # 2) SSH-заходы на сервер — из системного журнала логинов (last). Кто (Unix-
+    #    юзер), с какого IP, когда. Разные люди = разные Unix-юзеры → видно кто.
+    print(f"\n{B}SSH-заходы на сервер{X} {D}(юзер · IP · когда){X}")
+    print(line(width=64))
+    try:
+        out = subprocess.run(["last", "-a", "-n", "15"],
+                             capture_output=True, text=True, timeout=5).stdout
+        shown = [l for l in out.splitlines() if l.strip() and not l.lower().startswith("wtmp")]
+        if shown:
+            for l in shown[:15]:
+                print(f"  {D}{l}{X}")
+        else:
+            print(f"  {D}нет данных{X}")
+    except Exception:
+        print(f"  {D}команда last недоступна на этой системе{X}")
+
+
 def show_accounts():
     rows = list_accounts()
     print(f"\n{B}Зарегистрированные аккаунты{X}")
@@ -766,6 +819,7 @@ def main():
         print(choice)
         if choice == "1": show_accounts()
         elif choice == "2": add_account_interactive()
+        elif choice == "3": show_history()
         elif choice == "8":
             start_bot()
             continue  # после остановки бота — сразу обратно в меню
