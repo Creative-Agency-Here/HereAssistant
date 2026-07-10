@@ -9,6 +9,7 @@ A personal Telegram bot that bridges you to CLI coding agents — **Claude Code,
 ## Features
 
 - **Multiple providers, one chat** — Claude Code, Codex, Gemini as isolated CLI subprocesses; switch accounts and models with inline buttons.
+- **Terminal chat (`python chat.py`)** — an interactive REPL right in your console, like the native `claude`: a prompt, full live output (model reasoning, tool calls `⏺` and their results `⎿`, streamed answer — no Telegram length limit), `/resume` picker over past sessions, and slash-commands for settings. Runs on the same subscription accounts as the bot.
 - **Account isolation** — each subscription lives in its own auth home (`CLAUDE_CONFIG_DIR` / `CODEX_HOME` / `HOME`); several accounts of the same provider coexist.
 - **Live progress** — streaming progress message in chat while the agent works; interrupt by sending a new message.
 - **Rich Messages (Bot API 10.1)** — final answers via `sendRichMessage` with native tables, headings, code blocks and math; answer text streams as an animated `sendRichMessageDraft` preview. Automatic fallback to the classic HTML path.
@@ -61,6 +62,13 @@ webapp/front (Nuxt static, nginx) ──▶ webapp/api (aiohttp, 127.0.0.1:8200)
 ## Telegram commands
 
 `/help` · `/accounts` · `/model` · `/cwd` `/project` · `/new` `/reset` · `/status` `/version` · `/stats` `/log` · `/deploy` · `/web`
+
+## Terminal chat
+
+Run `python chat.py` (or **Terminal chat** in `python manage.py`) for a console REPL over your
+subscriptions. Inside: `/help`, `/model`, `/account`, `/cwd`, `/new`, `/resume` (pick and continue a
+past session), `/status`, `/diff`, `/clear`, `/exit`. Full transparency — reasoning, every tool call
+and its output, live streamed answer, no 4096-char limit.
 
 ## Docs
 

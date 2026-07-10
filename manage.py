@@ -453,6 +453,7 @@ MENU_MAIN = [
     ("1", f"{C}▸{X}", "Аккаунты", "список подключённых CLI-аккаунтов и вход"),
     ("2", f"{G}+{X}", "Добавить аккаунт", "подключить и залогинить Claude / Codex / Gemini"),
     ("3", f"{C}≡{X}", "История · Аудит", "все обращения в Telegram и SSH-заходы по IP"),
+    ("4", f"{C}❯{X}", "Чат в терминале", "интерактивный чат с агентом прямо здесь (как claude)"),
     ("8", f"{G}▶{X}", "Запустить бота", "поднять бота (Ctrl+C — остановить)"),
     ("9", f"{M}⚙{X}", "Настройки", "перелогин, удаление, зависимости, .env"),
     ("0", f"{D}⏻{X}", "Выход", ""),
@@ -820,6 +821,11 @@ def main():
         if choice == "1": show_accounts()
         elif choice == "2": add_account_interactive()
         elif choice == "3": show_history()
+        elif choice == "4":
+            # Терминальный чат — отдельным процессом (свой asyncio-REPL).
+            import subprocess
+            subprocess.run([sys.executable, str(BASE_DIR / "chat.py")])
+            continue
         elif choice == "8":
             start_bot()
             continue  # после остановки бота — сразу обратно в меню
