@@ -150,23 +150,24 @@ def _make_progress(state: dict):
                 sys.stdout.write(f"\n{D}{I}💭 ")
                 state["thinking_shown"] = True
             sys.stdout.write(f"{D}{I}{chunk}{X}")
-        # 2) шаги: новые вызовы (⏺) и появившиеся результаты (⎿)
-        for st in meta.get("steps") or []:
-            key = st.get("id") or st.get("desc")
-            if key not in state["printed_tools"]:
+        # 2) шаги: печатаем вызов инструмента, когда шаг завершён (статус ⏺→✓/✗
+        # или пришёл результат) — к этому моменту описание уже с полными
+        # аргументами (на старте content_block_start input часто пуст).
+        steps = meta.get("steps") or []
+        for idx, st in enumerate(steps):
+            key = st.get("id") or f"i{idx}"
+            done = st.get("status") != "run" or st.get("result")
+            if done and key not in state["printed_tools"]:
                 state["printed_tools"].add(key)
                 _flush_text(state)
-                sys.stdout.write(f"\n{STEP_ICON['run']} {W}{st.get('desc')}{X}")
-            res = st.get("result")
-            status = st.get("status")
-            rkey = (key, "res")
-            if res and rkey not in state["printed_res"]:
-                state["printed_res"].add(rkey)
-                icon = STEP_ICON.get(status, "⎿")
-                r = str(res)
-                if len(r) > 400:
-                    r = r[:400] + "…"
-                sys.stdout.write(f"\n   {D}⎿ {icon} {r}{X}")
+                icon = STEP_ICON.get(st.get("status"), f"{Y}⏺{X}")
+                sys.stdout.write(f"\n{icon} {W}{st.get('desc')}{X}")
+                res = st.get("result")
+                if res:
+                    r = str(res)
+                    if len(r) > 400:
+                        r = r[:400] + "…"
+                    sys.stdout.write(f"\n   {D}⎿ {r}{X}")
         # 3) текст ответа — печатаем дельту
         if event_type in ("assistant_delta", "partial_delta") and text:
             state["pending_text"] = text

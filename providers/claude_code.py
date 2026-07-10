@@ -100,6 +100,8 @@ def _short_tool_desc(name: str, inp: dict) -> str:
         inp = {}
 
     def _short(s, n=70):
+        if s is None:
+            return ""          # не печатаем «None», пока полный input не пришёл
         s = str(s).replace("\n", " ").replace("\r", " ").strip()
         return s if len(s) <= n else s[: n - 1] + "…"
 
