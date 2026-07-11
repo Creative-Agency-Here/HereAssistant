@@ -14,8 +14,17 @@
 топовый опенсорс-ресурс: код, доки и лендинг — витрина инженерной культуры.
 
 - GitHub (публичный): https://github.com/Creative-Agency-Here/HereAssistant
-- Лендинг: https://hereassistant.hereagency.ru (исходник — `site/index.html`,
-  деплой: `rsync -av site/ here@dell:/var/www/hereassistant.hereagency.ru/`)
+- Лендинг: https://hereassistant.hereagency.ru (исходник — `site/index.html` +
+  ассеты `site/*.gif`; деплой на поддомен по явной просьбе —
+  `rsync -av site/ here@dell:/var/www/hereassistant.hereagency.ru/`, затем
+  `curl`-проверка версии). Обновление исходника в git — всегда; выкат на домен —
+  отдельным rsync и только когда просят («выкати сайт»).
+- **Витрина/упаковка (GitHub + сайт, гифки, скрины, дизайн) — внутренний гайд
+  `docs/showcase-guide.md`** (gitignored, там наша кухня): пайплайн живых GIF
+  (PTY-захват chat.py → webm через Playwright → GIF через ffmpeg palettegen),
+  скрины в стиле терминала/Telegram, дизайн-токены, правила публикации. Тулинг —
+  `tools/showcase/` (`ansi2html.py`, `tg_mock.css`, `pty_capture.py`; тоже
+  gitignored). Делаешь новый визуал/лендинг — сверяйся с этим гайдом.
 - Любое изменение оценивай глазами внешнего контрибьютора: понятность,
   документированность, отсутствие внутренней «кухни» агентства в публичном коде.
 
