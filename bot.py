@@ -14,7 +14,7 @@ import os
 import sys
 import time
 
-from aiogram import Bot, Dispatcher
+from aiogram import BaseMiddleware, Bot, Dispatcher
 from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
 from core import config, db, logging_setup, version
@@ -25,6 +25,29 @@ from utils.single_instance import ensure_single_instance
 
 
 RESTART_REQUEST_FILE = config.RESTART_REQUEST_FILE
+
+
+class UsernameSync(BaseMiddleware):
+    """Дообновляет @username известных пользователей при каждом сообщении.
+
+    Строка в users могла появиться без ника (db.init() вставляет админа из .env
+    с username=NULL) или ник сменился. Обновляем ТОЛЬКО существующие строки —
+    чужаков в таблицу не заводим. Ник виден в терминальном чате (chat.py, «кто»)
+    и в атрибуции сессий."""
+
+    async def __call__(self, handler, event, data):
+        u = getattr(event, "from_user", None)
+        if u and u.username:
+            try:
+                with db.conn() as c:
+                    c.execute(
+                        "UPDATE users SET username=? WHERE telegram_id=? "
+                        "AND (username IS NULL OR username<>?)",
+                        (u.username, u.id, u.username),
+                    )
+            except Exception:
+                logging.getLogger("bridge").debug("username sync failed", exc_info=True)
+        return await handler(event, data)
 
 
 async def restart_watcher(bot: Bot):
@@ -137,6 +160,7 @@ COMMANDS = [
     BotCommand(command="deploy", description="Перезапустить процесс"),
     BotCommand(command="diff", description="Правки последнего ответа"),
     BotCommand(command="web", description="Открыть веб-интерфейс (Mini App)"),
+    BotCommand(command="logout", description="Отвязать мой аккаунт от бота"),
 ]
 
 
@@ -159,6 +183,7 @@ async def main():
 
     bot = Bot(config.TELEGRAM_TOKEN)
     dp = Dispatcher()
+    dp.message.middleware(UsernameSync())
     for router in ALL_ROUTERS:
         dp.include_router(router)
 

@@ -76,6 +76,24 @@ def append_env(key: str, value: str):
     ENV_PATH.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
 
+def remove_env_admin(uid: int):
+    """Убрать id из ADMIN_IDS / ADMIN_TELEGRAM_ID в .env (для /logout).
+    Пустой список после удаления — строка выкидывается целиком."""
+    if not ENV_PATH.exists():
+        return
+    out = []
+    for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
+        s = line.strip()
+        if s.startswith("ADMIN_IDS=") or s.startswith("ADMIN_TELEGRAM_ID="):
+            key, _, val = s.partition("=")
+            ids = [x.strip() for x in val.split(",") if x.strip() and x.strip() != str(uid)]
+            if ids:
+                out.append(f"{key}={','.join(ids)}")
+        else:
+            out.append(line)
+    ENV_PATH.write_text("\n".join(out) + "\n", encoding="utf-8")
+
+
 # ---------- загрузка ----------
 _load_env_file(ENV_PATH)
 

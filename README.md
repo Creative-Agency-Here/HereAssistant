@@ -90,6 +90,7 @@ a conversation you started here (or in the CLI directly) can be picked up later.
 
 ## Docs
 
+- [Onboarding & authorization path](docs/onboarding.md) — BotFather token → claim code → owner, adding teammates, `/logout` (with a flow diagram)
 - [Ubuntu production runbook](docs/ubuntu-pm2-nginx.md)
 - [Providers & auth homes](docs/providers.md)
 - [Privacy modes](docs/privacy.md)
