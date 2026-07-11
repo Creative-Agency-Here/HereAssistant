@@ -77,6 +77,16 @@
   .msg .tools { color: var(--muted); font-size: 11px; font-family: ui-monospace, monospace; }
   .msg .okline { color: var(--secondary); }
 
+  /* демо-полоса с живым GIF терминала */
+  .demo { padding: 8px 0 24px; }
+  .demo-in { display: grid; grid-template-columns: 1.35fr .65fr; gap: 44px; align-items: center; }
+  .demo-gif { border-radius: 14px; overflow: hidden; border: 1px solid var(--border);
+              box-shadow: 0 22px 64px rgba(0,0,0,.55); background: #131317; }
+  .demo-gif img { display: block; width: 100%; height: auto; }
+  .demo-txt h2 { font-size: 27px; margin-bottom: 12px; }
+  .demo-txt p { color: var(--muted); font-size: 15px; }
+  .demo-txt code { color: var(--primary); font-size: 13.5px; }
+
   /* секции */
   section { padding: 72px 0; }
   h2 { font-size: 32px; font-weight: 800; letter-spacing: -.01em; margin-bottom: 12px; }
@@ -178,6 +188,21 @@
     </div>
   </div>
 </header>
+
+<section class="demo">
+  <div class="wrap demo-in">
+    <div class="demo-gif">
+      <img src="terminal-demo.gif" alt="HereAssistant terminal chat — live demo" loading="lazy" width="680" height="518">
+    </div>
+    <div class="demo-txt">
+      <h2><span class="en">…or right in your terminal</span><span class="ru">…или прямо в терминале</span></h2>
+      <p>
+        <span class="en">The same agents behind <code>python chat.py</code> — an interactive REPL like the native <code>claude</code>: reasoning, tool calls and the answer stream live, past sessions resume with <code>/resume</code>.</span>
+        <span class="ru">Те же агенты за <code>python chat.py</code> — интерактивный REPL, как нативный <code>claude</code>: рассуждения, вызовы инструментов и ответ стримятся вживую, прошлые сессии — через <code>/resume</code>.</span>
+      </p>
+    </div>
+  </div>
+</section>
 
 <section id="features">
   <div class="wrap">
