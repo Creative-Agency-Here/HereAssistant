@@ -1,6 +1,6 @@
 # HereAssistant
 
-🇬🇧 [English version](README.md)
+🌐 **[hereassistant.hereagency.ru](https://hereassistant.hereagency.ru)** · 🇬🇧 [English version](README.md)
 
 Личный Telegram-бот → несколько CLI-ассистентов (Claude Code, Codex, Gemini). Один админ, изоляция аккаунтов, переключение моделей, статистика, самоперезапуск. Работает на твоих подписках (без потокенной оплаты API).
 
