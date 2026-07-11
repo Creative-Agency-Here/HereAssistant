@@ -7,8 +7,10 @@
 Работает поверх тех же подписок-аккаунтов HereAssistant (Claude / Codex / Gemini),
 так что квота и вход — общие с ботом.
 
-Запуск:  python chat.py            — выбрать аккаунт интерактивно
-         python chat.py -a <label> — сразу на аккаунте
+Запуск:  python chat.py                 — выбрать пользователя и аккаунт интерактивно
+         python chat.py -a <label>      — сразу на аккаунте
+         python chat.py -u <id|@имя>    — от имени конкретного пользователя
+                                          (workspace и сессии пишутся на него)
 Внутри:  /help — список команд.
 """
 
@@ -43,6 +45,11 @@ def _db_account_by_label(label: str):
         return c.execute(
             "SELECT * FROM accounts WHERE label=? AND enabled=1", (label,)
         ).fetchone()
+
+
+def _db_users():
+    with db.conn() as c:
+        return list(c.execute("SELECT * FROM users ORDER BY created_at"))
 
 # --- ANSI (как в manage.py; при отсутствии TTY гасим) ---
 _TTY = sys.stdout.isatty()
@@ -79,9 +86,10 @@ def _logo() -> None:
 class Session:
     """Состояние одной терминальной сессии: аккаунт, модель, папка, id сессии."""
 
-    def __init__(self, account, user_id: int):
+    def __init__(self, account, user_id: int, user_name: str = ""):
         self.account = account            # sqlite3.Row аккаунта
         self.user_id = user_id
+        self.user_name = user_name        # отображаемое имя (для статуса)
         self.model = account["default_model"]
         self.cwd = config.user_default_cwd(user_id)
         self.session_id = None            # provider_session_id для --resume
@@ -121,6 +129,55 @@ def _pick_account(preselect: str | None):
             return accounts[0]
         if raw.isdigit() and 1 <= int(raw) <= len(accounts):
             return accounts[int(raw) - 1]
+        print(f"{R}нет такого номера{X}")
+
+
+# ---------- выбор пользователя ----------
+def _user_display(u) -> str:
+    """Отображаемое имя пользователя: @username или tg-id."""
+    return f"@{u['username']}" if u["username"] else str(u["telegram_id"])
+
+
+def _find_user(users, key: str):
+    """Найти пользователя по tg-id или @username (регистр не важен)."""
+    key = key.lstrip("@").lower()
+    for u in users:
+        if str(u["telegram_id"]) == key:
+            return u
+        if u["username"] and u["username"].lower() == key:
+            return u
+    return None
+
+
+def _pick_user(preselect: str | None):
+    """От чьего имени работаем: сессии, workspace и архив припишутся ему.
+    Порядок: -u <id|@username> → env HEREASSISTANT_USER → один юзер — сразу он →
+    иначе интерактивный выбор. Возвращает (user_id, display)."""
+    users = _db_users()
+    if not users:
+        # БД юзеров пуста (свежая установка) — работаем как главный админ
+        return config.ADMIN_ID or 0, "admin"
+    for key, src in ((preselect, "-u"), (os.environ.get("HEREASSISTANT_USER", "").strip(), "env")):
+        if key:
+            u = _find_user(users, key)
+            if u:
+                return u["telegram_id"], _user_display(u)
+            print(f"{R}пользователь '{key}' не найден{X} {D}({src}){X}")
+    if len(users) == 1:
+        return users[0]["telegram_id"], _user_display(users[0])
+    print(f"{B}Кто работает?{X} {D}(сессии и workspace будут его){X}")
+    for i, u in enumerate(users, 1):
+        role = f" {D}· {u['role']}{X}" if u["role"] != "user" else ""
+        print(f"  {B}{i}{X}. {_user_display(u)}{role}")
+    while True:
+        try:
+            raw = input(f"{D}номер › {X}").strip()
+        except EOFError:
+            print(f"\n{D}ввод закрыт — беру первого{X}")
+            return users[0]["telegram_id"], _user_display(users[0])
+        if raw.isdigit() and 1 <= int(raw) <= len(users):
+            u = users[int(raw) - 1]
+            return u["telegram_id"], _user_display(u)
         print(f"{R}нет такого номера{X}")
 
 
@@ -400,6 +457,7 @@ def _print_help():
   {C}/help{X}              эта справка
   {C}/model{X} [имя]       показать/сменить модель
   {C}/account{X} [label]   показать/сменить аккаунт (сбрасывает сессию)
+  {C}/user{X} [@имя|id]    кто работает: workspace и сессии пишутся на него
   {C}/cwd{X} [путь]        показать/сменить рабочую папку
   {C}/new{X}               начать новую сессию (забыть контекст)
   {C}/resume{X}            выбрать и продолжить прошлую сессию проекта
@@ -417,11 +475,18 @@ def _pretty_path(p: str) -> str:
 
 
 def _cmd_status(sess: Session):
+    print(f"  {D}кто    {X}  {W}{sess.user_name or sess.user_id}{X}"
+          f"  {D}— от его имени: workspace, сессии и архив{X}")
     print(f"  {D}аккаунт{X}  {W}{sess.label}{X}  {D}({sess.provider}){X}")
     print(f"  {D}модель {X}  {W}{sess.model or '—'}{X}")
     print(f"  {D}проект {X}  {W}{_pretty_path(sess.cwd)}{X}")
     print(f"           {D}└ рабочая папка агента: здесь он читает и создаёт файлы · сменить: /cwd <путь>{X}")
-    print(f"  {D}сессия {X}  {W}{sess.session_id or '(новая)'}{X}")
+    if sess.session_id:
+        print(f"  {D}сессия {X}  {W}{sess.session_id[:8]}{X}"
+              f"  {D}— контекст продолжается · /new — с чистого листа{X}")
+    else:
+        print(f"  {D}сессия {X}  {W}новая{X}"
+              f"  {D}— контекст пуст, id появится после первого ответа · /resume — вернуть прошлую{X}")
 
 
 def _cmd_resume(sess: Session):
@@ -482,6 +547,19 @@ def _handle_command(sess: Session, line: str) -> bool:
         else:
             print(f"  проект: {_pretty_path(sess.cwd)}"
                   f"  {D}— рабочая папка агента (/cwd <путь> — сменить){X}")
+    elif cmd == "/user":
+        if arg:
+            u = _find_user(_db_users(), arg)
+            if u:
+                sess.user_id = u["telegram_id"]
+                sess.user_name = _user_display(u)
+                sess.cwd = config.user_default_cwd(sess.user_id)
+                sess.session_id = None  # чужой контекст не продолжаем
+                print(f"{G}▸ теперь работает {sess.user_name} (workspace и сессия — его){X}")
+            else:
+                print(f"{R}пользователь '{arg}' не найден{X}")
+        else:
+            print(f"  кто: {sess.user_name or sess.user_id}  {D}(/user <id|@username> — сменить){X}")
     elif cmd == "/new":
         sess.session_id = None
         print(f"{G}▸ новая сессия — контекст забыт{X}")
@@ -568,18 +646,21 @@ async def _repl(sess: Session):
             print(f"\n{Y}⏹ прервано{X}")
 
 
+def _arg_after(argv, flag):
+    if flag in argv:
+        i = argv.index(flag)
+        if i + 1 < len(argv):
+            return argv[i + 1]
+    return None
+
+
 def _run():
     db.init()
-    preselect = None
     argv = sys.argv[1:]
-    if "-a" in argv:
-        i = argv.index("-a")
-        if i + 1 < len(argv):
-            preselect = argv[i + 1]
     _logo()
-    account = _pick_account(preselect)
-    user_id = config.ADMIN_ID or 0
-    sess = Session(account, user_id)
+    user_id, user_name = _pick_user(_arg_after(argv, "-u"))
+    account = _pick_account(_arg_after(argv, "-a"))
+    sess = Session(account, user_id, user_name)
     asyncio.run(_repl(sess))
 
 
