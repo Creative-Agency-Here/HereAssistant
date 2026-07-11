@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import random
 import sys
 import time
 from pathlib import Path
@@ -54,6 +55,10 @@ I = _c("\033[3m"); X = _c("\033[0m")
 STEP_ICON = {"run": f"{Y}⏺{X}", "ok": f"{G}✓{X}", "err": f"{R}✗{X}"}
 
 
+# Градиент логотипа: розовый → фиолетовый (256-цветная палитра xterm).
+_LOGO_SHADES = [183, 177, 141, 135, 129, 93]
+
+
 def _logo() -> None:
     art = [
         "██╗  ██╗███████╗██████╗ ███████╗",
@@ -64,9 +69,11 @@ def _logo() -> None:
         "╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝",
     ]
     print()
-    for ln in art:
-        print(f"  {B}{M}{ln}{X}")
-    print(f"  {D}·  A S S I S T A N T  ·  терминальный чат с CLI-агентом{X}\n")
+    for ln, shade in zip(art, _LOGO_SHADES):
+        color = f"\033[38;5;{shade}m" if _TTY else ""
+        print(f"  {B}{color}{ln}{X}")
+    print(f"  {D}·  A S S I S T A N T  ·{X}  {M}v{config.APP_VERSION}{X}"
+          f"  {D}·  терминальный чат с CLI-агентом{X}\n")
 
 
 class Session:
@@ -161,6 +168,133 @@ def _list_resumable(sess: Session):
     return out[:20]
 
 
+# ---------- markdown → ANSI (потоково) ----------
+class MdStream:
+    """Потоковый рендер markdown в ANSI: **жирный**, `код`, ```блоки```,
+    # заголовки, маркеры списков. Работает по дельтам стрима: если дельта
+    обрывается посреди токена (одиночная `*` в конце), хвост придерживается
+    до следующего куска — звёздочки никогда не «протекают» в вывод."""
+
+    def __init__(self):
+        self.bold = False      # внутри **…**
+        self.code = False      # внутри `…`
+        self.fence = False     # внутри ```…```
+        self.heading = False   # строка-заголовок #…
+        self.line_start = True
+        self.tail = ""        # недорендеренный хвост дельты
+
+    def _style(self) -> str:
+        """ANSI-префикс текущего стиля (всегда после сброса)."""
+        s = X
+        if self.fence or self.code:
+            s += C
+        if self.heading:
+            s += B + M
+        if self.bold:
+            s += B
+        return s
+
+    def feed(self, chunk: str) -> str:
+        s = self.tail + chunk
+        self.tail = ""
+        out = []
+        i, n = 0, len(s)
+        while i < n:
+            ch = s[i]
+            rem = n - i
+            # конец строки: сбросить строчные стили, вернуть стиль фенса
+            if ch == "\n":
+                self.heading = False
+                self.code = False
+                out.append(X + "\n")
+                self.line_start = True
+                if self.fence or self.bold:
+                    out.append(self._style())
+                i += 1
+                continue
+            # ```фенс``` — только с начала строки; язык после ``` глотаем
+            if ch == "`" and self.line_start:
+                if rem < 3:
+                    self.tail = s[i:]
+                    break
+                if s[i:i + 3] == "```":
+                    nl = s.find("\n", i)
+                    if nl == -1:
+                        self.tail = s[i:]
+                        break
+                    self.fence = not self.fence
+                    out.append(self._style())
+                    i = nl + 1
+                    continue
+            # `инлайн-код` (внутри фенса бэктики литеральны)
+            if ch == "`" and not self.fence:
+                self.code = not self.code
+                out.append(self._style())
+                i += 1
+                self.line_start = False
+                continue
+            if self.fence or self.code:
+                out.append(ch)
+                i += 1
+                self.line_start = False
+                continue
+            # * — жирный ** / маркер списка "* " / литеральная звёздочка
+            if ch == "*":
+                if rem == 1:
+                    self.tail = s[i:]
+                    break
+                if s[i + 1] == "*":
+                    self.bold = not self.bold
+                    out.append(self._style())
+                    i += 2
+                    self.line_start = False
+                    continue
+                if self.line_start and s[i + 1] == " ":
+                    out.append(f"{M}•{self._style()} ")
+                    i += 2
+                    self.line_start = False
+                    continue
+                out.append(ch)
+                i += 1
+                self.line_start = False
+                continue
+            # "- " в начале строки — маркер списка
+            if ch == "-" and self.line_start:
+                if rem == 1:
+                    self.tail = s[i:]
+                    break
+                if s[i + 1] == " ":
+                    out.append(f"{M}•{self._style()} ")
+                    i += 2
+                    self.line_start = False
+                    continue
+            # заголовок #…#### с пробелом — жирным, решётки глотаем
+            if ch == "#" and self.line_start:
+                k = i
+                while k < n and s[k] == "#":
+                    k += 1
+                if k >= n:
+                    self.tail = s[i:]
+                    break
+                if k - i <= 4 and s[k] == " ":
+                    self.heading = True
+                    out.append(self._style())
+                    i = k + 1
+                    self.line_start = False
+                    continue
+            out.append(ch)
+            if ch != " ":
+                self.line_start = False
+            i += 1
+        return "".join(out)
+
+    def close(self) -> str:
+        """Дорендерить хвост литерально и закрыть стили."""
+        t, self.tail = self.tail, ""
+        need_reset = t or self.bold or self.code or self.fence or self.heading
+        return (t + X) if need_reset else ""
+
+
 # ---------- рендер стрима в терминал ----------
 def _make_progress(state: dict):
     """Async-callback для provider.run: печатает события по мере прихода —
@@ -202,7 +336,8 @@ def _make_progress(state: dict):
 
 
 def _flush_text(state: dict):
-    """Допечатать хвост накопленного текста ответа (дельту к уже показанному)."""
+    """Допечатать хвост накопленного текста ответа (дельту к уже показанному),
+    прогнав через потоковый markdown-рендер (жирный/код/заголовки/списки)."""
     text = state.get("pending_text") or ""
     shown = state["text_len"]
     if len(text) <= shown:
@@ -211,10 +346,11 @@ def _flush_text(state: dict):
         # редкий случай: провайдер переустановил текст — начинаем абзац заново
         sys.stdout.write("\n")
         shown = 0
+        state["md"] = MdStream()
     if not state["answer_started"]:
         sys.stdout.write(f"\n{C}▌{X} ")
         state["answer_started"] = True
-    sys.stdout.write(text[shown:])
+    sys.stdout.write(state["md"].feed(text[shown:]))
     state["text_len"] = len(text)
     state["text_prefix"] = text[:200]
 
@@ -224,6 +360,7 @@ async def _run_prompt(sess: Session, prompt: str):
         "thinking_len": 0, "thinking_shown": False,
         "printed_tools": set(), "printed_res": set(),
         "pending_text": "", "text_len": 0, "text_prefix": "", "answer_started": False,
+        "md": MdStream(),
     }
     prov = providers.make(sess.account)
     t0 = time.time()
@@ -234,10 +371,13 @@ async def _run_prompt(sess: Session, prompt: str):
     except Exception as e:
         print(f"\n{R}✗ Ошибка: {e}{X}")
         return
-    # Финальный текст (если стрима не было / rich-путь его не печатал)
-    _flush_text(dict(state, pending_text=text))
-    if not state["answer_started"] and text:
-        sys.stdout.write(f"\n{C}▌{X} {text}")
+    # Финальный текст: дофлашиваем в ТОТ ЖЕ state (не в копию — иначе
+    # answer_started не обновится и нестримящий провайдер напечатает дважды),
+    # затем закрываем markdown-рендер (хвост + сброс стилей).
+    if text:
+        state["pending_text"] = text
+        _flush_text(state)
+    sys.stdout.write(state["md"].close())
     sess.session_id = new_session or sess.session_id
     sess.last_meta = meta or {}
     # Подпись: правки + токены + время
@@ -270,11 +410,18 @@ def _print_help():
 {D}Просто пиши текст — это уйдёт агенту. Многострочность: заканчивай пустой строкой не нужно, отправляется по Enter.{X}""")
 
 
+def _pretty_path(p: str) -> str:
+    """Короткий путь для показа: домашняя папка → ~."""
+    home = str(Path.home())
+    return "~" + p[len(home):] if p.startswith(home) else p
+
+
 def _cmd_status(sess: Session):
-    print(f"  {D}аккаунт{X}  {sess.label}  {D}({sess.provider}){X}")
-    print(f"  {D}модель {X}  {sess.model or '—'}")
-    print(f"  {D}папка  {X}  {sess.cwd}")
-    print(f"  {D}сессия {X}  {sess.session_id or '(новая)'}")
+    print(f"  {D}аккаунт{X}  {W}{sess.label}{X}  {D}({sess.provider}){X}")
+    print(f"  {D}модель {X}  {W}{sess.model or '—'}{X}")
+    print(f"  {D}проект {X}  {W}{_pretty_path(sess.cwd)}{X}")
+    print(f"           {D}└ рабочая папка агента: здесь он читает и создаёт файлы · сменить: /cwd <путь>{X}")
+    print(f"  {D}сессия {X}  {W}{sess.session_id or '(новая)'}{X}")
 
 
 def _cmd_resume(sess: Session):
@@ -329,11 +476,12 @@ def _handle_command(sess: Session, line: str) -> bool:
             if p.is_dir():
                 sess.cwd = str(p.resolve())
                 sess.session_id = None  # смена папки → другой проект → новая сессия
-                print(f"{G}▸ папка: {sess.cwd} (сессия сброшена){X}")
+                print(f"{G}▸ проект: {_pretty_path(sess.cwd)} (сессия сброшена){X}")
             else:
                 print(f"{R}нет такой папки: {arg}{X}")
         else:
-            print(f"  папка: {sess.cwd}  {D}(/cwd <путь>){X}")
+            print(f"  проект: {_pretty_path(sess.cwd)}"
+                  f"  {D}— рабочая папка агента (/cwd <путь> — сменить){X}")
     elif cmd == "/new":
         sess.session_id = None
         print(f"{G}▸ новая сессия — контекст забыт{X}")
@@ -366,6 +514,34 @@ def _cmd_diff(sess: Session):
             print(f"{D}  …(обрезано, полностью — в вебапе правок){X}")
 
 
+# ---------- прощание ----------
+FAREWELLS = [
+    "пока! возвращайся с новой идеей ✨",
+    "сессия не потерялась — /resume вернёт всё как было 👋",
+    "ушёл в фоновые размышления…",
+    "до связи! коммиты не забудь 😉",
+    "закрываю терминал, открываю космос 🚀",
+    "агент отдыхает. ты тоже отдохни 🌙",
+    "конец связи. история — в .jsonl, совесть — чиста 💾",
+    "свернулся до следующего промпта 🌀",
+    "это была хорошая сессия. увидимся 🤝",
+]
+
+
+def _farewell():
+    """Прощальная фраза с эффектом печатной машинки (в TTY — анимированно)."""
+    msg = random.choice(FAREWELLS)
+    if not _TTY:
+        print(msg)
+        return
+    sys.stdout.write(f"\n{M}▸{X} {I}")
+    for ch in msg:
+        sys.stdout.write(ch)
+        sys.stdout.flush()
+        time.sleep(0.014)
+    print(X)
+
+
 # ---------- REPL ----------
 async def _repl(sess: Session):
     _cmd_status(sess)
@@ -376,14 +552,14 @@ async def _repl(sess: Session):
             prompt_str = f"\n{B}{M}›{X} "
             line = await loop.run_in_executor(None, lambda: input(prompt_str))
         except (EOFError, KeyboardInterrupt):
-            print(f"\n{D}пока{X}")
+            _farewell()
             return
         line = line.strip()
         if not line:
             continue
         if line.startswith("/"):
             if not _handle_command(sess, line):
-                print(f"{D}пока{X}")
+                _farewell()
                 return
             continue
         try:
