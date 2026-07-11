@@ -41,3 +41,4 @@ memory/
 # внутренние ТЗ/аудиты — кухня, не для публичного репо
 docs/gpt-agent-audit.md
 docs/claude-implementation-tz.md
+docs/team-launch.md

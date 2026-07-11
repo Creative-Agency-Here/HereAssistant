@@ -65,10 +65,28 @@ webapp/front (Nuxt static, nginx) ──▶ webapp/api (aiohttp, 127.0.0.1:8200)
 
 ## Terminal chat
 
-Run `python chat.py` (or **Terminal chat** in `python manage.py`) for a console REPL over your
-subscriptions. Inside: `/help`, `/model`, `/account`, `/cwd`, `/new`, `/resume` (pick and continue a
-past session), `/status`, `/diff`, `/clear`, `/exit`. Full transparency — reasoning, every tool call
-and its output, live streamed answer, no 4096-char limit.
+A console REPL over the same subscription accounts as the bot — like the native `claude`, but for
+Claude / Codex / Gemini behind one prompt.
+
+![Terminal chat](docs/img/terminal-chat.png)
+
+**Launch**
+
+```bash
+python chat.py              # pick an account interactively
+python chat.py -a <label>   # jump straight onto an account
+```
+
+Or run `python manage.py` and choose **[4] Terminal chat** from the menu.
+
+**Inside** — slash-commands for everything:
+
+`/help` · `/model` · `/account` · `/cwd` · `/new` · `/resume` (pick & continue a past session) ·
+`/status` · `/diff` · `/clear` · `/exit`
+
+**Full transparency** — you see the model's reasoning, every tool call `⏺` and its result `⎿`, the
+answer streamed live, with no 4096-char Telegram limit. `/resume` reads the native session store, so
+a conversation you started here (or in the CLI directly) can be picked up later.
 
 ## Docs
 
