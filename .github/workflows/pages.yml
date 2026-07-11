@@ -1,13 +1,18 @@
 # Публикация лендинга (site/) на GitHub Pages.
-# Активация (один раз): Settings → Pages → Source: «GitHub Actions».
-# Кастомный домен hereassistant.hereagency.ru обслуживается своим nginx —
-# сюда CNAME НЕ кладём, Pages выходит зеркалом на *.github.io.
+#
+# ⚠️ РАЗОВАЯ АКТИВАЦИЯ (иначе job падает «Get Pages site failed: Not Found»,
+#    а enablement через встроенный GITHUB_TOKEN упирается в «Resource not
+#    accessible by integration» — API-создание Pages запрещено политикой):
+#      Settings → Pages → Build and deployment → Source: «GitHub Actions».
+#    После этого пуш в site/** деплоится сам; либо Actions → этот workflow →
+#    «Run workflow». Кастомный домен hereassistant.hereagency.ru на своём
+#    nginx — CNAME сюда НЕ кладём, Pages выходит зеркалом на *.github.io.
 name: Deploy landing to Pages
 
 on:
   push:
     branches: [master]
-    paths: ["site/**", ".github/workflows/pages.yml"]
+    paths: ["site/**"]     # правки самого workflow НЕ триггерят прогон
   workflow_dispatch:
 
 permissions:
@@ -28,13 +33,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-        with:
-          # Сам включает Pages через API, если ещё не включён (права pages:write
-          # есть). Иначе шаг падает «Get Pages site failed: Not Found». Если
-          # орг-политика запрещает — включить один раз вручную: Settings → Pages
-          # → Source: GitHub Actions.
-          enablement: true
+      - uses: actions/configure-pages@v5   # без enablement — Pages включается вручную (см. шапку)
       - name: Upload site/ as Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
