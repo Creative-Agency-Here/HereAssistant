@@ -1,6 +1,6 @@
 # HereAssistant
 
-🇷🇺 [Русская версия](README.ru.md)
+🌐 **[hereassistant.hereagency.ru](https://hereassistant.hereagency.ru)** · 🇷🇺 [Русская версия](README.ru.md)
 
 A personal Telegram bot that bridges you to CLI coding agents — **Claude Code, Codex CLI and Gemini CLI** — running on your own machine. Write code, run tasks and manage projects from any device through Telegram, powered by your existing AI subscriptions (no per-token API costs).
 
@@ -92,6 +92,16 @@ Or run `python manage.py` and choose **[4] Terminal chat** from the menu.
 **Full transparency** — you see the model's reasoning, every tool call `⏺` and its result `⎿`, the
 answer streamed live, with no 4096-char Telegram limit. `/resume` reads the native session store, so
 a conversation you started here (or in the CLI directly) can be picked up later.
+
+## Web Mini App
+
+A Nuxt 3 Mini App inside Telegram (or in the browser) — watch the agent live and review every change,
+authenticated via Telegram `initData`.
+
+![Web Mini App — live status and file-change journal](docs/img/webapp-miniapp.png)
+
+- **Now** — live task status, the current step, recent actions and a streaming bot log.
+- **Edits** — a per-file journal of every change the agent made, with full unified diffs.
 
 ## Docs
 

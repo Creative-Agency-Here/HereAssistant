@@ -98,6 +98,13 @@
   .card h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
   .card p { font-size: 14px; color: var(--muted); }
 
+  /* mini app */
+  .miniapp { text-align: center; }
+  .miniapp .sec-sub { margin: 0 auto 8px; }
+  .miniapp img { max-width: 100%; width: 860px; height: auto; margin-top: 20px;
+                 border-radius: 16px; border: 1px solid var(--border);
+                 box-shadow: 0 24px 70px rgba(0,0,0,.5); }
+
   /* privacy */
   .privacy { background: linear-gradient(180deg, rgba(171,96,246,.06), transparent); }
   .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-bottom: 28px; }
@@ -258,6 +265,17 @@
            <span class="ru">Отправляй документы, фото и войсы; речь распознаётся локально через faster-whisper. Длинные ответы приходят Markdown-файлами.</span></p>
       </div>
     </div>
+  </div>
+</section>
+
+<section class="miniapp">
+  <div class="wrap">
+    <h2><span class="en">Follow along in a web Mini App</span><span class="ru">Следи за работой в веб Mini App</span></h2>
+    <p class="sec-sub">
+      <span class="en">A Nuxt 3 Mini App inside Telegram or the browser: live task status and a per-file journal of every change with full diffs — authenticated via Telegram <code>initData</code>.</span>
+      <span class="ru">Nuxt 3 Mini App прямо в Telegram или в браузере: живой статус задачи и журнал изменений по файлам с полными диффами — вход через Telegram <code>initData</code>.</span>
+    </p>
+    <img src="webapp-miniapp.png" alt="HereAssistant web Mini App — live status and file-change journal" loading="lazy" width="860">
   </div>
 </section>
 
