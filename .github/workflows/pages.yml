@@ -1,0 +1,37 @@
+# Публикация лендинга (site/) на GitHub Pages.
+# Активация (один раз): Settings → Pages → Source: «GitHub Actions».
+# Кастомный домен hereassistant.hereagency.ru обслуживается своим nginx —
+# сюда CNAME НЕ кладём, Pages выходит зеркалом на *.github.io.
+name: Deploy landing to Pages
+
+on:
+  push:
+    branches: [master]
+    paths: ["site/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Параллельные деплои не нужны — держим один актуальный.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - name: Upload site/ as Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -140,8 +140,8 @@
       <span class="ru">Твои кодинг-агенты<br>в одном <span class="grad">Telegram</span></span>
     </h1>
     <p class="sub">
-      <span class="en">An open-source bot that bridges Telegram to Claude Code, Codex and Gemini CLI running on your own machine. Ship code from your phone — on your existing AI subscriptions, no per-token bills.</span>
-      <span class="ru">Опенсорс-бот, соединяющий Telegram с Claude Code, Codex и Gemini CLI на твоей машине. Пиши код с телефона — на своих подписках, без потокенной оплаты API.</span>
+      <span class="en">An open-source bridge to Claude Code, Codex and Gemini CLI on your own machine — from Telegram or straight from your terminal. Ship code from your phone on your existing AI subscriptions, no per-token bills.</span>
+      <span class="ru">Опенсорс-мост к Claude Code, Codex и Gemini CLI на твоей машине — из Telegram или прямо из терминала. Пиши код с телефона на своих подписках, без потокенной оплаты API.</span>
     </p>
     <div class="cta-row">
       <a class="cta main" href="https://github.com/Creative-Agency-Here/HereAssistant" target="_blank" rel="noopener">
@@ -192,6 +192,16 @@
         <p><span class="en">Claude Code, Codex and Gemini CLI as isolated subprocesses. Switch accounts and models with inline buttons mid-conversation.</span>
            <span class="ru">Claude Code, Codex и Gemini CLI как изолированные подпроцессы. Переключай аккаунты и модели инлайн-кнопками прямо в диалоге.</span></p>
       </div>
+      <div class="card"><div class="icon">⌨️</div>
+        <h3><span class="en">Terminal chat, too</span><span class="ru">И чат прямо в терминале</span></h3>
+        <p><span class="en">Not just Telegram — an interactive console REPL like the native <code>claude</code>: reasoning, tool calls and results stream live, past sessions resume with <code>/resume</code>. Same subscription accounts as the bot.</span>
+           <span class="ru">Не только Telegram — интерактивный консольный REPL, как нативный <code>claude</code>: рассуждения, вызовы инструментов и результаты стримятся вживую, прошлые сессии — через <code>/resume</code>. На тех же аккаунтах, что и бот.</span></p>
+      </div>
+      <div class="card"><div class="icon">👥</div>
+        <h3><span class="en">Team access from the bot</span><span class="ru">Команда — из самого бота</span></h3>
+        <p><span class="en">Newcomers file an access request; the owner approves with one tap (allow / admin / deny). Modes via <code>/access</code>, roles via <code>/users</code> — all in the DB, no <code>.env</code> edits or restarts.</span>
+           <span class="ru">Новичок оставляет заявку — владелец подтверждает одной кнопкой (разрешить / админ / отклонить). Режимы через <code>/access</code>, роли через <code>/users</code> — всё в БД, без правок <code>.env</code> и рестартов.</span></p>
+      </div>
       <div class="card"><div class="icon">🔐</div>
         <h3><span class="en">Account isolation</span><span class="ru">Изоляция аккаунтов</span></h3>
         <p><span class="en">Each subscription lives in its own auth home. Several accounts of the same provider coexist without clobbering each other.</span>
@@ -206,6 +216,11 @@
         <h3><span class="en">Native sessions & shared memory</span><span class="ru">Нативные сессии и общая память</span></h3>
         <p><span class="en">Claude sessions resume natively; Gemini reads Claude's project memory. Context survives without storing your data.</span>
            <span class="ru">Сессии Claude продолжаются нативно; Gemini читает память Claude по проекту. Контекст живёт без сохранения твоих данных.</span></p>
+      </div>
+      <div class="card"><div class="icon">📊</div>
+        <h3><span class="en">Rich answers</span><span class="ru">Богатые ответы</span></h3>
+        <p><span class="en">Final answers render with native tables, headings, code blocks and math (Bot API 10.1); the text streams as an animated draft. Automatic fallback to classic HTML.</span>
+           <span class="ru">Итоговые ответы — с нативными таблицами, заголовками, кодом и формулами (Bot API 10.1); текст стримится анимированным черновиком. Авто-фолбэк на классический HTML.</span></p>
       </div>
       <div class="card"><div class="icon">🖥️</div>
         <h3><span class="en">Web Mini App</span><span class="ru">Web Mini App</span></h3>
@@ -268,8 +283,8 @@ bash scripts/bootstrap_ubuntu.sh          <span class="c-cmt"># venv + deps + fr
 <span class="c-cmt"># fill .env, log in your CLI providers, then:</span>
 pm2 start ecosystem.config.js --only here-assistant-bot,here-assistant-api</pre>
     <p style="margin-top:18px; font-size:14px; color:var(--muted)">
-      <span class="en">Full runbook with nginx and HTTPS: <a href="https://github.com/Creative-Agency-Here/HereAssistant/blob/master/docs/ubuntu-pm2-nginx.md">docs/ubuntu-pm2-nginx.md</a>. Read <a href="https://github.com/Creative-Agency-Here/HereAssistant/blob/master/SECURITY.md">SECURITY.md</a> first — this is a remote-code-execution gateway by design.</span>
-      <span class="ru">Полный runbook с nginx и HTTPS: <a href="https://github.com/Creative-Agency-Here/HereAssistant/blob/master/docs/ubuntu-pm2-nginx.md">docs/ubuntu-pm2-nginx.md</a>. Сначала прочитай <a href="https://github.com/Creative-Agency-Here/HereAssistant/blob/master/SECURITY.md">SECURITY.md</a> — это шлюз удалённого выполнения кода by design.</span>
+      <span class="en">On first run the console prints a one-time claim code — the first person to send it becomes the owner; teammates then just message the bot. The whole path (BotFather → claim → roles) is in the <a href="https://github.com/Creative-Agency-Here/HereAssistant/blob/master/docs/onboarding.md">onboarding guide</a>. Full runbook with nginx and HTTPS: <a href="https://github.com/Creative-Agency-Here/HereAssistant/blob/master/docs/ubuntu-pm2-nginx.md">docs/ubuntu-pm2-nginx.md</a>. Read <a href="https://github.com/Creative-Agency-Here/HereAssistant/blob/master/SECURITY.md">SECURITY.md</a> first — this is a remote-code-execution gateway by design.</span>
+      <span class="ru">При первом запуске консоль печатает одноразовый claim-код — первый, кто его пришлёт, становится владельцем; дальше коллеги просто пишут боту. Весь путь (BotFather → claim → роли) — в <a href="https://github.com/Creative-Agency-Here/HereAssistant/blob/master/docs/onboarding.md">гайде онбординга</a>. Полный runbook с nginx и HTTPS: <a href="https://github.com/Creative-Agency-Here/HereAssistant/blob/master/docs/ubuntu-pm2-nginx.md">docs/ubuntu-pm2-nginx.md</a>. Сначала прочитай <a href="https://github.com/Creative-Agency-Here/HereAssistant/blob/master/SECURITY.md">SECURITY.md</a> — это шлюз удалённого выполнения кода by design.</span>
     </p>
   </div>
 </section>

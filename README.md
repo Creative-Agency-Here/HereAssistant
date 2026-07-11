@@ -4,6 +4,10 @@
 
 A personal Telegram bot that bridges you to CLI coding agents — **Claude Code, Codex CLI and Gemini CLI** — running on your own machine. Write code, run tasks and manage projects from any device through Telegram, powered by your existing AI subscriptions (no per-token API costs).
 
+![HereAssistant terminal chat — live demo](docs/img/terminal-demo.gif)
+
+<sub>The terminal client (`python chat.py`) — reasoning, tool calls and the answer stream live, like the native `claude`. The same thing runs in Telegram.</sub>
+
 **Privacy-first by design:** every project is `private` by default — message contents, diffs and tool logs are **not stored**, and nothing is ever sent to external systems (CRM). This can only be relaxed per project via an explicit `.hereassistant/project.yml` file — see [docs/privacy.md](docs/privacy.md).
 
 ## Features
