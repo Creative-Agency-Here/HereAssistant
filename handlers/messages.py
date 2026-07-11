@@ -19,7 +19,7 @@ from utils.files import download_attachment
 from utils.markdown import html_escape, markdown_to_html
 from utils.table_render import replace_tables_with_placeholders
 from . import repo
-from .common import is_admin, send_long
+from .common import is_allowed, send_long
 
 router = Router()
 log = logging.getLogger("bridge.msg")
@@ -124,8 +124,10 @@ def _format_signature(model: str | None, duration_s: float, edits: list) -> str:
 async def handle_any(message: Message, bot: Bot):
     if message.text and message.text.startswith("/"):
         return
-    if not is_admin(message):
-        await message.answer(f"Access denied. id={message.from_user.id if message.from_user else '?'}")
+    if not is_allowed(message):
+        # незнакомец/ожидающий: ответ по режиму доступа (заявка владельцу и т.п.)
+        from .team import handle_unauthorized
+        await handle_unauthorized(message, bot)
         return
 
     chat_id = message.chat.id

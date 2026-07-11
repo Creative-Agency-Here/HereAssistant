@@ -1,6 +1,6 @@
 """Сборка всех роутеров."""
 
-from . import admin_claim, accounts, models, projects, system, stats, deploy, diff, messages
+from . import admin_claim, accounts, models, projects, system, stats, deploy, diff, team, messages
 
 ALL_ROUTERS = [
     admin_claim.router,
@@ -11,6 +11,7 @@ ALL_ROUTERS = [
     stats.router,
     deploy.router,
     diff.router,
+    team.router,
     # messages — последним, чтобы команды успели перехватить
     messages.router,
 ]

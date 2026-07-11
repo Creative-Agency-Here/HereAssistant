@@ -8,14 +8,14 @@ from aiogram.types import Message
 
 from core import config
 from . import repo
-from .common import is_admin
+from .common import is_allowed
 
 router = Router()
 
 
 @router.message(Command("cwd"))
 async def cmd_cwd(message: Message, command: CommandObject):
-    if not is_admin(message):
+    if not is_allowed(message):
         return
     if not command.args:
         conv = repo.get_or_create_conv(message.chat.id, message.message_thread_id or 0,
@@ -37,7 +37,7 @@ async def cmd_cwd(message: Message, command: CommandObject):
 
 @router.message(Command("where"))
 async def cmd_where(message: Message):
-    if not is_admin(message):
+    if not is_allowed(message):
         return
     conv = repo.get_or_create_conv(message.chat.id, message.message_thread_id or 0,
                                     message.from_user.id)
@@ -47,7 +47,7 @@ async def cmd_where(message: Message):
 
 @router.message(Command("project"))
 async def cmd_project(message: Message, command: CommandObject):
-    if not is_admin(message):
+    if not is_allowed(message):
         return
     args = (command.args or "").split()
     if not args:

@@ -8,9 +8,9 @@ from aiogram.types import (Message, CallbackQuery,
                             InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo)
 from aiogram.exceptions import TelegramBadRequest
 
-from core import config, db, version
+from core import access, config, db, version
 from . import repo
-from .common import is_admin
+from .common import is_allowed
 
 log = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ router = Router()
 @router.message(Command("web"))
 async def cmd_web(message: Message):
     """Кнопка-вход в веб-интерфейс ассистента (Telegram Mini App)."""
-    if not is_admin(message):
+    if not is_allowed(message):
         return
     if not config.WEBAPP_URL:
         await message.answer("WEBAPP_URL не задан в .env — открыть нечего.")
@@ -68,6 +68,12 @@ HereAssistant — справка
   /log              — последние 20 событий
   /log error        — последние ошибки
 
+Команда и доступ (для админов):
+  /users            — все, кто писал боту: роли и допуск кнопками
+  /users <поиск>    — поиск по нику, имени или id
+  /access           — режим доступа: открытый / по подтверждению / только админы
+  /logout           — снять свой доступ (владельцу — отвязать бота)
+
 Деплой и версия:
   /version          — текущий хеш bot.py + дата
   /deploy           — перезапустить процесс (применить изменения в bot.py)
@@ -81,14 +87,14 @@ HereAssistant — справка
 
 @router.message(Command("help"))
 async def cmd_help(message: Message, command: CommandObject):
-    if not is_admin(message):
+    if not is_allowed(message):
         return
     await message.answer(HELP_TEXT)
 
 
 @router.message(Command("status"))
 async def cmd_status(message: Message):
-    if not is_admin(message):
+    if not is_allowed(message):
         return
     conv = repo.get_or_create_conv(message.chat.id, message.message_thread_id or 0,
                                     message.from_user.id)
@@ -113,7 +119,7 @@ async def cmd_status(message: Message):
 
 @router.message(Command("version"))
 async def cmd_version(message: Message):
-    if not is_admin(message):
+    if not is_allowed(message):
         return
     v = version.bot_version()
     await message.answer(f"bot.py\nhash: {v['short']} (полный: {v['hash'][:16]}...)\nmtime: {v['mtime']}")
@@ -121,7 +127,7 @@ async def cmd_version(message: Message):
 
 @router.message(Command("new"))
 async def cmd_new(message: Message):
-    if not is_admin(message):
+    if not is_allowed(message):
         return
     conv = repo.get_or_create_conv(message.chat.id, message.message_thread_id or 0,
                                     message.from_user.id)
@@ -138,7 +144,7 @@ def _reset_keyboard() -> InlineKeyboardMarkup:
 
 @router.message(Command("reset"))
 async def cmd_reset(message: Message):
-    if not is_admin(message):
+    if not is_allowed(message):
         return
     await message.answer("Очистить историю этого чата и сбросить сессию?",
                          reply_markup=_reset_keyboard())
@@ -146,7 +152,7 @@ async def cmd_reset(message: Message):
 
 @router.callback_query(F.data == "reset:yes")
 async def cb_reset_yes(query: CallbackQuery):
-    if not query.from_user or query.from_user.id != config.ADMIN_ID:
+    if not query.from_user or not access.is_allowed_id(query.from_user.id):
         await query.answer("Доступ запрещён", show_alert=True)
         return
     conv = repo.get_or_create_conv(query.message.chat.id,
@@ -174,7 +180,7 @@ def _delete_keyboard() -> InlineKeyboardMarkup:
 
 @router.message(Command("delete"))
 async def cmd_delete(message: Message):
-    if not is_admin(message):
+    if not is_allowed(message):
         return
     chat_type = message.chat.type
     thread_id = message.message_thread_id or 0
@@ -192,7 +198,7 @@ async def cmd_delete(message: Message):
 
 @router.callback_query(F.data == "delete:yes")
 async def cb_delete_yes(query: CallbackQuery):
-    if not query.from_user or query.from_user.id != config.ADMIN_ID:
+    if not query.from_user or not access.is_allowed_id(query.from_user.id):
         await query.answer("Доступ запрещён", show_alert=True)
         return
 

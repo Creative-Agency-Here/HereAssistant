@@ -7,7 +7,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
 from core import events
-from .common import is_admin
+from .common import is_allowed
 
 router = Router()
 
@@ -29,7 +29,7 @@ def _format_stats(title: str, data: dict) -> str:
 
 @router.message(Command("stats"))
 async def cmd_stats(message: Message, command: CommandObject):
-    if not is_admin(message):
+    if not is_allowed(message):
         return
     arg = (command.args or "").strip().lower()
     if arg == "week":
@@ -46,7 +46,7 @@ async def cmd_stats(message: Message, command: CommandObject):
 
 @router.message(Command("log"))
 async def cmd_log(message: Message, command: CommandObject):
-    if not is_admin(message):
+    if not is_allowed(message):
         return
     arg = (command.args or "").strip().lower()
     only_err = arg == "error"

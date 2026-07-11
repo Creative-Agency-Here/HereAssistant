@@ -10,6 +10,7 @@ A personal Telegram bot that bridges you to CLI coding agents — **Claude Code,
 
 - **Multiple providers, one chat** — Claude Code, Codex, Gemini as isolated CLI subprocesses; switch accounts and models with inline buttons.
 - **Terminal chat (`python chat.py`)** — an interactive REPL right in your console, like the native `claude`: a prompt, full live output (model reasoning, tool calls `⏺` and their results `⎿`, streamed answer — no Telegram length limit), `/resume` picker over past sessions, and slash-commands for settings. Runs on the same subscription accounts as the bot.
+- **Team access, managed from the bot** — newcomers file an access request; the owner approves with one tap (`✅ / 👑 admin / ⛔`). Access modes via `/access` (open / approve / admins-only), roles and member search via `/users` — everything lives in the DB, no `.env` editing or restarts to add teammates.
 - **Account isolation** — each subscription lives in its own auth home (`CLAUDE_CONFIG_DIR` / `CODEX_HOME` / `HOME`); several accounts of the same provider coexist.
 - **Live progress** — streaming progress message in chat while the agent works; interrupt by sending a new message.
 - **Rich Messages (Bot API 10.1)** — final answers via `sendRichMessage` with native tables, headings, code blocks and math; answer text streams as an animated `sendRichMessageDraft` preview. Automatic fallback to the classic HTML path.

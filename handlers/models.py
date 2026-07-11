@@ -5,9 +5,9 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import (Message, CallbackQuery,
                             InlineKeyboardButton, InlineKeyboardMarkup)
 
-from core import events, config
+from core import access, config, events
 from . import repo
-from .common import is_admin
+from .common import is_allowed
 
 router = Router()
 
@@ -34,7 +34,7 @@ def _models_keyboard(provider: str, current: str | None) -> InlineKeyboardMarkup
 
 @router.message(Command("model"))
 async def cmd_model(message: Message, command: CommandObject):
-    if not is_admin(message):
+    if not is_allowed(message):
         return
     conv = repo.get_or_create_conv(message.chat.id, message.message_thread_id or 0,
                                     message.from_user.id)
@@ -59,7 +59,7 @@ async def cmd_model(message: Message, command: CommandObject):
 
 @router.callback_query(F.data.startswith("mdl:set:"))
 async def cb_model_set(query: CallbackQuery):
-    if not query.from_user or query.from_user.id not in config.ADMIN_IDS:
+    if not query.from_user or not access.is_allowed_id(query.from_user.id):
         await query.answer("Доступ запрещён", show_alert=True)
         return
     model = query.data.split(":", 2)[-1]

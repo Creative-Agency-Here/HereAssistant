@@ -11,7 +11,19 @@ CREATE TABLE IF NOT EXISTS users (
     telegram_id INTEGER PRIMARY KEY,
     username    TEXT,
     role        TEXT NOT NULL DEFAULT 'user',
-    created_at  INTEGER NOT NULL
+    created_at  INTEGER NOT NULL,
+    -- Доступ: approved (допущен) / pending (заявка ждёт) / denied (отклонён).
+    status       TEXT NOT NULL DEFAULT 'approved',
+    first_name   TEXT,
+    last_seen    INTEGER,
+    -- Когда владельцу отправлена карточка-заявка (защита от спама повторами).
+    requested_at INTEGER
+);
+
+-- Настройки бота (живут в БД, не в .env): access_mode и будущие ключи.
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS accounts (
@@ -105,6 +117,11 @@ MIGRATIONS = [
     # (column_check_table, column_name, alter_sql)
     ("conversations", "project_name", "ALTER TABLE conversations ADD COLUMN project_name TEXT"),
     ("accounts", "owner_user_id", "ALTER TABLE accounts ADD COLUMN owner_user_id INTEGER"),
+    # Система доступа: существующие пользователи считаются допущенными (DEFAULT).
+    ("users", "status", "ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'"),
+    ("users", "first_name", "ALTER TABLE users ADD COLUMN first_name TEXT"),
+    ("users", "last_seen", "ALTER TABLE users ADD COLUMN last_seen INTEGER"),
+    ("users", "requested_at", "ALTER TABLE users ADD COLUMN requested_at INTEGER"),
 ]
 
 
@@ -116,6 +133,8 @@ def _col_exists(conn, table: str, col: str) -> bool:
 def init():
     config.init_dirs()
     with sqlite3.connect(config.DB_PATH) as conn:
+        # Флаг ДО применения схемы: колонка status только добавляется сейчас?
+        legacy_roles = not _col_exists(conn, "users", "status")
         conn.executescript(SCHEMA)
         for table, col, sql in MIGRATIONS:
             if not _col_exists(conn, table, col):
@@ -123,10 +142,21 @@ def init():
                     conn.execute(sql)
                 except sqlite3.OperationalError:
                     pass
+        if legacy_roles:
+            # Одноразовый бэкфилл: старый код создавал строки users ТОЛЬКО с
+            # role='admin', когда роль ничего не решала. Теперь решает — иначе
+            # давно отозванные владельцы молча воскресли бы полным доступом.
+            # Админство остаётся только текущим владельцам из .env.
+            ids = ",".join(str(int(i)) for i in config.ADMIN_IDS) or "0"
+            conn.execute(f"UPDATE users SET role='user' WHERE telegram_id NOT IN ({ids})")
         if config.ADMIN_ID is not None:
+            # Upsert, не IGNORE: строка владельца могла появиться раньше как
+            # pending/user (middleware фиксирует пишущих до клейма) — лечим.
             conn.execute(
-                "INSERT OR IGNORE INTO users(telegram_id, username, role, created_at) VALUES (?, ?, 'admin', ?)",
-                (config.ADMIN_ID, None, int(time.time())),
+                "INSERT INTO users(telegram_id, username, role, status, created_at) "
+                "VALUES (?, NULL, 'admin', 'approved', ?) "
+                "ON CONFLICT(telegram_id) DO UPDATE SET role='admin', status='approved'",
+                (config.ADMIN_ID, int(time.time())),
             )
         conn.commit()
 

@@ -7,9 +7,9 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import (Message, CallbackQuery,
                             InlineKeyboardButton, InlineKeyboardMarkup)
 
-from core import events
+from core import access, events
 from . import repo
-from .common import is_admin
+from .common import is_allowed
 
 router = Router()
 log = logging.getLogger("bridge.accounts")
@@ -29,7 +29,7 @@ def _accounts_keyboard(current_account_id: int | None) -> InlineKeyboardMarkup:
 
 @router.message(Command("accounts"))
 async def cmd_accounts(message: Message):
-    if not is_admin(message):
+    if not is_allowed(message):
         return
     accs = repo.list_accounts()
     if not accs:
@@ -54,7 +54,7 @@ async def cmd_accounts(message: Message):
 
 @router.message(Command("account"))
 async def cmd_account(message: Message, command: CommandObject):
-    if not is_admin(message):
+    if not is_allowed(message):
         return
     args = (command.args or "").split()
     if not args:
@@ -86,7 +86,7 @@ async def cmd_account(message: Message, command: CommandObject):
 
 @router.callback_query(F.data.startswith("acc:use:"))
 async def cb_account_use(query: CallbackQuery):
-    if not query.from_user or query.from_user.id != _admin_id():
+    if not query.from_user or not access.is_allowed_id(query.from_user.id):
         await query.answer("Доступ запрещён", show_alert=True)
         return
     acc_id = int(query.data.split(":")[-1])
@@ -112,7 +112,3 @@ async def cb_account_cancel(query: CallbackQuery):
     await query.message.edit_text("Отменено.")
     await query.answer()
 
-
-def _admin_id():
-    from core import config
-    return config.ADMIN_ID

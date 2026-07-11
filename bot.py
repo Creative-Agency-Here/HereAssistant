@@ -17,7 +17,7 @@ import time
 from aiogram import BaseMiddleware, Bot, Dispatcher
 from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
-from core import config, db, logging_setup, version
+from core import access, config, db, logging_setup, version
 from handlers import ALL_ROUTERS
 from handlers.deploy import post_restart_report, startup_notification
 from utils.memory_link import ensure_memory_links
@@ -27,26 +27,20 @@ from utils.single_instance import ensure_single_instance
 RESTART_REQUEST_FILE = config.RESTART_REQUEST_FILE
 
 
-class UsernameSync(BaseMiddleware):
-    """Дообновляет @username известных пользователей при каждом сообщении.
-
-    Строка в users могла появиться без ника (db.init() вставляет админа из .env
-    с username=NULL) или ник сменился. Обновляем ТОЛЬКО существующие строки —
-    чужаков в таблицу не заводим. Ник виден в терминальном чате (chat.py, «кто»)
-    и в атрибуции сессий."""
+class UserSeen(BaseMiddleware):
+    """Фиксирует каждого пишущего в users (для /users — «все, кто писал»):
+    новичок появляется pending (или approved в open-режиме), у знакомых
+    обновляются @username / имя / last_seen. Доступ этим НЕ выдаётся —
+    его решают is_allowed/is_admin по статусу и режиму (core/access.py).
+    Ник виден в терминальном чате (chat.py, «кто») и в атрибуции сессий."""
 
     async def __call__(self, handler, event, data):
         u = getattr(event, "from_user", None)
-        if u and u.username:
+        if u:
             try:
-                with db.conn() as c:
-                    c.execute(
-                        "UPDATE users SET username=? WHERE telegram_id=? "
-                        "AND (username IS NULL OR username<>?)",
-                        (u.username, u.id, u.username),
-                    )
+                access.upsert_seen(u.id, u.username, u.first_name)
             except Exception:
-                logging.getLogger("bridge").debug("username sync failed", exc_info=True)
+                logging.getLogger("bridge").debug("user seen failed", exc_info=True)
         return await handler(event, data)
 
 
@@ -160,7 +154,9 @@ COMMANDS = [
     BotCommand(command="deploy", description="Перезапустить процесс"),
     BotCommand(command="diff", description="Правки последнего ответа"),
     BotCommand(command="web", description="Открыть веб-интерфейс (Mini App)"),
-    BotCommand(command="logout", description="Отвязать мой аккаунт от бота"),
+    BotCommand(command="users", description="Команда: кто писал боту, роли (админ)"),
+    BotCommand(command="access", description="Режим доступа к боту (админ)"),
+    BotCommand(command="logout", description="Снять свой доступ / отвязать бота"),
 ]
 
 
@@ -183,7 +179,7 @@ async def main():
 
     bot = Bot(config.TELEGRAM_TOKEN)
     dp = Dispatcher()
-    dp.message.middleware(UsernameSync())
+    dp.message.middleware(UserSeen())
     for router in ALL_ROUTERS:
         dp.include_router(router)
 

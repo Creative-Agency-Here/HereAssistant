@@ -9,8 +9,8 @@ from aiogram import Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
-from core import config, db, events
-from .common import is_admin, send_long
+from core import access, config, db, events
+from .common import is_admin, is_allowed, send_long
 
 router = Router()
 log = logging.getLogger("bridge.claim")
@@ -38,10 +38,20 @@ async def cmd_start(message: Message, command: CommandObject):
             )
             return
         config.ADMIN_ID = message.from_user.id
+        # И runtime-список тоже: is_owner смотрит в ADMIN_IDS, а .env
+        # перечитается только при рестарте — без этого свежий владелец
+        # оказался бы заблокирован до перезапуска.
+        if config.ADMIN_ID not in config.ADMIN_IDS:
+            config.ADMIN_IDS.append(config.ADMIN_ID)
         _persist_admin_id(config.ADMIN_ID)
         with db.conn() as c:
+            # Upsert, не IGNORE: middleware уже вставил эту строку как
+            # user/pending ДО хендлера — клейм обязан поднять роль.
             c.execute(
-                "INSERT OR IGNORE INTO users(telegram_id, username, role, created_at) VALUES (?, ?, 'admin', ?)",
+                "INSERT INTO users(telegram_id, username, role, status, created_at) "
+                "VALUES (?, ?, 'admin', 'approved', ?) "
+                "ON CONFLICT(telegram_id) DO UPDATE SET role='admin', status='approved', "
+                "  username=COALESCE(excluded.username, users.username)",
                 (config.ADMIN_ID, message.from_user.username, int(time.time())),
             )
         events.log("admin_claim",
@@ -53,54 +63,72 @@ async def cmd_start(message: Message, command: CommandObject):
             "1. /accounts — подключи подписку CLI-агента (Claude / Codex / Gemini)\n"
             "2. /project — выбери рабочую папку\n"
             "3. Пиши задачу обычным текстом — агент выполнит\n\n"
-            "Добавить коллегу: его id → в ADMIN_IDS в .env (через запятую),\n"
-            "перезапустить бота. Терминальный чат: python chat.py.\n"
-            "/help — вся справка."
+            "Коллеги: пусть просто напишут боту — тебе придёт заявка\n"
+            "с кнопками (режимы: /access, роли: /users).\n"
+            "Терминальный чат: python chat.py. /help — вся справка."
         )
         log.info("Admin claimed by user_id=%s username=%s",
                  config.ADMIN_ID, message.from_user.username)
         return
 
-    if not is_admin(message):
-        await message.answer(
-            "⛔ Доступ пока закрыт — бот уже привязан к владельцу.\n\n"
-            f"Твой id: {message.from_user.id}\n"
-            "Отправь его владельцу: он добавит тебя в ADMIN_IDS (.env)\n"
-            "и перезапустит бота — после этого /start откроет доступ."
-        )
+    if not is_allowed(message):
+        # незнакомец/ожидающий/отклонённый — ответ по режиму доступа:
+        # заявка владельцу с кнопками, подсказка или отказ (handlers/team.py)
+        from .team import handle_unauthorized
+        await handle_unauthorized(message, message.bot)
         return
 
+    extra = ("Команда: /users · режим доступа: /access\n"
+             if is_admin(message) else "")
     await send_long(message,
         "Мульти-CLI мост готов. ✅ Ты авторизован.\n\n"
         "/accounts — подписки CLI-агентов · /project — рабочая папка\n"
-        "/status — что активно · /logout — отвязать аккаунт · /help — справка\n\n"
-        "Пиши задачу обычным текстом — агент выполнит и покажет ход работы."
+        "/status — что активно · /logout — снять свой доступ · /help — справка\n"
+        + extra +
+        "\nПиши задачу обычным текстом — агент выполнит и покажет ход работы."
     )
 
 
 @router.message(Command("logout"))
 async def cmd_logout(message: Message, command: CommandObject):
-    """Отвязка аккаунта. Последний владелец → бот уходит в режим привязки:
-    claim-код ротируется (старый из .env мог утечь), рестарт — через штатный
-    restart_watcher (дождётся тишины, не оборвёт активную задачу)."""
-    if not is_admin(message):
+    """Снять свой доступ. Пользователь/админ из БД — просто закрывается
+    (вернёт владелец в /users). Последний владелец из .env → бот уходит в
+    режим привязки: claim-код ротируется (старый из .env мог утечь), рестарт —
+    через штатный restart_watcher (дождётся тишины, не оборвёт задачу)."""
+    uid = message.from_user.id
+    owner = access.is_owner(uid)
+    if not owner and not is_allowed(message):
         await message.answer("Ты и так не авторизован. /start — как получить доступ.")
         return
-    uid = message.from_user.id
     if (command.args or "").strip().lower() != "confirm":
-        last = len(config.ADMIN_IDS) <= 1
-        warn = ("⚠️ Ты последний владелец: бот перезапустится в режим привязки,\n"
-                "новый claim-код появится в консоли (старый перестанет работать).\n\n"
-                if last else "")
+        if owner:
+            last = len(config.ADMIN_IDS) <= 1
+            warn = ("⚠️ Ты последний владелец: бот перезапустится в режим привязки,\n"
+                    "новый claim-код появится в консоли (старый перестанет работать).\n\n"
+                    if last else "")
+        else:
+            warn = "Твой доступ закроется; вернуть его сможет владелец в /users.\n\n"
         await message.answer(
             "Отвязать твой аккаунт от бота?\n\n" + warn +
             "Подтверждение: /logout confirm"
+        )
+        return
+    if not owner:
+        access.deny(uid)
+        events.log("logout", user_id=uid, chat_id=message.chat.id,
+                   payload={"kind": "db-user"})
+        await message.answer(
+            "✅ Твой доступ снят.\n"
+            "Вернуть может владелец: /users → выбрать тебя → «Открыть доступ»."
         )
         return
     config.remove_env_admin(uid)
     if uid in config.ADMIN_IDS:
         config.ADMIN_IDS.remove(uid)
     config.ADMIN_ID = config.ADMIN_IDS[0] if config.ADMIN_IDS else None
+    # Отозвать и БД-роль: у владельца всегда есть строка admin/approved
+    # (db.init сеет её) — без deny «отвязанный» сохранил бы полный доступ.
+    access.deny(uid)
     events.log("logout", user_id=uid, chat_id=message.chat.id,
                payload={"admins_left": len(config.ADMIN_IDS)})
     if config.ADMIN_ID is None:
@@ -125,6 +153,6 @@ async def cmd_logout(message: Message, command: CommandObject):
     else:
         await message.answer(
             "✅ Твой доступ снят.\n"
-            "Вернуть может владелец: твой id в ADMIN_IDS (.env) + рестарт бота."
+            "Вернуть может оставшийся владелец: /users → «Открыть доступ»."
         )
     log.info("logout user_id=%s admins_left=%s", uid, config.ADMIN_IDS)

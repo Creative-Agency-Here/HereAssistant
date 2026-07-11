@@ -138,7 +138,7 @@ WEBAPP_URL: str = os.environ.get("WEBAPP_URL", "").strip()
 WEBAPP_ACCESS_KEY: str = os.environ.get("WEBAPP_ACCESS_KEY", "").strip()
 
 # Версия приложения (для /health, /api/status и баннера терминального чата).
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.4.0"
 
 # Токен сервисного API (/api/v1/*) для внешних систем (например, CRM).
 # ПУСТОЙ по умолчанию = сервисные эндпоинты отключены (503), а не открыты.

@@ -10,7 +10,7 @@ from aiogram.types import Message
 
 from core import db
 from utils.markdown import html_escape, split_for_telegram
-from .common import is_admin
+from .common import is_allowed
 
 router = Router()
 log = logging.getLogger("bridge.diff")
@@ -55,7 +55,7 @@ def _format_diff(edit: dict) -> str:
 
 @router.message(Command("diff"))
 async def cmd_diff(message: Message):
-    if not is_admin(message):
+    if not is_allowed(message):
         return
 
     chat_id = message.chat.id
