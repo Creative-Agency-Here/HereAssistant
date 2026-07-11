@@ -29,6 +29,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+        with:
+          # Сам включает Pages через API, если ещё не включён (права pages:write
+          # есть). Иначе шаг падает «Get Pages site failed: Not Found». Если
+          # орг-политика запрещает — включить один раз вручную: Settings → Pages
+          # → Source: GitHub Actions.
+          enablement: true
       - name: Upload site/ as Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
