@@ -6,6 +6,7 @@ on:
 
 jobs:
   python:
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -25,7 +26,10 @@ jobs:
       - run: uv run --frozen ruff check .
       - run: uv run --frozen ruff format --check .
       - run: uv run --frozen pyright
-      - run: uv run --frozen pytest -q -p no:cacheprovider
+      - if: runner.os != 'Windows'
+        run: uv run --frozen pytest -q -p no:cacheprovider
+      - if: runner.os == 'Windows'
+        run: uv run --frozen pytest -vv -p no:cacheprovider --timeout=60 --timeout-method=thread
       - run: uv run --frozen python -m compileall -q bot.py manage.py chat.py core handlers providers utils webapp/api
       - run: uv lock --check
       - run: uv run --frozen python scripts/check_exception_ratchet.py
