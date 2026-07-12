@@ -68,9 +68,12 @@ def main() -> int:
             print(_annotation(tail, f"Command timeout after {args.timeout}s"), flush=True)
         return 124
 
-    print(output, end="", flush=True)
+    if process.returncode:
+        tail = list(deque(output.splitlines(), maxlen=40))
+        print("\n".join(tail), flush=True)
+    else:
+        print(output, end="", flush=True)
     if process.returncode and os.environ.get("GITHUB_ACTIONS") == "true":
-        tail = list(deque(output.splitlines(), maxlen=30))
         print(_annotation(tail, f"Command failed with exit code {process.returncode}"), flush=True)
     return process.returncode
 
