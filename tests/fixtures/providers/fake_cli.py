@@ -6,7 +6,7 @@ import json
 import sys
 
 mode = sys.argv[1] if len(sys.argv) > 1 else "echo"
-stdin = sys.stdin.read()
+stdin = sys.stdin.buffer.read().decode("utf-8")
 if mode == "echo":
     # ASCII JSON не зависит от legacy Windows console code page; json.loads
     # восстановит исходный Unicode на стороне теста.
