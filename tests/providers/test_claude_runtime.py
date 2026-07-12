@@ -4,9 +4,16 @@ from typing import Any
 
 import pytest
 
+from providers import claude_code
 from providers.claude_code import ClaudeCodeProvider, _permission_mode
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "providers" / "claude_success.jsonl"
+
+
+@pytest.fixture(autouse=True)
+def bypass_real_cli_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Runtime tests own the fake process; argv resolution has separate contract tests."""
+    monkeypatch.setattr(claude_code, "resolve_cli_argv", lambda argv: argv)
 
 
 class FakeStdin:

@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -41,7 +42,8 @@ def test_runtime_env_is_per_account_and_cleanup_redacts_history(tmp_path: Path) 
         ).fetchone()
     assert row == ("git", "rtk git", "", 100, 80)
     assert not tee_secret.exists()
-    assert database.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":
+        assert database.stat().st_mode & 0o777 == 0o600
 
 
 def test_configure_claude_profile_is_idempotent_and_preserves_settings(
@@ -63,7 +65,8 @@ def test_configure_claude_profile_is_idempotent_and_preserves_settings(
     ]
     assert commands == ["rtk hook claude"]
     assert "Bash(rtk git status:*)" in payload["permissions"]["allow"]
-    assert settings.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":
+        assert settings.stat().st_mode & 0o777 == 0o600
 
 
 def test_user_savings_uses_only_enabled_owned_accounts(
