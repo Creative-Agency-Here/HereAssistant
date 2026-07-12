@@ -22,6 +22,7 @@ from aiohttp import web
 from core import config
 from webapp.api.auth import validate_init_data
 from webapp.api.routes import changes as route_changes
+from webapp.api.routes import git_connections as route_git_connections
 from webapp.api.routes import history as route_history
 from webapp.api.routes import now as route_now
 from webapp.api.routes import rtk as route_rtk
@@ -51,6 +52,10 @@ WEBAPP_DOMAIN = os.environ.get("WEBAPP_DOMAIN", "").strip()
 async def auth_middleware(request: web.Request, handler):
     # health-check без авторизации
     if request.path in ("/api/health", "/health"):
+        return await handler(request)
+    # OAuth callback has no Telegram header after a third-party redirect. Its
+    # single-use HMAC-bound state is validated inside the route.
+    if request.path == "/api/git/oauth/callback/gitea":
         return await handler(request)
 
     # Сервисный API (/api/v1/*) — ТОЛЬКО Bearer SERVICE_API_TOKEN.
@@ -103,7 +108,7 @@ def _cors_response(resp: web.StreamResponse, request: web.Request) -> web.Stream
     if allowed:
         resp.headers["Access-Control-Allow-Origin"] = allowed
         resp.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, X-Access-Key"
-        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
         resp.headers["Access-Control-Allow-Credentials"] = "true"
     return resp
 
@@ -134,6 +139,12 @@ def create_app() -> web.Application:
     app.router.add_get("/api/history/{conv_id}", route_history.get_handler)
     app.router.add_get("/api/changes", route_changes.list_handler)
     app.router.add_get("/api/rtk", route_rtk.handler)
+    app.router.add_get("/api/git/connections", route_git_connections.list_handler)
+    app.router.add_post("/api/git/connections/start", route_git_connections.start_handler)
+    app.router.add_get("/api/git/oauth/callback/gitea", route_git_connections.callback_handler)
+    app.router.add_delete(
+        "/api/git/connections/{connection_id}", route_git_connections.revoke_handler
+    )
     app.router.add_get("/ws", route_ws.handler)
     # Сервисный API (SERVICE_API_TOKEN; private/local проекты невидимы)
     app.router.add_post("/api/v1/tasks", route_tasks.create)

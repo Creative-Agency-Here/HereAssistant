@@ -58,6 +58,23 @@ Authenticated Git vault rotation requires `systemd-creds` and systemd 250 or
 newer. Confirm the host version with `systemd-creds --version` before canary. The
 stdin/stdout form and credential-name binding used here were introduced in 250.
 
+For Gitea, register a separate OAuth2 application under user settings and mark it
+as a **public client**. Its exact redirect URI is
+`https://YOUR_WEBAPP_HOST/api/git/oauth/callback/gitea`. Configure only the public
+client ID; HereAssistant intentionally does not accept a Gitea client secret:
+
+```dotenv
+GIT_ALLOWED_HOSTS=git.example.com
+GITEA_OAUTH_APPS_JSON={"git.example.com":"PUBLIC_CLIENT_ID"}
+GIT_OAUTH_STATE_SECRET=GENERATE_A_DEDICATED_RANDOM_48_BYTE_VALUE
+```
+
+The state value is stored only as an HMAC; the S256 verifier is deterministically
+derived from the state plus the dedicated secret and is never stored in SQLite.
+Callbacks are single-use and expire after ten minutes. Automatic refresh-token
+rotation is not implemented yet: an expired connection must be reconnected before
+private Git operations resume.
+
 Create a metrics-only group. It grants `here` access only to aggregate JSON, not
 to CLI credentials or RTK command history.
 

@@ -171,15 +171,16 @@ the backend can actually perform that action safely.
   `LoadCredentialEncrypted`.
 - [x] Implement owner-bound, stdin-only atomic encrypted-bundle rotation and
   controlled reload without plaintext files.
-- [ ] Connect OAuth callbacks to safe encrypted-bundle rotation and service reload.
+- [x] Connect the Gitea public-client PKCE callback to safe encrypted-bundle
+  rotation and service reload.
 - [ ] Prove tokens cannot leak through argv, env, stdout, logs, process listing,
   RTK history, remote URLs, or the coding agent's filesystem.
 - [ ] Add canary and negative cross-user tests.
 
 ### P2 — Gitea OAuth and WebApp settings
 
-- [ ] Add owner-filtered schema, repository/service layer, and API.
-- [ ] Implement exact-host Authorization Code + PKCE.
+- [x] Add owner-filtered connection schema, repository/service layer, and API.
+- [x] Implement exact-host Authorization Code + PKCE.
 - [ ] Add Git account cards and repository picker.
 - [ ] Add `/git` as the safe WebApp entry point.
 - [ ] Route clone/pull/push through repository grants and the broker only.

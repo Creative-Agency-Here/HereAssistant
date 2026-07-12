@@ -1,5 +1,6 @@
 """Конфиг: загрузка .env, пути, константы."""
 
+import json
 import os
 import re
 import secrets
@@ -180,6 +181,39 @@ GIT_ALLOWED_HOSTS: tuple[str, ...] = tuple(
     for host in os.environ.get("GIT_ALLOWED_HOSTS", "github.com,gitlab.com").split(",")
     if host.strip()
 )
+
+
+def _parse_gitea_oauth_apps(raw: str) -> dict[str, str]:
+    """Public PKCE client IDs keyed by exact Gitea host; secrets are not accepted."""
+    if not raw.strip():
+        return {}
+    try:
+        values = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ValueError("GITEA_OAUTH_APPS_JSON должен быть JSON object") from error
+    if not isinstance(values, dict):
+        raise ValueError("GITEA_OAUTH_APPS_JSON должен быть JSON object")
+    result: dict[str, str] = {}
+    for host, client_id in values.items():
+        normalized_host = str(host).strip().lower()
+        normalized_client = str(client_id).strip()
+        if (
+            not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]{1,5})?", normalized_host)
+            or not normalized_client
+            or len(normalized_client) > 512
+        ):
+            raise ValueError("Некорректный GITEA_OAUTH_APPS_JSON entry")
+        result[normalized_host] = normalized_client
+    return result
+
+
+GITEA_OAUTH_APPS: dict[str, str] = _parse_gitea_oauth_apps(
+    os.environ.get("GITEA_OAUTH_APPS_JSON", "")
+)
+GIT_OAUTH_STATE_SECRET: str = os.environ.get("GIT_OAUTH_STATE_SECRET", "").strip()
+GIT_VAULT_ADMIN_EXECUTABLE: str = os.environ.get(
+    "GIT_VAULT_ADMIN_EXECUTABLE", "/usr/local/libexec/hereassistant-git-vault-admin"
+).strip()
 MAX_HISTORY: int = int(os.environ.get("MAX_HISTORY", "20"))
 LOG_RETENTION_DAYS: int = int(os.environ.get("LOG_RETENTION_DAYS", "30"))
 BACKUP_RETENTION_COUNT: int = int(os.environ.get("BACKUP_RETENTION_COUNT", "20"))

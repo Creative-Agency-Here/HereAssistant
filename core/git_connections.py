@@ -72,6 +72,8 @@ def create_pending_connection(user_id: int, provider: str, host: str) -> sqlite3
                (user_id,provider,host,status,created_at,updated_at)
                VALUES (?,?,?,'pending',?,?)
                ON CONFLICT(user_id,provider,host) DO UPDATE SET
+                 status=CASE WHEN git_connections.status='active'
+                   THEN git_connections.status ELSE 'pending' END,
                  updated_at=excluded.updated_at""",
             (user_id, provider, host, now, now),
         )

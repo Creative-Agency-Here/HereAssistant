@@ -259,15 +259,16 @@ sidebar. Existing `/history`, `/edits`, `/stats` сохраняются как r
   `LoadCredentialEncrypted`.
 - [x] Реализовать owner-bound atomic rotation encrypted bundle: credential идёт
   только через bounded stdin, plaintext-файл не создаётся, reload контролируемый.
-- [ ] Связать OAuth callback с безопасной rotation encrypted bundle и reload service.
+- [x] Связать Gitea public-client PKCE callback с безопасной rotation encrypted
+  bundle и reload service.
 - [ ] Проверить, что code runner не читает vault/HOME и не получает token через
   argv, env, stdout, logs, process list или Git remote.
 - [ ] Добавить canary и cross-user negative tests.
 
 ### P2. Gitea OAuth + WebApp settings
 
-- [ ] Добавить migrations/repository/service/API с owner filtering.
-- [ ] Реализовать Authorization Code + PKCE и exact-host allowlist.
+- [x] Добавить owner-filtered connection migrations/repository/service/API.
+- [x] Реализовать Authorization Code + PKCE и exact-host allowlist.
 - [ ] Добавить экран Git accounts и repository picker.
 - [ ] Добавить `/git` как безопасную точку входа в WebApp.
 - [ ] Clone/pull/push провести только через grant + broker.

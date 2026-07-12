@@ -53,4 +53,6 @@ npm run generate
 | `WEBAPP_HOST` | 127.0.0.1 | Хост API |
 | `WEBAPP_DOMAIN` | — | Прод-домен Mini App, для CORS (`https://...`) |
 | `WEBAPP_DEV_SKIP_AUTH` | 0 | dev: пропускать initData |
+| `GITEA_OAUTH_APPS_JSON` | `{}` | exact host → public PKCE client ID |
+| `GIT_OAUTH_STATE_SECRET` | — | отдельный random secret, минимум 32 символа |
 | `WS_TICK_SEC` | 2.0 | Период обновления статуса в WebSocket |

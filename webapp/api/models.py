@@ -115,7 +115,7 @@ def parse_git_repository_grant(payload: object) -> GitRepositoryGrantRequestDTO 
 
 def git_connection_to_dto(row: Mapping[str, object]) -> GitConnectionDTO:
     try:
-        raw_scopes = json.loads(str(row.get("scopes_json") or "[]"))
+        raw_scopes = json.loads(str(row["scopes_json"] or "[]"))
     except json.JSONDecodeError:
         raw_scopes = []
     scopes = [str(value) for value in raw_scopes] if isinstance(raw_scopes, list) else []
@@ -124,17 +124,17 @@ def git_connection_to_dto(row: Mapping[str, object]) -> GitConnectionDTO:
         "provider": str(row["provider"]),
         "host": str(row["host"]),
         "external_user_id": (
-            str(row["external_user_id"]) if row.get("external_user_id") is not None else None
+            str(row["external_user_id"]) if row["external_user_id"] is not None else None
         ),
         "external_login": (
-            str(row["external_login"]) if row.get("external_login") is not None else None
+            str(row["external_login"]) if row["external_login"] is not None else None
         ),
-        "avatar_url": str(row["avatar_url"]) if row.get("avatar_url") is not None else None,
+        "avatar_url": str(row["avatar_url"]) if row["avatar_url"] is not None else None,
         "scopes": scopes,
         "status": str(row["status"]),
-        "expires_at": (int(str(row["expires_at"])) if row.get("expires_at") is not None else None),
+        "expires_at": (int(str(row["expires_at"])) if row["expires_at"] is not None else None),
         "updated_at": int(str(row["updated_at"])),
         "last_used_at": (
-            int(str(row["last_used_at"])) if row.get("last_used_at") is not None else None
+            int(str(row["last_used_at"])) if row["last_used_at"] is not None else None
         ),
     }

@@ -546,5 +546,10 @@ providers/
   keys allowlisted, hooks/system/global config и unsafe protocols отключены; при
   включённом helper control files обязаны иметь Linux immutable flag, что закрывает
   замену после аудита. До реального credential всё ещё нужен negative canary.
-- Полный quality gate: 431 тест, Pyright, Ruff/format, compileall, lock,
+- Полный quality gate: 438 тестов, Pyright, Ruff/format, compileall, lock,
   exception ratchet и repository hygiene — зелёные; installer проходит `bash -n`.
+- Gitea public-client OAuth2 + PKCE подключён к WebApp API: exact-host app config,
+  HMAC-only single-use state, S256 verifier без хранения plaintext, bounded HTTPS
+  exchange без redirects, owner-scoped list/revoke и прямой stdin transfer в Git
+  vault. Replay/cross-user/token-in-DB negative tests добавлены; production не
+  менялся. Автоматический refresh-token flow остаётся отдельным P2 hardening.
