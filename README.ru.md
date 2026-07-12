@@ -106,6 +106,7 @@ HereAssistant/
 
 - `/help` — справка
 - `/accounts`, `/account use X` — аккаунты
+- `/rtk` — сколько контекстных токенов сэкономил RTK
 - `/model` — модель
 - `/cwd`, `/where`, `/project list|new|use` — рабочая папка
 - `/new`, `/reset` — сессия и история

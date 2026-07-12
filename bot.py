@@ -148,6 +148,7 @@ COMMANDS = [
     BotCommand(command="delete", description="Удалить беседу (БД + топик)"),
     BotCommand(command="status", description="Что сейчас активно"),
     BotCommand(command="stats", description="Статистика использования"),
+    BotCommand(command="rtk", description="Экономия токенов RTK"),
     BotCommand(command="log", description="Последние события"),
     BotCommand(command="version", description="Хеш и дата bot.py"),
     BotCommand(command="deploy", description="Перезапустить процесс"),

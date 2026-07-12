@@ -36,6 +36,7 @@ module.exports = {
       env: {
         PYTHONUNBUFFERED: '1',
         PYTHONIOENCODING: 'utf-8',
+        RTK_TELEMETRY_DISABLED: '1',
       },
       out_file: path.join(__dirname, '.runtime', 'logs', 'pm2-bot-out.log'),
       error_file: path.join(__dirname, '.runtime', 'logs', 'pm2-bot-err.log'),
@@ -54,6 +55,7 @@ module.exports = {
       env: {
         PYTHONUNBUFFERED: '1',
         PYTHONIOENCODING: 'utf-8',
+        RTK_TELEMETRY_DISABLED: '1',
         WEBAPP_HOST: '127.0.0.1',
         WEBAPP_PORT: '8200',
       },

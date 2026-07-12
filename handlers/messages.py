@@ -261,6 +261,7 @@ async def _process_message(
     await live.start()
 
     # --- основная работа ---
+    prov = None
     try:
         prov = providers.make(account, user_id=user_id)
 
@@ -470,6 +471,8 @@ async def _process_message(
             await message.answer(err_text, parse_mode="HTML")
 
     finally:
+        if prov is not None:
+            prov.cleanup_runtime()
         await live.close()
         if runtime.active_tasks.get(key) is asyncio.current_task():
             runtime.active_tasks.pop(key, None)

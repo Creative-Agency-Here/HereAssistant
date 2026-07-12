@@ -23,6 +23,7 @@ A personal Telegram bot that bridges you to CLI coding agents — **Claude Code,
 - **File exchange** — send documents/photos/voice to the agent; long answers come back as Markdown files.
 - **Voice input** — transcription via faster-whisper.
 - **Stats and events** — token usage, durations and errors per model/account (metrics only, never content).
+- **RTK savings** — per-owner aggregate context-token savings via `/rtk` and the Web Mini App; command arguments and project paths are scrubbed after each provider run.
 - **Self-restart** — `/deploy` applies code changes and reports back with a diff.
 - **Optional service API** — `/api/v1/tasks*` for external systems, guarded by a bearer token that can never see private/local projects.
 

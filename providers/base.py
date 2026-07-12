@@ -8,7 +8,7 @@ import sqlite3
 from pathlib import Path
 from typing import Optional
 
-from core import config
+from core import config, rtk
 from providers.models import ProgressCallback, ProviderMeta
 
 log = logging.getLogger("bridge.provider")
@@ -28,7 +28,10 @@ class CLIProvider:
         self.cli_home.mkdir(parents=True, exist_ok=True)
 
     def env(self) -> dict[str, str]:
-        return {**os.environ}
+        return {**os.environ, **rtk.runtime_env(self.cli_home)}
+
+    def cleanup_runtime(self) -> None:
+        rtk.sanitize_runtime(self.cli_home)
 
     async def run(
         self,

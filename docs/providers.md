@@ -33,6 +33,12 @@ Auth-home сам по себе не выдаёт доступ пользоват
 `owner_user_id` либо явный `shared=1`; `owner_user_id=NULL` означает
 «не назначен», а не «общий». Настройка выполняется через `manage.py`.
 
+Если на сервере установлен RTK, Claude-профиль получает native PreToolUse hook
+и точечные разрешения только для read/test-команд. Статистика хранится отдельно
+в `<cli_home>/.rtk/history.db` через `RTK_DB_PATH`; телеметрия отключена.
+После provider run HereAssistant удаляет command arguments, project paths и raw
+tee-файлы, а `/rtk` и WebApp показывают только агрегаты владельца аккаунта.
+
 **Эти каталоги содержат OAuth-токены подписок** — не коммить, не копировать в
 чужие руки (уже в `.gitignore`; см. SECURITY.md).
 

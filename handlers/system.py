@@ -13,7 +13,7 @@ from aiogram.types import (
     WebAppInfo,
 )
 
-from core import access, config, db, version
+from core import access, config, db, rtk, version
 
 from . import repo
 from .common import is_allowed
@@ -74,6 +74,7 @@ HereAssistant — справка
   /stats all        — за всё время
   /log              — последние 20 событий
   /log error        — последние ошибки
+  /rtk              — экономия контекстных токенов RTK
 
 Команда и доступ (для админов):
   /users            — все, кто писал боту: роли и допуск кнопками
@@ -132,6 +133,27 @@ async def cmd_version(message: Message):
     v = version.bot_version()
     await message.answer(
         f"bot.py\nhash: {v['short']} (полный: {v['hash'][:16]}...)\nmtime: {v['mtime']}"
+    )
+
+
+@router.message(Command("rtk"))
+async def cmd_rtk(message: Message):
+    if not is_allowed(message):
+        return
+    savings = rtk.user_savings(message.from_user.id)
+    if not savings["available"]:
+        await message.answer("RTK не установлен на сервере.")
+        return
+    if not savings["accounts"]:
+        await message.answer("Нет личных provider-аккаунтов с RTK-статистикой.")
+        return
+    await message.answer(
+        "RTK · экономия контекста\n"
+        f"Команд обработано: {savings['commands']}\n"
+        f"Токенов до/после: {savings['input_tokens']} → {savings['output_tokens']}\n"
+        f"Сэкономлено: {savings['saved_tokens']} ({savings['savings_pct']}%)\n"
+        f"Сегодня: {savings['today_commands']} команд · −{savings['today_saved_tokens']} токенов\n\n"
+        "Учитывается вывод поддерживаемых shell-команд; текст запроса и ответ модели не входят."
     )
 
 

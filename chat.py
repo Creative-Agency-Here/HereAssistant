@@ -172,6 +172,8 @@ async def _run_prompt(sess: Session, prompt: str):
     except Exception as e:
         print(f"\n{R}✗ Ошибка: {e}{X}")
         return
+    finally:
+        prov.cleanup_runtime()
     finish_stream(state, text)
     sess.session_id = new_session or sess.session_id
     sess.last_meta = meta or {}

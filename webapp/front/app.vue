@@ -6,7 +6,7 @@
       <NuxtLink to="/" class="nav-item" active-class="nav-item-active">Сейчас</NuxtLink>
       <NuxtLink to="/history" class="nav-item" active-class="nav-item-active">История</NuxtLink>
       <NuxtLink to="/edits" class="nav-item" active-class="nav-item-active">Правки</NuxtLink>
-      <NuxtLink to="/stats" class="nav-item nav-item-disabled">Статистика</NuxtLink>
+      <NuxtLink to="/stats" class="nav-item" active-class="nav-item-active">RTK</NuxtLink>
       <NuxtLink to="/settings" class="nav-item nav-item-disabled">Настройки</NuxtLink>
       <div class="mt-auto text-xs text-text-dim">
         v0.1.0
@@ -22,6 +22,7 @@
       <NuxtLink to="/" class="tab-item" active-class="tab-item-active">Сейчас</NuxtLink>
       <NuxtLink to="/history" class="tab-item" active-class="tab-item-active">История</NuxtLink>
       <NuxtLink to="/edits" class="tab-item" active-class="tab-item-active">Правки</NuxtLink>
+      <NuxtLink to="/stats" class="tab-item" active-class="tab-item-active">RTK</NuxtLink>
     </nav>
   </div>
 </template>

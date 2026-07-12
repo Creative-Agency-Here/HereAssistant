@@ -24,6 +24,7 @@ from webapp.api.auth import validate_init_data
 from webapp.api.routes import changes as route_changes
 from webapp.api.routes import history as route_history
 from webapp.api.routes import now as route_now
+from webapp.api.routes import rtk as route_rtk
 from webapp.api.routes import status as route_status
 from webapp.api.routes import tasks as route_tasks
 from webapp.api.routes import ws as route_ws
@@ -132,6 +133,7 @@ def create_app() -> web.Application:
     app.router.add_get("/api/history", route_history.list_handler)
     app.router.add_get("/api/history/{conv_id}", route_history.get_handler)
     app.router.add_get("/api/changes", route_changes.list_handler)
+    app.router.add_get("/api/rtk", route_rtk.handler)
     app.router.add_get("/ws", route_ws.handler)
     # Сервисный API (SERVICE_API_TOKEN; private/local проекты невидимы)
     app.router.add_post("/api/v1/tasks", route_tasks.create)
