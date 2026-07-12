@@ -192,9 +192,7 @@ async def main():
     # menu-кнопка (≡ слева от поля ввода) — открыть веб-приложение (Mini App)
     try:
         if config.WEBAPP_URL:
-            _menu_url = config.WEBAPP_URL + (
-                f"/?key={config.WEBAPP_ACCESS_KEY}" if config.WEBAPP_ACCESS_KEY else ""
-            )
+            _menu_url = config.webapp_url(include_access_key=True)
             await bot.set_chat_menu_button(
                 menu_button=MenuButtonWebApp(
                     text="Ассистент",

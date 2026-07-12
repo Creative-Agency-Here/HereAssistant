@@ -15,7 +15,8 @@ export function useLiveLog() {
   let stopped = false
 
   const wsUrl = computed(() => {
-    const base = config.public.apiBase.replace(/^http/, 'ws')
+    const configuredBase = config.public.apiBase.replace(/^http/, 'ws')
+    const base = configuredBase || `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`
     const initData = getInitData()
     const key = getAccessKey()
     let q = ''

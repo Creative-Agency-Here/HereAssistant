@@ -397,7 +397,7 @@ async def _process_message(
         edits_markup = None
         if _full_edits and config.WEBAPP_URL:
             web_url = (
-                f"{config.WEBAPP_URL}/edits?thread={thread_id}"
+                f"{config.webapp_url('/edits')}?thread={thread_id}"
                 f"&since={int(t0)}&until={int(time.time()) + 5}"
             )
             if config.WEBAPP_ACCESS_KEY:

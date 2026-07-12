@@ -151,6 +151,17 @@ WEBAPP_URL: str = os.environ.get("WEBAPP_URL", "").strip()
 # Открыть ?key=<этот ключ> один раз — фронт запомнит и будет слать на каждый запрос.
 WEBAPP_ACCESS_KEY: str = os.environ.get("WEBAPP_ACCESS_KEY", "").strip()
 
+
+def webapp_url(path: str = "/", *, include_access_key: bool = False) -> str:
+    if not WEBAPP_URL:
+        return ""
+    url = WEBAPP_URL.rstrip("/") + "/" + path.lstrip("/")
+    if include_access_key and WEBAPP_ACCESS_KEY:
+        separator = "&" if "?" in url else "?"
+        url += f"{separator}key={WEBAPP_ACCESS_KEY}"
+    return url
+
+
 # Версия приложения (для /health, /api/status и баннера терминального чата).
 APP_VERSION = "0.4.0"
 

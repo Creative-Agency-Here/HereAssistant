@@ -31,9 +31,7 @@ async def cmd_web(message: Message):
     if not config.WEBAPP_URL:
         await message.answer("WEBAPP_URL не задан в .env — открыть нечего.")
         return
-    web_url = config.WEBAPP_URL + (
-        f"/?key={config.WEBAPP_ACCESS_KEY}" if config.WEBAPP_ACCESS_KEY else ""
-    )
+    web_url = config.webapp_url(include_access_key=True)
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🖥 Открыть ассистента", web_app=WebAppInfo(url=web_url))]
