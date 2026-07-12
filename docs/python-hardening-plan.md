@@ -493,3 +493,8 @@ providers/
   production runbook требует отдельную Unix-группу на пользователя.
 - Итог checkpoint: 388 тестов и полный quality gate зелёные; включение production
   требует реальных Unix users, memberships, credentials и canary.
+- Первый production runner активирован для Ильи: real Claude profile, project
+  workspace, attachment staging, Git broker и RTK aggregates работают под
+  отдельным Unix UID; bot/API и SQLite прошли smoke/integrity checks.
+- Паша остаётся неактивированным до получения Telegram ID и собственных CLI
+  credentials. Private Gitea push из runner также ждёт отдельный user token.

@@ -1,7 +1,8 @@
 # Per-user Unix runners
 
-Status: provider, Git and attachment boundaries implemented; disabled by default.
-Do not enable on production until every provisioning/canary item is complete.
+Status: provider, Git and attachment boundaries implemented. The first production
+user was activated through a canary on 2026-07-12; fresh installations remain
+disabled by default. Additional users still require the full provisioning list.
 
 ## Threat boundary
 
@@ -137,6 +138,23 @@ The mode fails closed:
 The current root config supports one CLI home per provider for each Unix runner.
 Do not enable two accounts of the same provider for one user until account-label
 routing is added to the wrapper.
+
+## First production activation (2026-07-12)
+
+- A dedicated `ha-ilya` Unix user owns the migrated Claude profile and workspace.
+- HereAssistant core runs as `here` and reaches the profile only through the
+  root-owned wrapper; direct credential reads by `ha-ilya` outside its profile
+  and reads of the application `.env` were denied in canary checks.
+- Foreign user ID, foreign cwd, arbitrary Git command and parent-repository
+  discovery checks fail closed.
+- Claude streaming, session creation, Git status/pull, attachment staging and
+  sanitized RTK aggregate export passed through the production boundary.
+- Bot/API remained online and SQLite integrity stayed `ok` after activation.
+- The public GitHub remote is the branch pull upstream. Push to the private Gitea
+  remote remains unavailable inside the runner until a dedicated per-user HTTPS
+  credential/deploy token is provisioned; no legacy core credential was copied.
+- `ha-pavel` was not created: his Telegram ID and provider credentials are not
+  available yet.
 
 ## Canary and rollback
 
