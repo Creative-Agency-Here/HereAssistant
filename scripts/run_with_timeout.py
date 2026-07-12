@@ -6,6 +6,7 @@ import argparse
 import os
 import signal
 import subprocess
+import sys
 from collections import deque
 
 
@@ -31,6 +32,11 @@ def _annotation(lines: list[str], title: str) -> str:
 
 
 def main() -> int:
+    # GitHub Windows runners могут наследовать legacy console code page. Pytest
+    # выводит Unicode fixtures/messages, поэтому diagnostic output всегда UTF-8.
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if callable(reconfigure):
+        reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser()
     parser.add_argument("--timeout", type=int, required=True)
     parser.add_argument("command", nargs=argparse.REMAINDER)
