@@ -24,10 +24,10 @@ def _stop_tree(process: subprocess.Popen[str]) -> None:
         pass
 
 
-def _annotation(lines: list[str], timeout: int) -> str:
+def _annotation(lines: list[str], title: str) -> str:
     detail = " | ".join(line.strip() for line in lines if line.strip())[-4000:]
     detail = detail.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-    return f"::error title=Command timeout after {timeout}s::{detail}"
+    return f"::error title={title}::{detail}"
 
 
 def main() -> int:
@@ -65,10 +65,13 @@ def main() -> int:
         tail = list(deque(output.splitlines(), maxlen=30))
         print("\n".join(tail), flush=True)
         if os.environ.get("GITHUB_ACTIONS") == "true":
-            print(_annotation(tail, args.timeout), flush=True)
+            print(_annotation(tail, f"Command timeout after {args.timeout}s"), flush=True)
         return 124
 
     print(output, end="", flush=True)
+    if process.returncode and os.environ.get("GITHUB_ACTIONS") == "true":
+        tail = list(deque(output.splitlines(), maxlen=30))
+        print(_annotation(tail, f"Command failed with exit code {process.returncode}"), flush=True)
     return process.returncode
 
 
