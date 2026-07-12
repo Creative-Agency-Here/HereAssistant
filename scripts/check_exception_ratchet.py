@@ -17,6 +17,7 @@ IGNORED_PARTS = {
     "__pycache__",
     "node_modules",
     "tests",
+    "workspace",
 }
 
 # Зафиксированный debt после аудита 2026-07-11. Уменьшать можно, увеличивать нельзя.

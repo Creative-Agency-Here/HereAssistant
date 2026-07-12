@@ -24,6 +24,11 @@ def test_runtime_and_dependency_trees_are_ignored(
     (runtime / "foreign.py").write_text(
         "try:\n    pass\nexcept Exception:\n    pass\n", encoding="utf-8"
     )
+    workspace = tmp_path / "workspace" / "100" / "project"
+    workspace.mkdir(parents=True)
+    (workspace / "foreign.py").write_text(
+        "try:\n    pass\nexcept Exception:\n    pass\n", encoding="utf-8"
+    )
     monkeypatch.setattr(ratchet, "ROOT", tmp_path)
 
     assert ratchet.broad_counts() == {"app.py": 1}
