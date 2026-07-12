@@ -49,8 +49,52 @@ def test_repository_url_accepts_only_allowed_hosts_without_credentials(url: str)
     ],
 )
 def test_repository_url_rejects_unsafe_sources(url: str) -> None:
-    with pytest.raises(git_projects.GitProjectError):
+    with pytest.raises(git_projects.GitRemoteDeniedError) as captured:
         git_projects.validate_repository_url(url, ("github.com",))
+    assert captured.value.code == git_projects.GitErrorCode.REMOTE_DENIED
+
+
+@pytest.mark.parametrize(
+    ("output", "error_type", "code"),
+    [
+        (
+            "fatal: Authentication failed for remote",
+            git_projects.GitAuthRequiredError,
+            git_projects.GitErrorCode.AUTH_REQUIRED,
+        ),
+        (
+            "remote: Repository not found",
+            git_projects.GitRemoteDeniedError,
+            git_projects.GitErrorCode.REMOTE_DENIED,
+        ),
+        (
+            "fatal: unexpected transport error",
+            git_projects.GitProjectError,
+            git_projects.GitErrorCode.GIT_FAILED,
+        ),
+    ],
+)
+def test_git_failure_has_stable_machine_code(
+    output: str,
+    error_type: type[git_projects.GitProjectError],
+    code: git_projects.GitErrorCode,
+) -> None:
+    error = git_projects.classify_git_failure(output)
+
+    assert isinstance(error, error_type)
+    assert error.code == code
+    assert error.payload()["code"] == code.value
+
+
+def test_git_failure_payload_redacts_credentials() -> None:
+    credential_url = "https://alice:" + "private-value" + "@example.com/repo.git"
+    error = git_projects.classify_git_failure(
+        f"fatal: transport failed at {credential_url} token=private-value"
+    )
+
+    assert "private-value" not in str(error)
+    assert "private-value" not in error.payload()["message"]
+    assert "[redacted]" in str(error)
 
 
 @pytest.mark.asyncio
@@ -130,16 +174,23 @@ async def test_push_stops_before_real_push_when_any_preflight_fails(
         if args == ("remote",):
             return "origin\ngithub"
         if args == ("push", "--dry-run", "github", "HEAD"):
-            raise git_projects.GitProjectError("authentication required")
+            raise git_projects.GitAuthRequiredError()
         return "ok"
 
     monkeypatch.setattr(git_projects, "run_git", fake_run_git)
 
     with pytest.raises(
         git_projects.GitPushPreflightError,
-        match="remote 'github'.*authentication required",
-    ):
+        match="remote 'github'.*требуется авторизация",
+    ) as captured:
         await git_projects.push(100, tmp_path)
+
+    assert captured.value.payload() == {
+        "code": "PREFLIGHT_FAILED",
+        "message": str(captured.value),
+        "remote": "github",
+        "cause_code": "AUTH_REQUIRED",
+    }
 
     assert calls == [
         ("remote",),

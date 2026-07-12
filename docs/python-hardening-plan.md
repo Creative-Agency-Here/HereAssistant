@@ -509,6 +509,11 @@ providers/
 - Основной UX подключения — WebApp; Telegram остаётся identity/notification
   channel, CLI — headless/admin fallback. Gitea идёт через OAuth2 + PKCE, GitHub —
   через GitHub App с выбранными repositories; ручной PAT только как one-time fallback.
-- P0 начат: multi-remote dry-run preflight и tests уже добавлены. Следующая пачка —
-  stable Git errors и typed metadata schema/DTO. Production credentials и текущие
-  runner config не менялись.
+- P0 завершён: multi-remote dry-run preflight, stable Git error codes, metadata-only
+  `git_connections` / `git_repository_grants` / ephemeral OAuth session schema,
+  typed WebApp DTO и owner-isolation/migration tests добавлены. Public DTO не
+  сериализует `vault_ref`; revoke обнуляет ссылку и выключает repository grants.
+- Полный quality gate: 403 теста, Pyright, Ruff/format, compileall, lock,
+  exception ratchet и repository hygiene — зелёные.
+- Следующая пачка P1 — отдельный Git broker UID/config и vault interface.
+  Production credentials и текущие runner config не менялись.

@@ -104,7 +104,7 @@ async def cmd_project(message: Message, command: CommandObject):
         try:
             project = await git_projects.clone_project(message.from_user.id, name, url)
         except git_projects.GitProjectError as error:
-            await message.answer(f"Clone не выполнен: {error}")
+            await message.answer(f"Clone не выполнен [{error.code.value}]: {error}")
             return
         conv = repo.get_or_create_conv(
             message.chat.id, message.message_thread_id or 0, message.from_user.id
@@ -131,7 +131,7 @@ async def cmd_project(message: Message, command: CommandObject):
                 message.from_user.id, conv["project_id"], args[1]
             )
         except git_projects.GitProjectError as error:
-            await message.answer(f"Worktree не создан: {error}")
+            await message.answer(f"Worktree не создан [{error.code.value}]: {error}")
             return
         repo.update_conv(
             conv["id"],
@@ -175,7 +175,7 @@ async def cmd_project(message: Message, command: CommandObject):
                 else await git_projects.pull(message.from_user.id, root)
             )
         except git_projects.GitProjectError as error:
-            await message.answer(f"Git error: {error}")
+            await message.answer(f"Git error [{error.code.value}]: {error}")
             return
         await message.answer(output or "Рабочее дерево чистое.")
         return
@@ -235,6 +235,6 @@ async def cb_project_push(query: CallbackQuery):
     try:
         output = await git_projects.push(query.from_user.id, conv["cwd"])
     except git_projects.GitProjectError as error:
-        await query.message.edit_text(f"Push не выполнен: {error}")
+        await query.message.edit_text(f"Push не выполнен [{error.code.value}]: {error}")
         return
     await query.message.edit_text(output or "Push выполнен.")

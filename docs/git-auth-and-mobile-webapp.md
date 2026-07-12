@@ -159,8 +159,8 @@ the backend can actually perform that action safely.
 
 - [x] Dry-run every configured remote before the first real push.
 - [x] Test that a failed preflight prevents all real pushes.
-- [ ] Add stable `AUTH_REQUIRED`, `REMOTE_DENIED`, and `PREFLIGHT_FAILED` errors.
-- [ ] Add typed metadata DTOs and migration tests with no secret columns.
+- [x] Add stable `AUTH_REQUIRED`, `REMOTE_DENIED`, and `PREFLIGHT_FAILED` errors.
+- [x] Add typed metadata DTOs and migration tests with no secret columns.
 
 ### P1 — dedicated Git broker and vault
 

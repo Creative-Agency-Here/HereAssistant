@@ -6,6 +6,7 @@ import asyncio
 import re
 import shutil
 import sqlite3
+from enum import StrEnum
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -17,12 +18,84 @@ SAFE_NAME = re.compile(r"^[\w-]+$", re.UNICODE)
 SSH_URL = re.compile(r"^git@(?P<host>[A-Za-z0-9.-]+):(?P<path>[^\s]+)$")
 
 
+class GitErrorCode(StrEnum):
+    GIT_FAILED = "GIT_FAILED"
+    AUTH_REQUIRED = "AUTH_REQUIRED"
+    REMOTE_DENIED = "REMOTE_DENIED"
+    PREFLIGHT_FAILED = "PREFLIGHT_FAILED"
+
+
 class GitProjectError(RuntimeError):
-    pass
+    def __init__(self, message: str, code: GitErrorCode = GitErrorCode.GIT_FAILED):
+        super().__init__(message)
+        self.code = code
+
+    def payload(self) -> dict[str, str]:
+        return {"code": self.code.value, "message": str(self)}
+
+
+class GitAuthRequiredError(GitProjectError):
+    def __init__(self, message: str = "Для Git remote требуется авторизация"):
+        super().__init__(message, GitErrorCode.AUTH_REQUIRED)
+
+
+class GitRemoteDeniedError(GitProjectError):
+    def __init__(self, message: str):
+        super().__init__(message, GitErrorCode.REMOTE_DENIED)
 
 
 class GitPushPreflightError(GitProjectError):
     """Останавливает multi-remote push до первого реального изменения remote."""
+
+    def __init__(self, remote: str, cause: GitProjectError):
+        super().__init__(
+            f"Push preflight для remote '{remote}' не пройден: {cause}",
+            GitErrorCode.PREFLIGHT_FAILED,
+        )
+        self.remote = remote
+        self.cause_code = cause.code
+
+    def payload(self) -> dict[str, str]:
+        return {
+            **super().payload(),
+            "remote": self.remote,
+            "cause_code": self.cause_code.value,
+        }
+
+
+AUTH_FAILURE_MARKERS = (
+    "authentication failed",
+    "authentication required",
+    "could not read username",
+    "terminal prompts disabled",
+    "permission denied (publickey)",
+    "not logged in",
+)
+REMOTE_DENIED_MARKERS = (
+    "repository not found",
+    "does not appear to be a git repository",
+    "access denied",
+    "not authorized",
+    "the requested url returned error: 403",
+)
+CREDENTIAL_URL_PATTERN = re.compile(r"(https?://)[^\s/@:]+:[^\s@]+@", re.IGNORECASE)
+SECRET_ASSIGNMENT_PATTERN = re.compile(r"\b(token|password|authorization)=([^\s&]+)", re.IGNORECASE)
+
+
+def sanitize_git_output(output: str) -> str:
+    value = CREDENTIAL_URL_PATTERN.sub(r"\1[redacted]@", output)
+    return SECRET_ASSIGNMENT_PATTERN.sub(r"\1=[redacted]", value)
+
+
+def classify_git_failure(output: str) -> GitProjectError:
+    """Преобразует нестабильный stderr Git в безопасный машинный контракт."""
+    normalized = output.casefold()
+    if any(marker in normalized for marker in AUTH_FAILURE_MARKERS):
+        return GitAuthRequiredError()
+    if any(marker in normalized for marker in REMOTE_DENIED_MARKERS):
+        return GitRemoteDeniedError("Git remote недоступен или не разрешён")
+    sanitized = sanitize_git_output(output)
+    return GitProjectError(sanitized[-3000:] or "Git command failed")
 
 
 def validate_repository_url(url: str, allowed_hosts: tuple[str, ...] | None = None) -> str:
@@ -30,15 +103,15 @@ def validate_repository_url(url: str, allowed_hosts: tuple[str, ...] | None = No
     ssh_match = SSH_URL.fullmatch(url)
     if ssh_match:
         if ssh_match.group("host").lower() not in hosts:
-            raise GitProjectError("Git host не входит в GIT_ALLOWED_HOSTS")
+            raise GitRemoteDeniedError("Git host не входит в GIT_ALLOWED_HOSTS")
         return url
     parsed = urlsplit(url)
     if parsed.scheme != "https" or not parsed.hostname:
-        raise GitProjectError("Разрешены только HTTPS или git@host SSH URL")
+        raise GitRemoteDeniedError("Разрешены только HTTPS или git@host SSH URL")
     if parsed.username or parsed.password:
-        raise GitProjectError("Credentials в repository URL запрещены")
+        raise GitRemoteDeniedError("Credentials в repository URL запрещены")
     if parsed.hostname.lower() not in hosts:
-        raise GitProjectError("Git host не входит в GIT_ALLOWED_HOSTS")
+        raise GitRemoteDeniedError("Git host не входит в GIT_ALLOWED_HOSTS")
     return url
 
 
@@ -71,7 +144,7 @@ async def run_git(
         raise GitProjectError(f"git timeout after {timeout}s")
     output = (stdout + stderr).decode(errors="replace").strip()
     if process.returncode:
-        raise GitProjectError(output[-3000:] or f"git завершился с кодом {process.returncode}")
+        raise classify_git_failure(output or f"git завершился с кодом {process.returncode}")
     return output[-3000:]
 
 
@@ -129,7 +202,7 @@ async def push(user_id: int, root: str | Path) -> str:
     if "github" in remotes:
         targets.append("github")
     if not targets:
-        raise GitProjectError("У репозитория нет origin/github remote")
+        raise GitRemoteDeniedError("У репозитория нет origin/github remote")
     for remote in targets:
         try:
             await run_git(
@@ -142,9 +215,7 @@ async def push(user_id: int, root: str | Path) -> str:
                 timeout=600,
             )
         except GitProjectError as error:
-            raise GitPushPreflightError(
-                f"Push preflight для remote '{remote}' не пройден: {error}"
-            ) from error
+            raise GitPushPreflightError(remote, error) from error
     output: list[str] = []
     for remote in targets:
         output.append(

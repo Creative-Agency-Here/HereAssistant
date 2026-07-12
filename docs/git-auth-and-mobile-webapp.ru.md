@@ -246,9 +246,9 @@ sidebar. Existing `/history`, `/edits`, `/stats` сохраняются как r
 ### P0. Контракты и защита текущего push
 
 - [x] Добавить dry-run preflight всех remote перед реальным push.
-- [ ] Разделить ошибки `AUTH_REQUIRED`, `REMOTE_DENIED`, `PREFLIGHT_FAILED`.
+- [x] Разделить ошибки `AUTH_REQUIRED`, `REMOTE_DENIED`, `PREFLIGHT_FAILED`.
 - [x] Добавить tests на отсутствие partial push после неуспешного preflight.
-- [ ] Зафиксировать typed DTO и migration tests для metadata tables без secrets.
+- [x] Зафиксировать typed DTO и migration tests для metadata tables без secrets.
 
 ### P1. Отдельный Git broker и vault
 

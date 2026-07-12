@@ -82,6 +82,64 @@ CREATE TABLE IF NOT EXISTS project_members (
 CREATE INDEX IF NOT EXISTS idx_project_members_user
     ON project_members(user_id, project_id);
 
+-- Git identity metadata. Raw OAuth/PAT credentials никогда не хранятся в SQLite:
+-- vault_ref — только opaque-ссылка на секрет внутри отдельного Git broker.
+CREATE TABLE IF NOT EXISTS git_connections (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id             INTEGER NOT NULL,
+    provider            TEXT NOT NULL,
+    host                TEXT NOT NULL,
+    external_user_id    TEXT,
+    external_login      TEXT,
+    avatar_url          TEXT,
+    vault_ref           TEXT,
+    scopes_json         TEXT NOT NULL DEFAULT '[]',
+    status              TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending', 'active', 'expired', 'revoked', 'error')),
+    expires_at          INTEGER,
+    created_at          INTEGER NOT NULL,
+    updated_at          INTEGER NOT NULL,
+    last_used_at        INTEGER,
+    UNIQUE (user_id, provider, host)
+);
+CREATE INDEX IF NOT EXISTS idx_git_connections_user
+    ON git_connections(user_id, status, updated_at);
+
+CREATE TABLE IF NOT EXISTS git_repository_grants (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    connection_id           INTEGER NOT NULL,
+    external_repository_id  TEXT NOT NULL,
+    owner_name              TEXT NOT NULL,
+    repository_name         TEXT NOT NULL,
+    clone_url               TEXT NOT NULL,
+    default_branch          TEXT,
+    permission              TEXT NOT NULL DEFAULT 'write'
+                            CHECK (permission IN ('read', 'write', 'admin')),
+    enabled                 INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    created_at              INTEGER NOT NULL,
+    updated_at              INTEGER NOT NULL,
+    UNIQUE (connection_id, external_repository_id)
+);
+CREATE INDEX IF NOT EXISTS idx_git_repository_grants_connection
+    ON git_repository_grants(connection_id, enabled, updated_at);
+
+-- Короткоживущие OAuth metadata. verifier_ref указывает на ephemeral/encrypted
+-- store; state и PKCE verifier в открытом виде в таблицу не записываются.
+CREATE TABLE IF NOT EXISTS git_auth_sessions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         INTEGER NOT NULL,
+    provider        TEXT NOT NULL,
+    host            TEXT NOT NULL,
+    state_hash      TEXT NOT NULL UNIQUE,
+    verifier_ref    TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'completed', 'expired', 'failed')),
+    expires_at      INTEGER NOT NULL,
+    created_at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_git_auth_sessions_user
+    ON git_auth_sessions(user_id, status, expires_at);
+
 """
     + CONVERSATIONS_TABLE_SQL.replace(
         "CREATE TABLE conversations", "CREATE TABLE IF NOT EXISTS conversations"

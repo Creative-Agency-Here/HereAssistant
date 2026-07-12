@@ -105,6 +105,9 @@ def test_fresh_database_init_is_idempotent(tmp_path: Path, monkeypatch: pytest.M
         "accounts",
         "projects",
         "project_members",
+        "git_connections",
+        "git_repository_grants",
+        "git_auth_sessions",
         "conversations",
         "messages",
         "events",
@@ -112,6 +115,17 @@ def test_fresh_database_init_is_idempotent(tmp_path: Path, monkeypatch: pytest.M
         "file_changes",
     } <= tables
     assert owner == ("admin", "approved")
+
+    with sqlite3.connect(database_path) as connection:
+        git_connection_columns = columns(connection, "git_connections")
+        git_session_columns = columns(connection, "git_auth_sessions")
+
+    assert "vault_ref" in git_connection_columns
+    assert not {"token", "access_token", "refresh_token", "password", "pat"}.intersection(
+        git_connection_columns
+    )
+    assert {"state_hash", "verifier_ref"} <= git_session_columns
+    assert not {"state", "code_verifier", "token"}.intersection(git_session_columns)
 
 
 def test_legacy_database_is_migrated_without_data_loss(

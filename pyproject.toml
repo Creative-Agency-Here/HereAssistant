@@ -70,6 +70,8 @@ include = [
     "manage_views.py",
     "core/access.py",
     "core/db.py",
+    "core/git_connections.py",
+    "core/git_projects.py",
     "core/project_config.py",
     "core/models.py",
     "handlers/common.py",
