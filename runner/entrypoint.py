@@ -41,6 +41,7 @@ class RunnerDenied(RuntimeError):
 
 @dataclass(frozen=True)
 class RunnerProfile:
+    provider: str
     cli_home: Path
     metrics_file: Path
 
@@ -51,7 +52,7 @@ class RunnerConfig:
     unix_user: str
     home: Path
     path: str
-    providers: dict[str, RunnerProfile]
+    accounts: dict[str, RunnerProfile]
     project_roots: tuple[Path, ...]
     git_allowed_hosts: tuple[str, ...]
 
@@ -73,25 +74,35 @@ def load_config(unix_user: str, *, config_dir: Path = CONFIG_DIR) -> RunnerConfi
         user_id = int(raw["user_id"])
         configured_user = str(raw["unix_user"])
         home = Path(raw["home"]).resolve(strict=True)
-        provider_values: dict[str, dict[str, str]] = dict(raw["providers"])
+        account_values: dict[str, dict[str, str]] = dict(raw.get("accounts", {}))
+        if not account_values:
+            account_values = {
+                name: {**value, "provider": name}
+                for name, value in dict(raw.get("providers", {})).items()
+            }
         root_values = list(raw["project_roots"])
         git_hosts = tuple(str(value).lower() for value in raw.get("git_allowed_hosts", []))
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as error:
         raise RunnerDenied("runner config повреждён") from error
     if configured_user != unix_user:
         raise RunnerDenied("unix_user не совпадает с именем runner config")
-    providers: dict[str, RunnerProfile] = {}
-    for name, value in provider_values.items():
+    accounts: dict[str, RunnerProfile] = {}
+    for label, value in account_values.items():
         try:
+            provider = str(value["provider"])
             cli_home = Path(value["cli_home"]).resolve(strict=True)
             metrics_file = Path(value["metrics_file"])
         except (KeyError, TypeError, OSError) as error:
             raise RunnerDenied("runner provider profile повреждён") from error
         if not metrics_file.is_absolute():
             raise RunnerDenied("runner metrics_file должен быть абсолютным")
-        providers[name] = RunnerProfile(cli_home=cli_home, metrics_file=metrics_file)
-    if not providers or any(name not in PROVIDER_COMMANDS for name in providers):
-        raise RunnerDenied("runner providers невалидны")
+        accounts[label] = RunnerProfile(
+            provider=provider, cli_home=cli_home, metrics_file=metrics_file
+        )
+    if not accounts or any(
+        profile.provider not in PROVIDER_COMMANDS for profile in accounts.values()
+    ):
+        raise RunnerDenied("runner accounts невалидны")
     roots = tuple(Path(value).resolve(strict=True) for value in root_values)
     if not roots:
         raise RunnerDenied("runner project_roots пуст")
@@ -100,7 +111,7 @@ def load_config(unix_user: str, *, config_dir: Path = CONFIG_DIR) -> RunnerConfi
         unix_user=unix_user,
         home=home,
         path=str(raw.get("path") or "/usr/local/bin:/usr/bin:/bin"),
-        providers=providers,
+        accounts=accounts,
         project_roots=roots,
         git_allowed_hosts=git_hosts,
     )
@@ -111,15 +122,16 @@ def validate_request(
     *,
     user_id: int,
     provider: str,
+    account: str,
     cli_home: str,
     cwd: str,
     command: list[str],
 ) -> tuple[Path, Path]:
     if user_id != config.user_id:
         raise RunnerDenied("Telegram user_id не совпадает с runner")
-    profile = config.providers.get(provider)
-    if profile is None:
-        raise RunnerDenied("provider не разрешён runner config")
+    profile = config.accounts.get(account)
+    if profile is None or profile.provider != provider:
+        raise RunnerDenied("account/provider не разрешены runner config")
     actual_home = Path(cli_home).resolve(strict=True)
     if actual_home != profile.cli_home:
         raise RunnerDenied("cli_home не совпадает с runner config")
@@ -307,6 +319,7 @@ def main() -> int:
     mode.add_argument("--provider", choices=sorted(PROVIDER_COMMANDS))
     mode.add_argument("--git", action="store_true")
     parser.add_argument("--cli-home")
+    parser.add_argument("--account")
     parser.add_argument("--cwd", required=True)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -321,12 +334,13 @@ def main() -> int:
             cwd = validate_git_request(config, user_id=args.user_id, cwd=args.cwd, command=command)
             cli_home = None
         else:
-            if not args.provider or not args.cli_home:
-                raise RunnerDenied("provider/cli_home обязательны")
+            if not args.provider or not args.cli_home or not args.account:
+                raise RunnerDenied("provider/account/cli_home обязательны")
             cli_home, cwd = validate_request(
                 config,
                 user_id=args.user_id,
                 provider=args.provider,
+                account=args.account,
                 cli_home=args.cli_home,
                 cwd=args.cwd,
                 command=command,
@@ -353,7 +367,7 @@ def main() -> int:
         cwd,
         provider_environment(config, args.provider, cli_home),
         cli_home,
-        config.providers[args.provider].metrics_file,
+        config.accounts[args.account].metrics_file,
     )
 
 

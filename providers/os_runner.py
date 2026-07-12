@@ -76,8 +76,11 @@ class ProcessBoundary:
             return PreparedProcess(argv=list(argv), cwd=cwd, env=dict(os.environ))
         assert self.user_id is not None and self.unix_user is not None
         cli_home = str(_account_value(self.account, "cli_home_path", ""))
+        account_label = str(_account_value(self.account, "label", ""))
         if not cli_home or not Path(cli_home).is_absolute():
             raise RunnerConfigurationError("cli_home_path runner account должен быть абсолютным")
+        if not account_label:
+            raise RunnerConfigurationError("runner account требует label")
         wrapped = [
             "/usr/bin/sudo",
             "-n",
@@ -90,6 +93,8 @@ class ProcessBoundary:
             str(self.user_id),
             "--provider",
             provider,
+            "--account",
+            account_label,
             "--cli-home",
             cli_home,
             "--cwd",

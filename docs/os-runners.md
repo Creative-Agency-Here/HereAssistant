@@ -84,18 +84,20 @@ sudo install -d -o here -g ha-pavel-core -m 2750 /opt/hereassistant/.runtime/dow
   "unix_user": "ha-ilya",
   "home": "/home/ha-ilya",
   "path": "/usr/local/bin:/usr/bin:/bin",
-  "providers": {
-    "claude_code": {
+  "accounts": {
+    "claude-main": {
+      "provider": "claude_code",
       "cli_home": "/home/ha-ilya/cli-homes/claude",
-      "metrics_file": "/var/lib/hereassistant/runner-metrics/111111111/claude_code.json"
+      "metrics_file": "/var/lib/hereassistant/runner-metrics/111111111/claude-main.json"
     },
-    "codex": {
+    "codex-main": {
+      "provider": "codex",
       "cli_home": "/home/ha-ilya/cli-homes/codex",
-      "metrics_file": "/var/lib/hereassistant/runner-metrics/111111111/codex.json"
+      "metrics_file": "/var/lib/hereassistant/runner-metrics/111111111/codex-main.json"
     }
   },
-  "project_roots": ["/home/ha-ilya/projects"]
-  ,"git_allowed_hosts": ["github.com", "git.example.com"]
+  "project_roots": ["/home/ha-ilya/projects"],
+  "git_allowed_hosts": ["github.com", "git.example.com"]
 }
 ```
 
@@ -135,9 +137,8 @@ The mode fails closed:
 - RTK command arguments are scrubbed inside the runner;
 - only aggregate token savings are exported for `/rtk` and WebApp.
 
-The current root config supports one CLI home per provider for each Unix runner.
-Do not enable two accounts of the same provider for one user until account-label
-routing is added to the wrapper.
+Profiles are routed by the exact database `account.label`, so one user may have
+multiple isolated accounts of the same provider without sharing metrics or homes.
 
 ## First production activation (2026-07-12)
 

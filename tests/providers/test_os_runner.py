@@ -10,6 +10,7 @@ from providers.os_runner import ProcessBoundary, RunnerConfigurationError
 def account(**overrides: object) -> dict[str, object]:
     return {
         "provider": "claude_code",
+        "label": "claude-main",
         "cli_home_path": "/home/ha-ilya/.claude",
         "owner_user_id": 100,
         "shared": 0,

@@ -156,8 +156,9 @@ def _aggregate(database: Path, since: str | None = None) -> tuple[int, int, int,
     return tuple(int(value or 0) for value in row)  # type: ignore[return-value]
 
 
-def _runner_aggregate(user_id: int, provider: str) -> tuple[tuple[int, ...], tuple[int, ...]]:
-    path = config.OS_RUNNER_METRICS_DIR / str(user_id) / f"{provider}.json"
+def _runner_aggregate(user_id: int, label: str) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    safe_label = "".join(char for char in label if char.isalnum() or char in "-_")
+    path = config.OS_RUNNER_METRICS_DIR / str(user_id) / f"{safe_label}.json"
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
         total = tuple(
@@ -181,15 +182,15 @@ def user_savings(user_id: int) -> Savings:
     """Суммирует только enabled-аккаунты владельца; shared нельзя атрибутировать."""
     with db.conn() as connection:
         accounts = [
-            (str(row["provider"]), Path(row["cli_home_path"]))
+            (str(row["label"]), Path(row["cli_home_path"]))
             for row in connection.execute(
-                """SELECT provider,cli_home_path FROM accounts
+                """SELECT label,cli_home_path FROM accounts
                    WHERE enabled=1 AND owner_user_id=? ORDER BY id""",
                 (user_id,),
             )
         ]
     if config.OS_RUNNERS_ENABLED:
-        snapshots = [_runner_aggregate(user_id, provider) for provider in dict(accounts)]
+        snapshots = [_runner_aggregate(user_id, label) for label, _ in accounts]
         total = [snapshot[0] for snapshot in snapshots]
         daily = [snapshot[1] for snapshot in snapshots]
     else:

@@ -27,9 +27,11 @@ def runner_config(tmp_path: Path) -> RunnerConfig:
         unix_user="ha-ilya",
         home=home.resolve(),
         path="/usr/local/bin:/usr/bin:/bin",
-        providers={
-            "claude_code": RunnerProfile(
-                cli_home=cli_home.resolve(), metrics_file=tmp_path / "metrics" / "claude.json"
+        accounts={
+            "claude-main": RunnerProfile(
+                provider="claude_code",
+                cli_home=cli_home.resolve(),
+                metrics_file=tmp_path / "metrics" / "claude.json",
             )
         },
         project_roots=(project.resolve(),),
@@ -40,13 +42,14 @@ def runner_config(tmp_path: Path) -> RunnerConfig:
 def test_validate_request_accepts_only_exact_identity_profile_and_project(
     runner_config: RunnerConfig,
 ) -> None:
-    cli_home = runner_config.providers["claude_code"].cli_home
+    cli_home = runner_config.accounts["claude-main"].cli_home
     project = runner_config.project_roots[0]
 
     resolved_home, resolved_cwd = validate(
         runner_config,
         user_id=100,
         provider="claude_code",
+        account="claude-main",
         cli_home=str(cli_home),
         cwd=str(project),
         command=["claude", "--print"],
@@ -57,13 +60,14 @@ def test_validate_request_accepts_only_exact_identity_profile_and_project(
 
 
 @pytest.mark.parametrize(
-    "field", ["user", "provider", "home", "cwd", "command", "absolute_command"]
+    "field", ["user", "provider", "account", "home", "cwd", "command", "absolute_command"]
 )
 def test_validate_request_fails_closed(runner_config: RunnerConfig, field: str) -> None:
     values = {
         "user_id": 100,
         "provider": "claude_code",
-        "cli_home": str(runner_config.providers["claude_code"].cli_home),
+        "account": "claude-main",
+        "cli_home": str(runner_config.accounts["claude-main"].cli_home),
         "cwd": str(runner_config.project_roots[0]),
         "command": ["claude"],
     }
@@ -71,6 +75,8 @@ def test_validate_request_fails_closed(runner_config: RunnerConfig, field: str) 
         values["user_id"] = 200
     elif field == "provider":
         values["provider"] = "codex"
+    elif field == "account":
+        values["account"] = "foreign"
     elif field == "home":
         values["cli_home"] = str(runner_config.home)
     elif field == "cwd":
@@ -90,16 +96,16 @@ def test_provider_environment_contains_no_application_secrets(
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "secret")
 
     environment = provider_environment(
-        runner_config, "claude_code", runner_config.providers["claude_code"].cli_home
+        runner_config, "claude_code", runner_config.accounts["claude-main"].cli_home
     )
 
-    assert environment["CLAUDE_CONFIG_DIR"] == str(runner_config.providers["claude_code"].cli_home)
+    assert environment["CLAUDE_CONFIG_DIR"] == str(runner_config.accounts["claude-main"].cli_home)
     assert environment["RTK_TELEMETRY_DISABLED"] == "1"
     assert "TELEGRAM_BOT_TOKEN" not in environment
 
 
 def test_runner_sanitizes_rtk_history_and_raw_tee(runner_config: RunnerConfig) -> None:
-    cli_home = runner_config.providers["claude_code"].cli_home
+    cli_home = runner_config.accounts["claude-main"].cli_home
     runtime = cli_home / ".rtk"
     tee = runtime / "tee"
     tee.mkdir(parents=True)
@@ -126,7 +132,7 @@ def test_runner_sanitizes_rtk_history_and_raw_tee(runner_config: RunnerConfig) -
     assert row == ("git", "rtk git", "")
     assert not any(tee.iterdir())
 
-    metrics_file = runner_config.providers["claude_code"].metrics_file
+    metrics_file = runner_config.accounts["claude-main"].metrics_file
     write_rtk_metrics(cli_home, metrics_file)
     payload = metrics_file.read_text(encoding="utf-8")
     assert '"commands":1' in payload

@@ -142,7 +142,7 @@ def test_user_savings_reads_sanitized_runner_snapshot(
                (provider,label,cli_home_path,enabled,owner_user_id,shared)
                VALUES ('claude_code','owned','/private/unreadable',1,100,0)"""
         )
-    snapshot = config.OS_RUNNER_METRICS_DIR / "100" / "claude_code.json"
+    snapshot = config.OS_RUNNER_METRICS_DIR / "100" / "owned.json"
     snapshot.parent.mkdir(parents=True)
     snapshot.write_text(
         json.dumps(
