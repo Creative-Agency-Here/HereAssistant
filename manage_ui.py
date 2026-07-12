@@ -30,6 +30,11 @@ MenuItem = tuple[str, str, str, str]
 
 def getch() -> str:
     try:
+        # `msvcrt.getwch()` не учитывает redirected/captured stdin и навсегда
+        # блокируется в CI. Сначала проверяем, что stdin действительно terminal.
+        descriptor = sys.stdin.fileno()
+        if not sys.stdin.isatty():
+            return input().strip()[:1]
         if os.name == "nt":
             import msvcrt
 
@@ -37,7 +42,6 @@ def getch() -> str:
         import termios
         import tty
 
-        descriptor = sys.stdin.fileno()
         previous = termios.tcgetattr(descriptor)
         try:
             tty.setraw(descriptor)
