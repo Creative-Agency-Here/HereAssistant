@@ -61,6 +61,18 @@ def create_legacy_database(path: Path) -> None:
                 updated_at INTEGER NOT NULL,
                 UNIQUE (chat_id, thread_id)
             );
+            CREATE TABLE file_changes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts INTEGER NOT NULL,
+                thread_id INTEGER,
+                account TEXT,
+                model TEXT,
+                file TEXT NOT NULL,
+                tool TEXT,
+                added INTEGER,
+                removed INTEGER,
+                diff TEXT
+            );
             INSERT INTO users(telegram_id, username, role, created_at)
             VALUES (100, 'owner', 'admin', 1), (200, 'old-admin', 'admin', 1);
             INSERT INTO accounts(provider, label, cli_home_path)
@@ -121,6 +133,7 @@ def test_legacy_database_is_migrated_without_data_loss(
             "SELECT chat_id, cwd, project_name, project_id FROM conversations"
         ).fetchone()
         user_columns = columns(connection, "users")
+        file_change_columns = columns(connection, "file_changes")
 
     assert users == [
         (100, "owner", "admin", "approved"),
@@ -129,6 +142,7 @@ def test_legacy_database_is_migrated_without_data_loss(
     assert account == ("claude_code", "legacy", "/tmp/legacy-home", None, 0)
     assert conversation == (10, "/tmp/project", None, None)
     assert {"status", "first_name", "last_seen", "requested_at"} <= user_columns
+    assert {"user_id", "project_id"} <= file_change_columns
 
     with sqlite3.connect(database_path) as connection:
         connection.execute(

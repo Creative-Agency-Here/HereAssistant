@@ -25,6 +25,12 @@ async def list_handler(request: web.Request) -> web.Response:
     until = _int("until")
 
     items = repo.list_file_changes(
-        limit=limit, offset=offset, file=file, thread_id=thread_id, since=since, until=until
+        user_id=int(request["user"]["id"]),
+        limit=limit,
+        offset=offset,
+        file=file,
+        thread_id=thread_id,
+        since=since,
+        until=until,
     )
     return web.json_response({"items": items, "limit": limit, "offset": offset})

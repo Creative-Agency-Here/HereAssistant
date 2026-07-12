@@ -88,7 +88,7 @@ def trim_edits_for_events(edits: list) -> list:
     return out
 
 
-def record_edits(thread_id, account, model, edits) -> None:
+def record_edits(user_id, project_id, thread_id, account, model, edits) -> None:
     """Пишет полный дифф каждой правки в file_changes + дописывает .md по дням.
     Никогда не падает наружу — журнал не должен ронять обработку сообщения."""
     edits = edits or []
@@ -104,6 +104,8 @@ def record_edits(thread_id, account, model, edits) -> None:
         rows.append(
             (
                 ts,
+                user_id,
+                project_id,
                 thread_id,
                 account,
                 model,
@@ -121,8 +123,8 @@ def record_edits(thread_id, account, model, edits) -> None:
         try:
             c.executemany(
                 "INSERT INTO file_changes "
-                "(ts, thread_id, account, model, file, tool, added, removed, diff) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
+                "(ts, user_id, project_id, thread_id, account, model, file, tool, added, removed, diff) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 rows,
             )
             c.commit()
@@ -138,7 +140,7 @@ def record_edits(thread_id, account, model, edits) -> None:
         log_dir.mkdir(parents=True, exist_ok=True)
         md = log_dir / f"{dt:%Y-%m-%d}.md"
         with md.open("a", encoding="utf-8") as f:
-            for _, tid, acc, mdl, file, tool, added, removed, diff in rows:
+            for _, _, _, tid, acc, mdl, file, tool, added, removed, diff in rows:
                 f.write(f"\n## {dt:%H:%M:%S} · тред {tid} · {acc} · {mdl}\n")
                 f.write(f"**{tool}** `{file}`  (+{added}/−{removed})\n\n")
                 f.write("```diff\n" + diff + "\n```\n")

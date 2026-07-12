@@ -453,3 +453,23 @@ providers/
   production auth flags безопасны, SQLite init и frontend artifact исправны.
 - Добавлены release notes и измеримый Python startup/RSS baseline для будущего
   grammY/TypeScript spike. Деплой, commit и push не выполнялись.
+
+### 2026-07-12 — production rollout and isolation close-out
+
+- Hardening 0.4.0 опубликован в обоих remote и развёрнут на production после
+  SQLite backup; миграции, integrity check, PM2 runtime и API health прошли.
+- Provider account, conversations, projects, cwd authorization и provider memory
+  изолированы по пользователю; произвольный enabled-account fallback удалён.
+- WebApp опубликован по `/webapp/` через ограниченный SSH local-forward, сохранив
+  существующий landing; API, вложенные Nuxt assets и Telegram menu проверены.
+- RTK v0.43.0 установлен с pinned checksum, telemetry disabled и отдельной
+  статистикой по account home; `/rtk` и `/api/rtk` показывают фактическую экономию,
+  а сырые аргументы команд после запуска очищаются.
+- Добавлен user-scoped Git project flow: clone/status/pull/worktree и подтверждаемый
+  push в разрешённые hosts; рабочие каталоги и worktrees регистрируются на владельца.
+- Закрыты последние WebApp-утечки: active task, recent actions и file changes
+  фильтруются по Telegram user; глобальный bot.log доступен только primary admin.
+- Итоговый quality gate: 360 тестов, Ruff, format, Pyright, compileall,
+  `uv lock --check`, exception ratchet и repository hygiene — зелёные.
+- Остающийся архитектурный предел: CLI разных людей пока запускаются под одним
+  Unix UID. До приватных клиентских репозиториев нужны отдельные OS runner users.

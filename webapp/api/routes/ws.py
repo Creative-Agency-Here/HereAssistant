@@ -27,9 +27,14 @@ async def handler(request: web.Request) -> web.WebSocketResponse:
     await ws.prepare(request)
 
     log.info("ws client connected user=%s", request["user"].get("id"))
+    user_id = int(request["user"]["id"])
+    can_view_global_logs = user_id == config.ADMIN_ID
 
-    # начальный дамп: последние N строк лога
-    last_inode_pos = await _initial_dump(ws)
+    # Общий bot.log может содержать метаданные других пользователей.
+    # Его получает только главный администратор; статус всегда user-scoped.
+    last_inode_pos = await _initial_dump(ws) if can_view_global_logs else 0
+    if not can_view_global_logs:
+        await ws.send_str(json.dumps({"type": "log_init", "lines": []}))
 
     try:
         while not ws.closed:
@@ -37,8 +42,9 @@ async def handler(request: web.Request) -> web.WebSocketResponse:
             if ws.closed:
                 break
             try:
-                last_inode_pos = await _stream_new_lines(ws, last_inode_pos)
-                await _send_status(ws)
+                if can_view_global_logs:
+                    last_inode_pos = await _stream_new_lines(ws, last_inode_pos)
+                await _send_status(ws, user_id)
             except (ConnectionResetError, RuntimeError):
                 break  # клиент отключился — выходим, не спамим лог "closing transport"
     except asyncio.CancelledError:
@@ -95,10 +101,10 @@ async def _stream_new_lines(ws: web.WebSocketResponse, last_pos: int) -> int:
     return size
 
 
-async def _send_status(ws: web.WebSocketResponse):
+async def _send_status(ws: web.WebSocketResponse, user_id: int):
     try:
-        task = repo.get_active_task()
-        actions = repo.get_recent_actions(limit=5)
+        task = repo.get_active_task(user_id)
+        actions = repo.get_recent_actions(user_id, limit=5)
     except Exception as e:
         log.warning("status build failed: %s", e)
         return

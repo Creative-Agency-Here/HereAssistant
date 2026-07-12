@@ -8,8 +8,9 @@ from webapp.api import repo
 
 
 async def handler(request: web.Request) -> web.Response:
-    task = repo.get_active_task()
-    actions = repo.get_recent_actions(limit=5)
+    user_id = int(request["user"]["id"])
+    task = repo.get_active_task(user_id)
+    actions = repo.get_recent_actions(user_id, limit=5)
 
     if task is None:
         payload = {

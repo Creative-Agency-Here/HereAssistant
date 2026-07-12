@@ -317,6 +317,8 @@ async def _process_message(
         if project_config.can_store_file_changes(policy):
             try:
                 changes.record_edits(
+                    user_id=user_id,
+                    project_id=conv["project_id"],
                     thread_id=thread_id,
                     account=account["label"],
                     model=conv["model"],

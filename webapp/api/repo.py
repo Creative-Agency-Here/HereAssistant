@@ -29,7 +29,7 @@ def _parse_payload(s: Optional[str]) -> dict:
 # ---------- активная задача ----------
 
 
-def get_active_task(stale_after_sec: int = 1800) -> Optional[dict]:
+def get_active_task(user_id: int, stale_after_sec: int = 1800) -> Optional[dict]:
     """Активная задача = последний message_in без сопровождающего message_out/error.
 
     Если последний message_in старше stale_after_sec — считаем «зависшим» и
@@ -40,9 +40,9 @@ def get_active_task(stale_after_sec: int = 1800) -> Optional[dict]:
         # последний message_in за окно
         row = c.execute(
             """SELECT * FROM events
-               WHERE event_type='message_in' AND timestamp >= ?
+               WHERE event_type='message_in' AND user_id=? AND timestamp >= ?
                ORDER BY id DESC LIMIT 1""",
-            (cutoff,),
+            (user_id, cutoff),
         ).fetchone()
         if not row:
             return None
@@ -81,13 +81,14 @@ def get_active_task(stale_after_sec: int = 1800) -> Optional[dict]:
     }
 
 
-def get_recent_actions(limit: int = 5) -> list[str]:
+def get_recent_actions(user_id: int, limit: int = 5) -> list[str]:
     """Последние шаги ассистента из payload.tool_call_log самого свежего message_out."""
     with db.conn() as c:
         row = c.execute(
             """SELECT payload FROM events
-               WHERE event_type='message_out'
-               ORDER BY id DESC LIMIT 1"""
+               WHERE event_type='message_out' AND user_id=?
+               ORDER BY id DESC LIMIT 1""",
+            (user_id,),
         ).fetchone()
     if not row:
         return []
@@ -163,6 +164,7 @@ def get_conversation(conv_id: int, user_id: int) -> Optional[dict]:
 
 
 def list_file_changes(
+    user_id: int,
     limit: int = 50,
     offset: int = 0,
     file: Optional[str] = None,
@@ -172,8 +174,8 @@ def list_file_changes(
 ) -> list[dict]:
     """Лента правок из file_changes (свежие первыми).
     Фильтры: файл, тред, окно времени [since, until] по ts — для «правок одного запроса»."""
-    where = ["1=1"]
-    args: list[Any] = []
+    where = ["user_id=?"]
+    args: list[Any] = [user_id]
     if file:
         where.append("file LIKE ?")
         args.append(f"%{file}%")
@@ -187,7 +189,7 @@ def list_file_changes(
         where.append("ts <= ?")
         args.append(until)
     sql = f"""
-        SELECT id, ts, thread_id, account, model, file, tool, added, removed, diff
+        SELECT id, ts, project_id, thread_id, account, model, file, tool, added, removed, diff
         FROM file_changes
         WHERE {" AND ".join(where)}
         ORDER BY id DESC

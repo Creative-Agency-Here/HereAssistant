@@ -67,7 +67,7 @@ Telegram repository operations use the same boundary: clone URLs must use HTTPS 
 - All CLI processes still run as Unix user `here`. Application checks do not protect against a compromised provider process.
 - `chmod 700` cannot separate processes running with the same Unix UID.
 - Before private client repositories are added, execution should move to restricted per-user runners such as `ha-user-a` and `ha-user-b`.
-- The WebSocket log stream and legacy `file_changes` table remain administrative/global surfaces; they are not private per-user feeds.
+- WebSocket task status and `file_changes` are filtered by authenticated Telegram user. Raw global `bot.log` is available only to the primary administrator; other approved users receive an empty log feed.
 
 ## Verification and RTK prerequisites
 

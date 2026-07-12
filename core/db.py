@@ -133,6 +133,8 @@ CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(crm_project_id, updated_at
 CREATE TABLE IF NOT EXISTS file_changes (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     ts          INTEGER NOT NULL,
+    user_id     INTEGER,
+    project_id  INTEGER,
     thread_id   INTEGER,
     account     TEXT,
     model       TEXT,
@@ -153,6 +155,8 @@ MIGRATIONS = [
     ("conversations", "project_name", "ALTER TABLE conversations ADD COLUMN project_name TEXT"),
     ("conversations", "project_id", "ALTER TABLE conversations ADD COLUMN project_id INTEGER"),
     ("accounts", "owner_user_id", "ALTER TABLE accounts ADD COLUMN owner_user_id INTEGER"),
+    ("file_changes", "user_id", "ALTER TABLE file_changes ADD COLUMN user_id INTEGER"),
+    ("file_changes", "project_id", "ALTER TABLE file_changes ADD COLUMN project_id INTEGER"),
     (
         "accounts",
         "shared",
@@ -211,6 +215,7 @@ def init():
         for table, col, sql in MIGRATIONS:
             if not _col_exists(conn, table, col):
                 conn.execute(sql)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_changes_user_ts ON file_changes(user_id, ts)")
         _migrate_conversation_identity(conn)
         if legacy_roles:
             # Одноразовый бэкфилл: старый код создавал строки users ТОЛЬКО с
