@@ -92,6 +92,8 @@ include = [
     "providers/models.py",
     "providers/parsers",
     "providers/process.py",
+    "runner/entrypoint.py",
+    "runner/git_credential_proxy.py",
     "utils/markdown.py",
     "utils/rich.py",
     "webapp/api/auth.py",

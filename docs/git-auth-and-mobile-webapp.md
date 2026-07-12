@@ -164,9 +164,10 @@ the backend can actually perform that action safely.
 
 ### P1 — dedicated Git broker and vault
 
-- [ ] Add a separate per-user Git UID/config mapping.
-- [ ] Move authenticated Git subprocesses out of the code runner.
-- [ ] Implement a root/systemd-backed vault adapter and portable interface.
+- [x] Add a separate per-user Git UID/config mapping.
+- [x] Move authenticated Git subprocesses out of the code runner.
+- [x] Implement a portable Git credential-helper proxy interface.
+- [ ] Implement the root/systemd-backed vault socket service and credential lifecycle.
 - [ ] Prove tokens cannot leak through argv, env, stdout, logs, process listing,
   RTK history, remote URLs, or the coding agent's filesystem.
 - [ ] Add canary and negative cross-user tests.

@@ -517,3 +517,20 @@ providers/
   exception ratchet и repository hygiene — зелёные.
 - Следующая пачка P1 — отдельный Git broker UID/config и vault interface.
   Production credentials и текущие runner config не менялись.
+
+### 2026-07-13 — P1 Git broker isolation foundation
+
+- Provider и authenticated Git разведены по двум обязательным mapping:
+  `OS_RUNNER_MAP` и `OS_GIT_RUNNER_MAP`; одинаковый Unix UID запрещён, отсутствующий
+  Git mapping fail-closed без fallback на coding runner.
+- Root wrapper различает provider и `git_broker` configs: provider config не
+  принимает Git mode, Git config не содержит accounts и не запускает CLI agents.
+- Добавлен root-installed `hereassistant-git-credential` proxy стандартного Git
+  credential protocol. Он принимает только HTTPS `get`, отправляет vault service
+  только host/repository path и блокирует traversal/unsafe socket permissions.
+- Git environment сбрасывает inherited credential helpers и terminal/askpass
+  prompts; helper/socket задаются только root-owned runner config.
+- Root/systemd vault socket service, encrypted credential lifecycle и production
+  canary остаются следующим подэтапом P1. Текущий production не изменён.
+- Полный quality gate: 415 тестов, Pyright, Ruff/format, compileall, lock,
+  exception ratchet и repository hygiene — зелёные; installer проходит `bash -n`.

@@ -14,6 +14,7 @@ import os
 import shutil
 import signal
 import sqlite3
+import stat
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -55,6 +56,9 @@ class RunnerConfig:
     accounts: dict[str, RunnerProfile]
     project_roots: tuple[Path, ...]
     git_allowed_hosts: tuple[str, ...]
+    git_broker: bool
+    git_credential_helper: Path | None
+    git_vault_socket: Path | None
 
 
 def _inside(path: Path, root: Path) -> bool:
@@ -64,10 +68,10 @@ def _inside(path: Path, root: Path) -> bool:
 def load_config(unix_user: str, *, config_dir: Path = CONFIG_DIR) -> RunnerConfig:
     path = config_dir / f"{unix_user}.json"
     try:
-        stat = path.stat()
+        config_stat = path.stat()
     except OSError as error:
         raise RunnerDenied("runner config отсутствует") from error
-    if stat.st_uid != 0 or stat.st_mode & 0o022:
+    if config_stat.st_uid != 0 or config_stat.st_mode & 0o022:
         raise RunnerDenied("runner config должен принадлежать root и быть non-writable")
     try:
         raw: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
@@ -82,6 +86,9 @@ def load_config(unix_user: str, *, config_dir: Path = CONFIG_DIR) -> RunnerConfi
             }
         root_values = list(raw["project_roots"])
         git_hosts = tuple(str(value).lower() for value in raw.get("git_allowed_hosts", []))
+        git_broker = bool(raw.get("git_broker", False))
+        helper_value = str(raw.get("git_credential_helper") or "").strip()
+        vault_socket_value = str(raw.get("git_vault_socket") or "").strip()
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as error:
         raise RunnerDenied("runner config повреждён") from error
     if configured_user != unix_user:
@@ -99,13 +106,39 @@ def load_config(unix_user: str, *, config_dir: Path = CONFIG_DIR) -> RunnerConfi
         accounts[label] = RunnerProfile(
             provider=provider, cli_home=cli_home, metrics_file=metrics_file
         )
-    if not accounts or any(
-        profile.provider not in PROVIDER_COMMANDS for profile in accounts.values()
-    ):
+    if any(profile.provider not in PROVIDER_COMMANDS for profile in accounts.values()):
         raise RunnerDenied("runner accounts невалидны")
+    if git_broker and accounts:
+        raise RunnerDenied("Git broker config не должен содержать provider accounts")
+    if not git_broker and not accounts:
+        raise RunnerDenied("provider runner accounts пуст")
     roots = tuple(Path(value).resolve(strict=True) for value in root_values)
     if not roots:
         raise RunnerDenied("runner project_roots пуст")
+    credential_helper: Path | None = None
+    vault_socket: Path | None = None
+    if helper_value:
+        if not git_broker:
+            raise RunnerDenied("credential helper разрешён только Git broker")
+        helper_path = Path(helper_value)
+        if not helper_path.is_absolute():
+            raise RunnerDenied("Git credential helper должен быть абсолютным")
+        try:
+            credential_helper = helper_path.resolve(strict=True)
+            helper_stat = credential_helper.stat()
+        except OSError as error:
+            raise RunnerDenied("Git credential helper отсутствует") from error
+        if (
+            helper_stat.st_uid != 0
+            or helper_stat.st_mode & 0o022
+            or not helper_stat.st_mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        ):
+            raise RunnerDenied("Git credential helper должен быть root-owned executable")
+        vault_socket = Path(vault_socket_value)
+        if not vault_socket.is_absolute():
+            raise RunnerDenied("Git vault socket должен быть абсолютным")
+    elif vault_socket_value:
+        raise RunnerDenied("Git vault socket без credential helper запрещён")
     return RunnerConfig(
         user_id=user_id,
         unix_user=unix_user,
@@ -114,6 +147,9 @@ def load_config(unix_user: str, *, config_dir: Path = CONFIG_DIR) -> RunnerConfi
         accounts=accounts,
         project_roots=roots,
         git_allowed_hosts=git_hosts,
+        git_broker=git_broker,
+        git_credential_helper=credential_helper,
+        git_vault_socket=vault_socket,
     )
 
 
@@ -127,6 +163,8 @@ def validate_request(
     cwd: str,
     command: list[str],
 ) -> tuple[Path, Path]:
+    if config.git_broker:
+        raise RunnerDenied("Git broker не запускает provider CLI")
     if user_id != config.user_id:
         raise RunnerDenied("Telegram user_id не совпадает с runner")
     profile = config.accounts.get(account)
@@ -146,6 +184,8 @@ def validate_request(
 def validate_git_request(
     config: RunnerConfig, *, user_id: int, cwd: str, command: list[str]
 ) -> Path:
+    if not config.git_broker:
+        raise RunnerDenied("Git разрешён только в отдельном broker config")
     actual_cwd = Path(cwd).resolve(strict=True)
     if user_id != config.user_id or not any(
         _inside(actual_cwd, root) for root in config.project_roots
@@ -213,6 +253,39 @@ def provider_environment(config: RunnerConfig, provider: str, cli_home: Path) ->
         environment["HOME"] = str(cli_home)
         environment["USERPROFILE"] = str(cli_home)
         environment["GEMINI_CLI_TRUST_WORKSPACE"] = "true"
+    return environment
+
+
+def git_environment(config: RunnerConfig, cwd: Path) -> dict[str, str]:
+    """Минимальное окружение Git broker без inherited helpers и app secrets."""
+    environment = {
+        "HOME": str(config.home),
+        "USER": config.unix_user,
+        "LOGNAME": config.unix_user,
+        "PATH": config.path,
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "GIT_CEILING_DIRECTORIES": str(cwd.parent),
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_ASKPASS": "/bin/false",
+        "SSH_ASKPASS": "/bin/false",
+        "GIT_CONFIG_KEY_0": "credential.helper",
+        "GIT_CONFIG_VALUE_0": "",
+    }
+    if config.git_credential_helper is None:
+        environment["GIT_CONFIG_COUNT"] = "1"
+        return environment
+    if config.git_vault_socket is None:
+        raise RunnerDenied("Git credential helper требует vault socket")
+    environment.update(
+        {
+            "GIT_CONFIG_COUNT": "3",
+            "GIT_CONFIG_KEY_1": "credential.helper",
+            "GIT_CONFIG_VALUE_1": str(config.git_credential_helper),
+            "GIT_CONFIG_KEY_2": "credential.useHttpPath",
+            "GIT_CONFIG_VALUE_2": "true",
+            "HEREASSISTANT_GIT_VAULT_SOCKET": str(config.git_vault_socket),
+        }
+    )
     return environment
 
 
@@ -359,14 +432,7 @@ def main() -> int:
         return subprocess.call(
             command,
             cwd=cwd,
-            env={
-                "HOME": str(config.home),
-                "USER": config.unix_user,
-                "LOGNAME": config.unix_user,
-                "PATH": config.path,
-                "LANG": os.environ.get("LANG", "C.UTF-8"),
-                "GIT_CEILING_DIRECTORIES": str(cwd.parent),
-            },
+            env=git_environment(config, cwd),
         )
     assert args.provider and cli_home is not None
     return run(

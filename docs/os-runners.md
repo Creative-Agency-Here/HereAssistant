@@ -1,15 +1,22 @@
 # Per-user Unix runners
 
-Status: provider, Git and attachment boundaries implemented. The first production
-user was activated through a canary on 2026-07-12; fresh installations remain
-disabled by default. Additional users still require the full provisioning list.
+Status: the provider boundary is active for the first production user. A distinct
+Git broker UID, credential-helper proxy and fail-closed routing are implemented in
+source but are not deployed; fresh installations remain disabled by default.
 
 ## Threat boundary
 
 The root-installed wrapper prevents a provider process for one Telegram user from
-selecting another user's CLI home or project. It validates the Telegram ID, Unix
-identity, provider executable, exact CLI profile and resolved cwd against a
-root-owned config. Bot/API secrets are not copied into the provider environment.
+selecting another user's CLI home or project. Provider and authenticated Git
+operations use different Unix identities and different root-owned configs:
+
+```text
+ha-ilya      -> provider CLI only, no Git credential helper
+ha-ilya-git  -> allowlisted Git only, no provider accounts
+```
+
+The wrapper validates Telegram ID, Unix identity, exact mode and resolved cwd.
+Bot/API secrets are not copied into either environment.
 
 This protects credentials from other provider processes. It does not make the
 trusted HereAssistant core harmless: core still chooses prompts and schedules
@@ -17,9 +24,9 @@ runs. A compromised root or core control plane remains outside this boundary.
 
 ## Activation prerequisites
 
-`/project clone|pull|push|worktree` now use the same runner with a strict Git
-command allowlist. Telegram attachments are staged under `downloads/<user_id>`.
-Production still needs per-user Unix groups and ownership before activation.
+`/project clone|pull|push|worktree` use a dedicated Git runner map and strict
+command allowlist. Missing `OS_GIT_RUNNER_MAP` or a Git UID equal to the provider
+UID fails closed. Telegram attachments remain staged under `downloads/<user_id>`.
 
 ## Provisioning skeleton
 
@@ -28,6 +35,8 @@ Examples use placeholders; never commit real Telegram IDs or credentials.
 ```bash
 sudo useradd --create-home --shell /usr/sbin/nologin ha-ilya
 sudo useradd --create-home --shell /usr/sbin/nologin ha-pavel
+sudo useradd --create-home --shell /usr/sbin/nologin ha-ilya-git
+sudo useradd --create-home --shell /usr/sbin/nologin ha-pavel-git
 
 sudo install -d -o ha-ilya -g ha-ilya -m 0700 \
   /home/ha-ilya/cli-homes/claude \
@@ -38,6 +47,8 @@ sudo install -d -o ha-pavel -g ha-pavel -m 0700 \
   /home/ha-pavel/cli-homes/claude \
   /home/ha-pavel/cli-homes/codex \
   /home/ha-pavel/projects
+
+sudo chmod 0700 /home/ha-ilya-git /home/ha-pavel-git
 
 cd /opt/hereassistant
 sudo scripts/install_os_runner.sh
@@ -65,8 +76,10 @@ sudo groupadd --force ha-ilya-core
 sudo groupadd --force ha-pavel-core
 sudo usermod -aG ha-ilya-core here
 sudo usermod -aG ha-ilya-core ha-ilya
+sudo usermod -aG ha-ilya-core ha-ilya-git
 sudo usermod -aG ha-pavel-core here
 sudo usermod -aG ha-pavel-core ha-pavel
+sudo usermod -aG ha-pavel-core ha-pavel-git
 sudo chown -R ha-ilya:ha-ilya-core /home/ha-ilya/projects
 sudo chown -R ha-pavel:ha-pavel-core /home/ha-pavel/projects
 sudo chmod -R 2770 /home/ha-ilya/projects /home/ha-pavel/projects
@@ -102,7 +115,45 @@ sudo install -d -o here -g ha-pavel-core -m 2750 /opt/hereassistant/.runtime/dow
 ```
 
 Apply `root:root 0644`. The wrapper rejects configs writable by group or others.
-Create an equivalent file for `ha-pavel` with his Telegram ID and paths.
+Create an equivalent provider file for `ha-pavel` with his Telegram ID and paths.
+
+The Git broker has a separate root-owned config
+`/etc/hereassistant/runners/ha-ilya-git.json`:
+
+```json
+{
+  "user_id": 111111111,
+  "unix_user": "ha-ilya-git",
+  "home": "/home/ha-ilya-git",
+  "path": "/usr/local/bin:/usr/bin:/bin",
+  "git_broker": true,
+  "accounts": {},
+  "project_roots": ["/home/ha-ilya/projects"],
+  "git_allowed_hosts": ["github.com", "git.example.com"],
+  "git_credential_helper": "/usr/local/libexec/hereassistant-git-credential",
+  "git_vault_socket": "/run/hereassistant/git-vault/ha-ilya/broker.sock"
+}
+```
+
+The helper is a credential protocol proxy, not a credential store. It sends only
+HTTPS host and repository path to the Unix socket. The vault service must map the
+socket peer UID plus that repository to an active owner grant, fetch the opaque
+`vault_ref`, and return a short-lived credential. Socket responses are never
+logged. Until that root/systemd vault service exists, omit the helper/socket fields:
+public Git operations work, authenticated operations fail closed.
+
+The socket directory must not be accessible to the coding runner:
+
+```bash
+sudo install -d -o root -g root -m 0755 /run/hereassistant/git-vault
+sudo install -d -o root -g ha-ilya-git -m 0750 /run/hereassistant/git-vault/ha-ilya
+```
+
+The systemd socket/service should create `broker.sock` as `root:ha-ilya-git`
+with mode `0660`, use `SO_PEERCRED` to require the configured Git UID, and load
+encrypted credentials through systemd `LoadCredentialEncrypted=`. The proxy
+rejects non-HTTPS targets, traversal, oversized responses, world-writable sockets
+and world-writable socket directories.
 
 ## Sudo boundary
 
@@ -111,7 +162,7 @@ After validating with `visudo -cf`, install a minimal rule that permits Unix use
 
 ```sudoers
 Cmnd_Alias HEREASSISTANT_RUNNER = /usr/local/libexec/hereassistant-runner *
-here ALL=(ha-ilya,ha-pavel) NOPASSWD: HEREASSISTANT_RUNNER
+here ALL=(ha-ilya,ha-pavel,ha-ilya-git,ha-pavel-git) NOPASSWD: HEREASSISTANT_RUNNER
 ```
 
 The wildcard does not grant arbitrary commands: arguments are revalidated inside
@@ -124,6 +175,7 @@ Only after account DB rows point to the new CLI homes and all canary checks pass
 ```dotenv
 OS_RUNNERS_ENABLED=1
 OS_RUNNER_MAP=111111111:ha-ilya,222222222:ha-pavel
+OS_GIT_RUNNER_MAP=111111111:ha-ilya-git,222222222:ha-pavel-git
 OS_RUNNER_EXECUTABLE=/usr/local/libexec/hereassistant-runner
 OS_RUNNER_METRICS_DIR=/var/lib/hereassistant/runner-metrics
 ```
@@ -132,8 +184,11 @@ The mode fails closed:
 
 - missing user mapping produces `RUNNER_NOT_CONFIGURED`;
 - shared or foreign provider accounts are rejected;
+- missing Git mapping and provider/Git UID reuse are rejected;
+- provider configs reject Git mode; Git broker configs reject provider mode;
 - mismatched CLI homes, cwd roots and executable names exit with code 77;
 - Telegram, WebApp and service API secrets are absent from provider env;
+- inherited credential helpers and terminal prompts are reset inside Git env;
 - RTK command arguments are scrubbed inside the runner;
 - only aggregate token savings are exported for `/rtk` and WebApp.
 
@@ -152,8 +207,8 @@ multiple isolated accounts of the same provider without sharing metrics or homes
   sanitized RTK aggregate export passed through the production boundary.
 - Bot/API remained online and SQLite integrity stayed `ok` after activation.
 - The public GitHub remote is the branch pull upstream. Push to the private Gitea
-  remote remains unavailable inside the runner until a dedicated per-user HTTPS
-  credential/deploy token is provisioned; no legacy core credential was copied.
+  remote remains unavailable. New source code additionally requires a distinct
+  Git broker UID and vault socket; no legacy core credential is copied.
 - `ha-pavel` was not created: his Telegram ID and provider credentials are not
   available yet.
 
@@ -163,7 +218,9 @@ multiple isolated accounts of the same provider without sharing metrics or homes
 2. Provision only `ha-ilya` with a separate canary profile and repository.
 3. Verify Claude/Codex login, Git SSH, build/tests, cancellation and RTK metrics.
 4. Verify an attempted foreign CLI home and `../`/symlink cwd both return 77.
-5. Verify Git clone/status/pull/worktree/push and attachment reads for each user,
-   including negative cross-user checks.
-6. Rollback is disabling `OS_RUNNERS_ENABLED` and restarting bot/API; no schema
+5. Verify the provider UID cannot invoke the Git mode and the Git UID cannot invoke
+   a provider, read CLI homes, `.env`, or another user's vault socket.
+6. Verify Git clone/status/pull/worktree/push and attachment reads for each user,
+   including negative cross-user and ungranted-repository checks.
+7. Rollback is disabling `OS_RUNNERS_ENABLED` and restarting bot/API; no schema
    migration is involved.

@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from core import config
-from providers.os_runner import ProcessBoundary, RunnerConfigurationError
+from providers.os_runner import GitBoundary, ProcessBoundary, RunnerConfigurationError
 
 
 def account(**overrides: object) -> dict[str, object]:
@@ -21,6 +21,7 @@ def account(**overrides: object) -> dict[str, object]:
 def enable(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "OS_RUNNERS_ENABLED", True)
     monkeypatch.setattr(config, "OS_RUNNER_MAP", {100: "ha-ilya"})
+    monkeypatch.setattr(config, "OS_GIT_RUNNER_MAP", {100: "ha-ilya-git"})
     monkeypatch.setattr(config, "OS_RUNNER_EXECUTABLE", "/usr/local/libexec/hereassistant-runner")
 
 
@@ -78,6 +79,40 @@ def test_runner_requires_explicit_mapping(monkeypatch: pytest.MonkeyPatch) -> No
         ProcessBoundary(account(), 100)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Unix runner wrapper")
+def test_git_boundary_uses_separate_unix_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    enable(monkeypatch)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "must-not-cross-boundary")
+
+    prepared = GitBoundary(100).prepare(["git", "status", "--short", "--branch"], "/project")
+
+    assert prepared.argv[:7] == [
+        "/usr/bin/sudo",
+        "-n",
+        "-H",
+        "-u",
+        "ha-ilya-git",
+        "--",
+        "/usr/local/libexec/hereassistant-runner",
+    ]
+    assert "TELEGRAM_BOT_TOKEN" not in prepared.env
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Unix runner wrapper")
+@pytest.mark.parametrize(
+    ("git_map", "message"),
+    [({}, "GIT_RUNNER_NOT_CONFIGURED"), ({100: "ha-ilya"}, "GIT_RUNNER_NOT_ISOLATED")],
+)
+def test_git_boundary_requires_distinct_mapping(
+    monkeypatch: pytest.MonkeyPatch, git_map: dict[int, str], message: str
+) -> None:
+    enable(monkeypatch)
+    monkeypatch.setattr(config, "OS_GIT_RUNNER_MAP", git_map)
+
+    with pytest.raises(RunnerConfigurationError, match=message):
+        GitBoundary(100)
+
+
 def test_disabled_runner_preserves_current_process_contract(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -88,3 +123,7 @@ def test_disabled_runner_preserves_current_process_contract(
 
     assert prepared.argv == ["claude"]
     assert prepared.cwd == str(tmp_path)
+
+    git_prepared = GitBoundary(100).prepare(["git", "status"], str(tmp_path))
+    assert git_prepared.argv == ["git", "status"]
+    assert git_prepared.cwd == str(tmp_path)

@@ -109,9 +109,11 @@ class GitBoundary:
     def __init__(self, user_id: int):
         self.user_id = user_id
         self.enabled = config.OS_RUNNERS_ENABLED
-        self.unix_user = config.OS_RUNNER_MAP.get(user_id) if self.enabled else None
+        self.unix_user = config.OS_GIT_RUNNER_MAP.get(user_id) if self.enabled else None
         if self.enabled and (os.name == "nt" or not self.unix_user):
-            raise RunnerConfigurationError(f"RUNNER_NOT_CONFIGURED для user_id={user_id}")
+            raise RunnerConfigurationError(f"GIT_RUNNER_NOT_CONFIGURED для user_id={user_id}")
+        if self.enabled and self.unix_user == config.OS_RUNNER_MAP.get(user_id):
+            raise RunnerConfigurationError(f"GIT_RUNNER_NOT_ISOLATED для user_id={user_id}")
 
     def prepare(self, argv: list[str], cwd: str) -> PreparedProcess:
         if not self.enabled:

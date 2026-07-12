@@ -252,9 +252,10 @@ sidebar. Existing `/history`, `/edits`, `/stats` сохраняются как r
 
 ### P1. Отдельный Git broker и vault
 
-- [ ] Добавить отдельный Git UID/config mapping на пользователя.
-- [ ] Вынести Git subprocess из code runner в dedicated broker boundary.
-- [ ] Реализовать root/systemd-backed vault adapter и portable interface.
+- [x] Добавить отдельный Git UID/config mapping на пользователя.
+- [x] Вынести Git subprocess из code runner в dedicated broker boundary.
+- [x] Реализовать portable Git credential-helper proxy interface.
+- [ ] Реализовать root/systemd-backed vault socket service и credential lifecycle.
 - [ ] Проверить, что code runner не читает vault/HOME и не получает token через
   argv, env, stdout, logs, process list или Git remote.
 - [ ] Добавить canary и cross-user negative tests.

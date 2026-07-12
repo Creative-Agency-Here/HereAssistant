@@ -25,6 +25,7 @@ def test_os_runner_map_is_explicit_and_typed() -> None:
         100: "ha-ilya",
         200: "ha-pavel",
     }
+    assert config._parse_os_runner_map("100:ha-ilya-git") == {100: "ha-ilya-git"}
 
 
 @pytest.mark.parametrize(

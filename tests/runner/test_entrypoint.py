@@ -1,4 +1,5 @@
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,7 @@ from runner.entrypoint import (
     RunnerConfig,
     RunnerDenied,
     RunnerProfile,
+    git_environment,
     provider_environment,
     sanitize_rtk,
     validate_git_request,
@@ -36,6 +38,20 @@ def runner_config(tmp_path: Path) -> RunnerConfig:
         },
         project_roots=(project.resolve(),),
         git_allowed_hosts=("github.com",),
+        git_broker=False,
+        git_credential_helper=None,
+        git_vault_socket=None,
+    )
+
+
+@pytest.fixture
+def git_runner_config(runner_config: RunnerConfig, tmp_path: Path) -> RunnerConfig:
+    return replace(
+        runner_config,
+        unix_user="ha-ilya-git",
+        home=(tmp_path / "git-home").resolve(),
+        accounts={},
+        git_broker=True,
     )
 
 
@@ -57,6 +73,28 @@ def test_validate_request_accepts_only_exact_identity_profile_and_project(
 
     assert resolved_home == cli_home
     assert resolved_cwd == project
+
+
+def test_provider_and_git_modes_cannot_be_crossed(
+    runner_config: RunnerConfig, git_runner_config: RunnerConfig
+) -> None:
+    with pytest.raises(RunnerDenied, match="только в отдельном broker"):
+        validate_git_request(
+            runner_config,
+            user_id=100,
+            cwd=str(runner_config.project_roots[0]),
+            command=["git", "status", "--short", "--branch"],
+        )
+    with pytest.raises(RunnerDenied, match="не запускает provider"):
+        validate(
+            git_runner_config,
+            user_id=100,
+            provider="claude_code",
+            account="claude-main",
+            cli_home=str(runner_config.accounts["claude-main"].cli_home),
+            cwd=str(git_runner_config.project_roots[0]),
+            command=["claude"],
+        )
 
 
 @pytest.mark.parametrize(
@@ -140,12 +178,14 @@ def test_runner_sanitizes_rtk_history_and_raw_tee(runner_config: RunnerConfig) -
     assert "private" not in payload
 
 
-def test_git_request_allowlist_accepts_status_and_safe_clone(runner_config: RunnerConfig) -> None:
-    root = runner_config.project_roots[0]
+def test_git_request_allowlist_accepts_status_and_safe_clone(
+    git_runner_config: RunnerConfig,
+) -> None:
+    root = git_runner_config.project_roots[0]
 
     assert (
         validate_git_request(
-            runner_config,
+            git_runner_config,
             user_id=100,
             cwd=str(root),
             command=["git", "status", "--short", "--branch"],
@@ -154,7 +194,7 @@ def test_git_request_allowlist_accepts_status_and_safe_clone(runner_config: Runn
     )
     assert (
         validate_git_request(
-            runner_config,
+            git_runner_config,
             user_id=100,
             cwd=str(root),
             command=["git", "push", "--dry-run", "origin", "HEAD"],
@@ -163,7 +203,7 @@ def test_git_request_allowlist_accepts_status_and_safe_clone(runner_config: Runn
     )
     assert (
         validate_git_request(
-            runner_config,
+            git_runner_config,
             user_id=100,
             cwd=str(root),
             command=[
@@ -190,9 +230,46 @@ def test_git_request_allowlist_accepts_status_and_safe_clone(runner_config: Runn
     ],
 )
 def test_git_request_allowlist_rejects_arbitrary_commands(
-    runner_config: RunnerConfig, command: list[str]
+    git_runner_config: RunnerConfig, command: list[str]
 ) -> None:
     with pytest.raises(RunnerDenied):
         validate_git_request(
-            runner_config, user_id=100, cwd=str(runner_config.project_roots[0]), command=command
+            git_runner_config,
+            user_id=100,
+            cwd=str(git_runner_config.project_roots[0]),
+            command=command,
         )
+
+
+def test_git_environment_resets_inherited_helpers_and_contains_no_app_secrets(
+    git_runner_config: RunnerConfig, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "must-not-cross-boundary")
+    helper = tmp_path / "root-owned-helper"
+    vault_socket = tmp_path / "vault.sock"
+    configured = replace(
+        git_runner_config,
+        git_credential_helper=helper,
+        git_vault_socket=vault_socket,
+    )
+
+    environment = git_environment(configured, configured.project_roots[0])
+
+    assert environment["GIT_CONFIG_COUNT"] == "3"
+    assert environment["GIT_CONFIG_KEY_0"] == "credential.helper"
+    assert environment["GIT_CONFIG_VALUE_0"] == ""
+    assert environment["GIT_CONFIG_VALUE_1"] == str(helper)
+    assert environment["GIT_CONFIG_VALUE_2"] == "true"
+    assert environment["HEREASSISTANT_GIT_VAULT_SOCKET"] == str(vault_socket)
+    assert environment["GIT_TERMINAL_PROMPT"] == "0"
+    assert "TELEGRAM_BOT_TOKEN" not in environment
+
+
+def test_git_environment_without_vault_is_public_only(
+    git_runner_config: RunnerConfig,
+) -> None:
+    environment = git_environment(git_runner_config, git_runner_config.project_roots[0])
+
+    assert environment["GIT_CONFIG_COUNT"] == "1"
+    assert environment["GIT_CONFIG_VALUE_0"] == ""
+    assert "HEREASSISTANT_GIT_VAULT_SOCKET" not in environment

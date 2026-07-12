@@ -166,6 +166,9 @@ OS_RUNNERS_ENABLED: bool = os.environ.get("OS_RUNNERS_ENABLED", "0").strip().low
     "yes",
 )
 OS_RUNNER_MAP: dict[int, str] = _parse_os_runner_map(os.environ.get("OS_RUNNER_MAP", ""))
+# Authenticated Git обязан идти под отдельным Unix UID. Пустая карта в runner-mode
+# означает fail-closed Git, а не fallback на coding runner.
+OS_GIT_RUNNER_MAP: dict[int, str] = _parse_os_runner_map(os.environ.get("OS_GIT_RUNNER_MAP", ""))
 OS_RUNNER_EXECUTABLE: str = os.environ.get(
     "OS_RUNNER_EXECUTABLE", "/usr/local/libexec/hereassistant-runner"
 ).strip()
