@@ -58,6 +58,8 @@ Until step 2 is completed, the legacy production account is intentionally fail-c
 
 The terminal `chat.py` keeps unrestricted `/cwd` because it is a trusted local operator tool, not a remote Telegram boundary. It must not be exposed as a multi-user network service.
 
+Telegram repository operations use the same boundary: clone URLs must use HTTPS or `git@host` and match `GIT_ALLOWED_HOSTS`; embedded credentials are rejected. Worktrees live below the requesting user's hidden `.worktrees` directory and are registered as separate private project roots. Push is available only after a user-bound confirmation callback.
+
 ## Compatibility and remaining limits
 
 - A legacy unassigned account stops working until ownership or explicit sharing is configured.

@@ -47,7 +47,7 @@ def ensure_personal_workspace_projects(user_id: int) -> list[sqlite3.Row]:
     workspace.mkdir(parents=True, exist_ok=True)
     workspace_root = workspace.resolve(strict=True)
     for item in workspace.iterdir():
-        if item.is_symlink() or not item.is_dir():
+        if item.name.startswith(".") or item.is_symlink() or not item.is_dir():
             continue
         resolved = item.resolve(strict=True)
         if _is_within(resolved, workspace_root):

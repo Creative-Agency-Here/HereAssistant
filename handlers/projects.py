@@ -2,11 +2,11 @@
 
 from pathlib import Path
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from core import config
+from core import access, config, git_projects
 from core import projects as project_access
 
 from . import repo
@@ -68,7 +68,10 @@ async def cmd_project(message: Message, command: CommandObject):
             "Использование:\n"
             "  /project list — список проектов\n"
             "  /project new <name> — создать и переключиться\n"
-            "  /project use <name> — переключиться"
+            "  /project use <name> — переключиться\n"
+            "  /project clone <name> <url> — клонировать разрешённый remote\n"
+            "  /project worktree <branch> — создать ветку/worktree\n"
+            "  /project status|pull|push — Git текущего проекта"
         )
         return
 
@@ -92,6 +95,89 @@ async def cmd_project(message: Message, command: CommandObject):
             shared = " · shared" if project["visibility"] == "shared" else ""
             lines.append(f"  {mark} {project['name']} ({n} файлов{shared})")
         await message.answer("\n".join(lines))
+        return
+
+    if args[0] == "clone" and len(args) >= 3:
+        name = args[1]
+        url = " ".join(args[2:]).strip()
+        await message.answer(f"Клонирую проект '{name}'…")
+        try:
+            project = await git_projects.clone_project(message.from_user.id, name, url)
+        except git_projects.GitProjectError as error:
+            await message.answer(f"Clone не выполнен: {error}")
+            return
+        conv = repo.get_or_create_conv(
+            message.chat.id, message.message_thread_id or 0, message.from_user.id
+        )
+        repo.update_conv(
+            conv["id"],
+            cwd=project["root_path"],
+            project_name=project["name"],
+            project_id=project["id"],
+            provider_session_id=None,
+        )
+        await message.answer(f"Проект готов: {project['name']}\ncwd: {project['root_path']}")
+        return
+
+    if args[0] == "worktree" and len(args) == 2:
+        conv = repo.get_or_create_conv(
+            message.chat.id, message.message_thread_id or 0, message.from_user.id
+        )
+        if not conv["project_id"]:
+            await message.answer("Сначала выбери проект.")
+            return
+        try:
+            project = await git_projects.create_worktree(
+                message.from_user.id, conv["project_id"], args[1]
+            )
+        except git_projects.GitProjectError as error:
+            await message.answer(f"Worktree не создан: {error}")
+            return
+        repo.update_conv(
+            conv["id"],
+            cwd=project["root_path"],
+            project_name=project["name"],
+            project_id=project["id"],
+            provider_session_id=None,
+        )
+        await message.answer(f"Worktree готов: {project['name']}\ncwd: {project['root_path']}")
+        return
+
+    if args[0] in ("status", "pull", "push"):
+        conv = repo.get_or_create_conv(
+            message.chat.id, message.message_thread_id or 0, message.from_user.id
+        )
+        root = conv["cwd"]
+        if not root:
+            await message.answer("Сначала выбери проект.")
+            return
+        if args[0] == "push":
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="Push origin/github",
+                            callback_data=f"project:push:{conv['id']}",
+                        )
+                    ],
+                    [InlineKeyboardButton(text="Отмена", callback_data="project:push:cancel")],
+                ]
+            )
+            await message.answer(
+                f"Отправить текущую ветку проекта {conv['project_name']}?",
+                reply_markup=keyboard,
+            )
+            return
+        try:
+            output = (
+                await git_projects.status(root)
+                if args[0] == "status"
+                else await git_projects.pull(root)
+            )
+        except git_projects.GitProjectError as error:
+            await message.answer(f"Git error: {error}")
+            return
+        await message.answer(output or "Рабочее дерево чистое.")
         return
 
     if args[0] in ("new", "use") and len(args) >= 2:
@@ -126,3 +212,29 @@ async def cmd_project(message: Message, command: CommandObject):
         return
 
     await message.answer("Не понял. См. /project")
+
+
+@router.callback_query(F.data.startswith("project:push:"))
+async def cb_project_push(query: CallbackQuery):
+    if not query.from_user or not access.is_allowed_id(query.from_user.id):
+        await query.answer("Доступ запрещён", show_alert=True)
+        return
+    suffix = query.data.rsplit(":", 1)[-1]
+    if suffix == "cancel":
+        await query.message.edit_text("Push отменён.")
+        await query.answer()
+        return
+    if not suffix.isdigit():
+        await query.answer("Некорректный запрос", show_alert=True)
+        return
+    conv = repo.get_conversation_for_user(int(suffix), query.from_user.id)
+    if conv is None or not conv["cwd"]:
+        await query.answer("Проект недоступен", show_alert=True)
+        return
+    await query.answer("Выполняю push…")
+    try:
+        output = await git_projects.push(conv["cwd"])
+    except git_projects.GitProjectError as error:
+        await query.message.edit_text(f"Push не выполнен: {error}")
+        return
+    await query.message.edit_text(output or "Push выполнен.")

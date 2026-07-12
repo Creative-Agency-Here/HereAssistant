@@ -107,6 +107,7 @@ HereAssistant/
 - `/help` — справка
 - `/accounts`, `/account use X` — аккаунты
 - `/rtk` — сколько контекстных токенов сэкономил RTK
+- `/project clone|worktree|status|pull|push` — отдельные репозитории и ветки пользователя; push только после подтверждения
 - `/model` — модель
 - `/cwd`, `/where`, `/project list|new|use` — рабочая папка
 - `/new`, `/reset` — сессия и история

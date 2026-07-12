@@ -133,6 +133,11 @@ if not ADMIN_IDS and not CLAIM_CODE:
 
 DEFAULT_CWD: str = os.environ.get("DEFAULT_CWD", "").strip() or str(DEFAULT_PROJECT_DIR)
 CLI_TIMEOUT: int = int(os.environ.get("CLI_TIMEOUT_SEC", "1800"))
+GIT_ALLOWED_HOSTS: tuple[str, ...] = tuple(
+    host.strip().lower()
+    for host in os.environ.get("GIT_ALLOWED_HOSTS", "github.com,gitlab.com").split(",")
+    if host.strip()
+)
 MAX_HISTORY: int = int(os.environ.get("MAX_HISTORY", "20"))
 LOG_RETENTION_DAYS: int = int(os.environ.get("LOG_RETENTION_DAYS", "30"))
 BACKUP_RETENTION_COUNT: int = int(os.environ.get("BACKUP_RETENTION_COUNT", "20"))

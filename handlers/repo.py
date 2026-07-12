@@ -85,6 +85,14 @@ def _conversation_by_id(conversation_id: int) -> sqlite3.Row:
     return row
 
 
+def get_conversation_for_user(conversation_id: int, user_id: int) -> sqlite3.Row | None:
+    with db.conn() as connection:
+        return connection.execute(
+            "SELECT * FROM conversations WHERE id=? AND user_id=?",
+            (conversation_id, user_id),
+        ).fetchone()
+
+
 def get_or_create_conv(chat_id: int, thread_id: int, user_id: int) -> sqlite3.Row:
     with db.conn() as c:
         row = c.execute(
