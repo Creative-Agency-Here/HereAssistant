@@ -7,6 +7,17 @@ import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+IGNORED_PARTS = {
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".runtime",
+    ".venv",
+    ".venv-next",
+    "__pycache__",
+    "node_modules",
+    "tests",
+}
 
 # Зафиксированный debt после аудита 2026-07-11. Уменьшать можно, увеличивать нельзя.
 ALLOWANCE = {
@@ -54,7 +65,7 @@ def broad_counts() -> dict[str, int]:
     result: dict[str, int] = {}
     for path in ROOT.rglob("*.py"):
         relative = path.relative_to(ROOT).as_posix()
-        if ".venv" in path.parts or "tests" in path.parts:
+        if IGNORED_PARTS.intersection(path.relative_to(ROOT).parts):
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=relative)
         count = sum(
