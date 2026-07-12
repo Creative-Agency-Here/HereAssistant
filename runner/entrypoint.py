@@ -256,7 +256,7 @@ def provider_environment(config: RunnerConfig, provider: str, cli_home: Path) ->
     return environment
 
 
-def git_environment(config: RunnerConfig, cwd: Path) -> dict[str, str]:
+def git_environment(config: RunnerConfig, cwd: Path, command: list[str]) -> dict[str, str]:
     """Минимальное окружение Git broker без inherited helpers и app secrets."""
     environment = {
         "HOME": str(config.home),
@@ -268,21 +268,26 @@ def git_environment(config: RunnerConfig, cwd: Path) -> dict[str, str]:
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_ASKPASS": "/bin/false",
         "SSH_ASKPASS": "/bin/false",
+        "GIT_PAGER": "cat",
+        "GIT_EDITOR": "/bin/false",
         "GIT_CONFIG_KEY_0": "credential.helper",
         "GIT_CONFIG_VALUE_0": "",
+        "GIT_CONFIG_KEY_1": "core.hooksPath",
+        "GIT_CONFIG_VALUE_1": "/dev/null",
+        "HEREASSISTANT_GIT_ACCESS": "write" if command[1:2] == ["push"] else "read",
     }
     if config.git_credential_helper is None:
-        environment["GIT_CONFIG_COUNT"] = "1"
+        environment["GIT_CONFIG_COUNT"] = "2"
         return environment
     if config.git_vault_socket is None:
         raise RunnerDenied("Git credential helper требует vault socket")
     environment.update(
         {
-            "GIT_CONFIG_COUNT": "3",
-            "GIT_CONFIG_KEY_1": "credential.helper",
-            "GIT_CONFIG_VALUE_1": str(config.git_credential_helper),
-            "GIT_CONFIG_KEY_2": "credential.useHttpPath",
-            "GIT_CONFIG_VALUE_2": "true",
+            "GIT_CONFIG_COUNT": "4",
+            "GIT_CONFIG_KEY_2": "credential.helper",
+            "GIT_CONFIG_VALUE_2": str(config.git_credential_helper),
+            "GIT_CONFIG_KEY_3": "credential.useHttpPath",
+            "GIT_CONFIG_VALUE_3": "true",
             "HEREASSISTANT_GIT_VAULT_SOCKET": str(config.git_vault_socket),
         }
     )
@@ -432,7 +437,7 @@ def main() -> int:
         return subprocess.call(
             command,
             cwd=cwd,
-            env=git_environment(config, cwd),
+            env=git_environment(config, cwd, command),
         )
     assert args.provider and cli_home is not None
     return run(

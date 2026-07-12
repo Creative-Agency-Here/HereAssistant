@@ -255,7 +255,9 @@ sidebar. Existing `/history`, `/edits`, `/stats` сохраняются как r
 - [x] Добавить отдельный Git UID/config mapping на пользователя.
 - [x] Вынести Git subprocess из code runner в dedicated broker boundary.
 - [x] Реализовать portable Git credential-helper proxy interface.
-- [ ] Реализовать root/systemd-backed vault socket service и credential lifecycle.
+- [x] Реализовать root/systemd-backed vault socket service с `SO_PEERCRED` и
+  `LoadCredentialEncrypted`.
+- [ ] Связать OAuth callback с безопасной rotation encrypted bundle и reload service.
 - [ ] Проверить, что code runner не читает vault/HOME и не получает token через
   argv, env, stdout, logs, process list или Git remote.
 - [ ] Добавить canary и cross-user negative tests.

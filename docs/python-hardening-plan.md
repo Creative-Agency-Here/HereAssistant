@@ -530,7 +530,13 @@ providers/
   только host/repository path и блокирует traversal/unsafe socket permissions.
 - Git environment сбрасывает inherited credential helpers и terminal/askpass
   prompts; helper/socket задаются только root-owned runner config.
-- Root/systemd vault socket service, encrypted credential lifecycle и production
-  canary остаются следующим подэтапом P1. Текущий production не изменён.
-- Полный quality gate: 415 тестов, Pyright, Ruff/format, compileall, lock,
+- Добавлен Linux vault service и systemd unit: `SO_PEERCRED` проверяет Git UID,
+  SQLite grant — owner/host/repository/read-write permission, а credential bundle
+  загружается через `LoadCredentialEncrypted` только в память.
+- OAuth-driven atomic rotation/reload encrypted bundle и production canary остаются
+  следующим подэтапом P1. Текущий production не изменён.
+- Во время threat review выявлен дополнительный blocker: hooks принудительно
+  отключены через `core.hooksPath=/dev/null`, но до реального credential нужны
+  allowlist-аудит repository-controlled `.git/config`/filters и negative canary.
+- Полный quality gate: 417 тестов, Pyright, Ruff/format, compileall, lock,
   exception ratchet и repository hygiene — зелёные; installer проходит `bash -n`.

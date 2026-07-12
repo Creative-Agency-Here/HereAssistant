@@ -24,16 +24,21 @@ class CredentialProxyError(RuntimeError):
 @dataclass(frozen=True)
 class CredentialRequest:
     operation: str
+    access: str
     protocol: str
     host: str
     path: str
 
 
-def parse_request(operation: str, payload: str) -> CredentialRequest | None:
+def parse_request(operation: str, payload: str, access: str = "read") -> CredentialRequest | None:
     """Принимает только HTTPS get-запрос для конкретного repository path."""
     if operation in ("store", "erase"):
         return None
-    if operation != "get" or len(payload.encode("utf-8")) > MAX_MESSAGE_BYTES:
+    if (
+        operation != "get"
+        or access not in ("read", "write")
+        or len(payload.encode("utf-8")) > MAX_MESSAGE_BYTES
+    ):
         raise CredentialProxyError("credential operation запрещена")
     values: dict[str, str] = {}
     for line in payload.splitlines():
@@ -52,7 +57,13 @@ def parse_request(operation: str, payload: str) -> CredentialRequest | None:
         or ".." in parts
     ):
         raise CredentialProxyError("credential target запрещён")
-    return CredentialRequest(operation="get", protocol=protocol, host=host, path=repository_path)
+    return CredentialRequest(
+        operation="get",
+        access=access,
+        protocol=protocol,
+        host=host,
+        path=repository_path,
+    )
 
 
 def request_credential(socket_path: Path, request: CredentialRequest) -> tuple[str, str]:
@@ -77,7 +88,6 @@ def request_credential(socket_path: Path, request: CredentialRequest) -> tuple[s
             client.settimeout(5)
             client.connect(str(socket_path))
             client.sendall(message)
-            client.shutdown(socket.SHUT_WR)
             while True:
                 chunk = client.recv(4096)
                 if not chunk:
@@ -111,7 +121,8 @@ def request_credential(socket_path: Path, request: CredentialRequest) -> tuple[s
 def main() -> int:
     operation = sys.argv[1] if len(sys.argv) == 2 else ""
     try:
-        request = parse_request(operation, sys.stdin.read(MAX_MESSAGE_BYTES + 1))
+        access = os.environ.get("HEREASSISTANT_GIT_ACCESS", "")
+        request = parse_request(operation, sys.stdin.read(MAX_MESSAGE_BYTES + 1), access)
         if request is None:
             return 0
         socket_path = Path(os.environ.get("HEREASSISTANT_GIT_VAULT_SOCKET", ""))

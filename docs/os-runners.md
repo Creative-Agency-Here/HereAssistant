@@ -149,11 +149,38 @@ sudo install -d -o root -g root -m 0755 /run/hereassistant/git-vault
 sudo install -d -o root -g ha-ilya-git -m 0750 /run/hereassistant/git-vault/ha-ilya
 ```
 
-The systemd socket/service should create `broker.sock` as `root:ha-ilya-git`
-with mode `0660`, use `SO_PEERCRED` to require the configured Git UID, and load
-encrypted credentials through systemd `LoadCredentialEncrypted=`. The proxy
-rejects non-HTTPS targets, traversal, oversized responses, world-writable sockets
-and world-writable socket directories.
+The installed `hereassistant-git-vault@.service` creates `broker.sock` as
+`root:ha-ilya-git` with mode `0660`, uses `SO_PEERCRED` to require the configured
+Git UID, checks the current SQLite owner/grant and loads an encrypted credential
+bundle through systemd `LoadCredentialEncrypted=`. The proxy rejects non-HTTPS
+targets, traversal, oversized responses, world-writable sockets and
+world-writable socket directories.
+
+The decrypted in-memory bundle uses opaque references already stored in
+`git_connections.vault_ref`:
+
+```json
+{
+  "vault://git/111111111/1/primary": {
+    "username": "oauth-user",
+    "password": "provider-access-token"
+  }
+}
+```
+
+Encrypt the bundle outside the repository into
+`/etc/hereassistant/git-credentials/ha-ilya-git.json.cred`, remove the plaintext,
+then run `systemctl daemon-reload` and start
+`hereassistant-git-vault@ha-ilya-git.service`. The installer copies the unit but
+does not start it. The provided unit assumes `/opt/hereassistant/bridge.sqlite3`;
+override `ExecStart` for another installation root.
+
+The current bundle is loaded once at service start. OAuth-driven atomic rotation
+and controlled reload are intentionally pending; do not place a real credential
+in the bundle until that flow, repository-controlled `.git/config`/filter audit
+and a canary are complete. Hooks are forcibly disabled with
+`core.hooksPath=/dev/null`, but that alone is not the final untrusted-repository
+execution boundary.
 
 ## Sudo boundary
 

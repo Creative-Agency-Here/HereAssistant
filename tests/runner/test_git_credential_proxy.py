@@ -22,6 +22,7 @@ def test_proxy_accepts_only_https_get_for_bounded_repository_path() -> None:
 
     assert request == CredentialRequest(
         operation="get",
+        access="read",
         protocol="https",
         host="git.example.com",
         path="alice/project.git",
@@ -69,7 +70,7 @@ def test_proxy_exchanges_only_metadata_over_unix_socket(tmp_path: Path) -> None:
 
     credential = request_credential(
         socket_path,
-        CredentialRequest("get", "https", "git.example.com", "alice/project.git"),
+        CredentialRequest("get", "write", "https", "git.example.com", "alice/project.git"),
     )
     thread.join(timeout=2)
 
@@ -77,6 +78,7 @@ def test_proxy_exchanges_only_metadata_over_unix_socket(tmp_path: Path) -> None:
     assert received == [
         {
             "operation": "get",
+            "access": "write",
             "protocol": "https",
             "host": "git.example.com",
             "path": "alice/project.git",

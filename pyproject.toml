@@ -94,6 +94,7 @@ include = [
     "providers/process.py",
     "runner/entrypoint.py",
     "runner/git_credential_proxy.py",
+    "runner/git_vault_service.py",
     "utils/markdown.py",
     "utils/rich.py",
     "webapp/api/auth.py",

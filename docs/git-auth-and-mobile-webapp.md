@@ -167,7 +167,9 @@ the backend can actually perform that action safely.
 - [x] Add a separate per-user Git UID/config mapping.
 - [x] Move authenticated Git subprocesses out of the code runner.
 - [x] Implement a portable Git credential-helper proxy interface.
-- [ ] Implement the root/systemd-backed vault socket service and credential lifecycle.
+- [x] Implement the root/systemd-backed vault socket service with `SO_PEERCRED` and
+  `LoadCredentialEncrypted`.
+- [ ] Connect OAuth callbacks to safe encrypted-bundle rotation and service reload.
 - [ ] Prove tokens cannot leak through argv, env, stdout, logs, process listing,
   RTK history, remote URLs, or the coding agent's filesystem.
 - [ ] Add canary and negative cross-user tests.

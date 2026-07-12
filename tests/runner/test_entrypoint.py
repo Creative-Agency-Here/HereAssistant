@@ -253,23 +253,33 @@ def test_git_environment_resets_inherited_helpers_and_contains_no_app_secrets(
         git_vault_socket=vault_socket,
     )
 
-    environment = git_environment(configured, configured.project_roots[0])
+    environment = git_environment(
+        configured, configured.project_roots[0], ["git", "push", "origin", "HEAD"]
+    )
 
-    assert environment["GIT_CONFIG_COUNT"] == "3"
+    assert environment["GIT_CONFIG_COUNT"] == "4"
     assert environment["GIT_CONFIG_KEY_0"] == "credential.helper"
     assert environment["GIT_CONFIG_VALUE_0"] == ""
-    assert environment["GIT_CONFIG_VALUE_1"] == str(helper)
-    assert environment["GIT_CONFIG_VALUE_2"] == "true"
+    assert environment["GIT_CONFIG_VALUE_1"] == "/dev/null"
+    assert environment["GIT_CONFIG_VALUE_2"] == str(helper)
+    assert environment["GIT_CONFIG_VALUE_3"] == "true"
     assert environment["HEREASSISTANT_GIT_VAULT_SOCKET"] == str(vault_socket)
     assert environment["GIT_TERMINAL_PROMPT"] == "0"
+    assert environment["HEREASSISTANT_GIT_ACCESS"] == "write"
     assert "TELEGRAM_BOT_TOKEN" not in environment
 
 
 def test_git_environment_without_vault_is_public_only(
     git_runner_config: RunnerConfig,
 ) -> None:
-    environment = git_environment(git_runner_config, git_runner_config.project_roots[0])
+    environment = git_environment(
+        git_runner_config,
+        git_runner_config.project_roots[0],
+        ["git", "pull", "--ff-only"],
+    )
 
-    assert environment["GIT_CONFIG_COUNT"] == "1"
+    assert environment["GIT_CONFIG_COUNT"] == "2"
     assert environment["GIT_CONFIG_VALUE_0"] == ""
+    assert environment["GIT_CONFIG_VALUE_1"] == "/dev/null"
     assert "HEREASSISTANT_GIT_VAULT_SOCKET" not in environment
+    assert environment["HEREASSISTANT_GIT_ACCESS"] == "read"
