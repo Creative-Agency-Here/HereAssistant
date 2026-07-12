@@ -32,7 +32,17 @@ def _result_uri(result: str) -> str:
 
 async def list_handler(request: web.Request) -> web.Response:
     rows = git_connections.list_connections(_user_id(request))
-    return web.json_response({"connections": [git_connection_to_dto(row) for row in rows]})
+    available = [
+        {"provider": "gitea", "host": host}
+        for host in sorted(config.GITEA_OAUTH_APPS)
+        if host in config.GIT_ALLOWED_HOSTS
+    ]
+    return web.json_response(
+        {
+            "connections": [git_connection_to_dto(row) for row in rows],
+            "available": available,
+        }
+    )
 
 
 async def start_handler(request: web.Request) -> web.Response:

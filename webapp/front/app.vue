@@ -7,13 +7,13 @@
       <NuxtLink to="/history" class="nav-item" active-class="nav-item-active">История</NuxtLink>
       <NuxtLink to="/edits" class="nav-item" active-class="nav-item-active">Правки</NuxtLink>
       <NuxtLink to="/stats" class="nav-item" active-class="nav-item-active">RTK</NuxtLink>
-      <NuxtLink to="/settings" class="nav-item nav-item-disabled">Настройки</NuxtLink>
+      <NuxtLink to="/settings" class="nav-item" active-class="nav-item-active">Настройки</NuxtLink>
       <div class="mt-auto text-xs text-text-dim">
         v0.1.0
       </div>
     </aside>
 
-    <main class="flex-1 p-4 md:p-8 max-w-5xl">
+    <main class="flex-1 p-4 pb-24 md:p-8 max-w-5xl">
       <NuxtPage />
     </main>
 
@@ -23,6 +23,7 @@
       <NuxtLink to="/history" class="tab-item" active-class="tab-item-active">История</NuxtLink>
       <NuxtLink to="/edits" class="tab-item" active-class="tab-item-active">Правки</NuxtLink>
       <NuxtLink to="/stats" class="tab-item" active-class="tab-item-active">RTK</NuxtLink>
+      <NuxtLink to="/settings" class="tab-item" active-class="tab-item-active">Git</NuxtLink>
     </nav>
   </div>
 </template>
@@ -33,9 +34,6 @@
 }
 .nav-item-active {
   @apply text-text bg-bg-card;
-}
-.nav-item-disabled {
-  @apply opacity-40 pointer-events-none;
 }
 .tab-item {
   @apply flex-1 text-center py-3 text-text-soft text-sm;

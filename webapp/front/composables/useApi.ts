@@ -32,3 +32,17 @@ export function useApi<T = unknown>(path: string, opts: UseFetchOptions<T> = {})
     headers,
   })
 }
+
+export function apiFetch<T = unknown>(path: string, opts: Record<string, any> = {}) {
+  const config = useRuntimeConfig()
+  const headers: Record<string, string> = { ...(opts.headers || {}) }
+  const initData = getInitData()
+  const key = getAccessKey()
+  if (initData) headers.Authorization = `tma ${initData}`
+  if (key) headers['X-Access-Key'] = key
+  return $fetch<T>(path, {
+    baseURL: config.public.apiBase,
+    ...opts,
+    headers,
+  })
+}

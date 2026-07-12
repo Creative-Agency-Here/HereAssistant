@@ -553,3 +553,6 @@ providers/
   exchange без redirects, owner-scoped list/revoke и прямой stdin transfer в Git
   vault. Replay/cross-user/token-in-DB negative tests добавлены; production не
   менялся. Автоматический refresh-token flow остаётся отдельным P2 hardening.
+- В WebApp активирован раздел `Настройки → Git`: список owner-scoped connections,
+  переход на Gitea consent, callback result, reconnect/revoke и список настроенных
+  exact hosts. Nuxt production build проходит; repository picker остаётся далее.

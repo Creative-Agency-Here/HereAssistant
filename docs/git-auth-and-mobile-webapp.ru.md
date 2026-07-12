@@ -269,7 +269,8 @@ sidebar. Existing `/history`, `/edits`, `/stats` сохраняются как r
 
 - [x] Добавить owner-filtered connection migrations/repository/service/API.
 - [x] Реализовать Authorization Code + PKCE и exact-host allowlist.
-- [ ] Добавить экран Git accounts и repository picker.
+- [x] Добавить экран подключения/status/revoke Git accounts.
+- [ ] Добавить repository picker.
 - [ ] Добавить `/git` как безопасную точку входа в WebApp.
 - [ ] Clone/pull/push провести только через grant + broker.
 
