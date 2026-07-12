@@ -157,6 +157,15 @@ def test_git_request_allowlist_accepts_status_and_safe_clone(runner_config: Runn
             runner_config,
             user_id=100,
             cwd=str(root),
+            command=["git", "push", "--dry-run", "origin", "HEAD"],
+        )
+        == root
+    )
+    assert (
+        validate_git_request(
+            runner_config,
+            user_id=100,
+            cwd=str(root),
             command=[
                 "git",
                 "clone",
@@ -176,6 +185,8 @@ def test_git_request_allowlist_accepts_status_and_safe_clone(runner_config: Runn
         ["git", "config", "--global", "credential.helper", "evil"],
         ["git", "clone", "--", "http://github.com/example/repo.git", "repo"],
         ["git", "push", "evil", "HEAD"],
+        ["git", "push", "--dry-run", "evil", "HEAD"],
+        ["git", "push", "--dry-run", "origin", "main"],
     ],
 )
 def test_git_request_allowlist_rejects_arbitrary_commands(

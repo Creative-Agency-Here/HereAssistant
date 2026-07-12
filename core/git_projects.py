@@ -21,6 +21,10 @@ class GitProjectError(RuntimeError):
     pass
 
 
+class GitPushPreflightError(GitProjectError):
+    """Останавливает multi-remote push до первого реального изменения remote."""
+
+
 def validate_repository_url(url: str, allowed_hosts: tuple[str, ...] | None = None) -> str:
     hosts = set(allowed_hosts or config.GIT_ALLOWED_HOSTS)
     ssh_match = SSH_URL.fullmatch(url)
@@ -126,6 +130,21 @@ async def push(user_id: int, root: str | Path) -> str:
         targets.append("github")
     if not targets:
         raise GitProjectError("У репозитория нет origin/github remote")
+    for remote in targets:
+        try:
+            await run_git(
+                "push",
+                "--dry-run",
+                remote,
+                "HEAD",
+                user_id=user_id,
+                cwd=directory,
+                timeout=600,
+            )
+        except GitProjectError as error:
+            raise GitPushPreflightError(
+                f"Push preflight для remote '{remote}' не пройден: {error}"
+            ) from error
     output: list[str] = []
     for remote in targets:
         output.append(

@@ -90,3 +90,59 @@ async def test_clone_failure_removes_partial_destination(
     with pytest.raises(git_projects.GitProjectError, match="clone failed"):
         await git_projects.clone_project(100, "broken", "https://github.com/example/project.git")
     assert not (config.user_workspace(100) / "broken").exists()
+
+
+@pytest.mark.asyncio
+async def test_push_preflights_all_remotes_before_real_push(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    async def fake_run_git(*args: str, **_kwargs: object) -> str:
+        calls.append(args)
+        if args == ("remote",):
+            return "origin\ngithub"
+        return f"{' '.join(args)} ok"
+
+    monkeypatch.setattr(git_projects, "run_git", fake_run_git)
+
+    result = await git_projects.push(100, tmp_path)
+
+    assert calls == [
+        ("remote",),
+        ("push", "--dry-run", "origin", "HEAD"),
+        ("push", "--dry-run", "github", "HEAD"),
+        ("push", "origin", "HEAD"),
+        ("push", "github", "HEAD"),
+    ]
+    assert "push origin HEAD ok" in result
+    assert "--dry-run" not in result
+
+
+@pytest.mark.asyncio
+async def test_push_stops_before_real_push_when_any_preflight_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    async def fake_run_git(*args: str, **_kwargs: object) -> str:
+        calls.append(args)
+        if args == ("remote",):
+            return "origin\ngithub"
+        if args == ("push", "--dry-run", "github", "HEAD"):
+            raise git_projects.GitProjectError("authentication required")
+        return "ok"
+
+    monkeypatch.setattr(git_projects, "run_git", fake_run_git)
+
+    with pytest.raises(
+        git_projects.GitPushPreflightError,
+        match="remote 'github'.*authentication required",
+    ):
+        await git_projects.push(100, tmp_path)
+
+    assert calls == [
+        ("remote",),
+        ("push", "--dry-run", "origin", "HEAD"),
+        ("push", "--dry-run", "github", "HEAD"),
+    ]

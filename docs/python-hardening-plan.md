@@ -498,3 +498,17 @@ providers/
   отдельным Unix UID; bot/API и SQLite прошли smoke/integrity checks.
 - Паша остаётся неактивированным до получения Telegram ID и собственных CLI
   credentials. Private Gitea push из runner также ждёт отдельный user token.
+
+### 2026-07-12 — следующий этап: Git identity и mobile workspace
+
+- Проектирование user-owned Git authorization и Claude-inspired mobile WebApp
+  зафиксировано в `docs/git-auth-and-mobile-webapp.ru.md`.
+- Git token нельзя помещать в HOME code runner: coding agent способен выполнять
+  shell-команды. Production target — отдельный per-user Git broker UID и vault,
+  который не возвращает raw credential агенту.
+- Основной UX подключения — WebApp; Telegram остаётся identity/notification
+  channel, CLI — headless/admin fallback. Gitea идёт через OAuth2 + PKCE, GitHub —
+  через GitHub App с выбранными repositories; ручной PAT только как one-time fallback.
+- P0 начат: multi-remote dry-run preflight и tests уже добавлены. Следующая пачка —
+  stable Git errors и typed metadata schema/DTO. Production credentials и текущие
+  runner config не менялись.

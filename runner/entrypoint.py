@@ -164,6 +164,13 @@ def validate_git_request(
         and command[3] == "HEAD"
     ):
         return actual_cwd
+    if (
+        len(command) == 5
+        and command[:3] == ["git", "push", "--dry-run"]
+        and command[3] in ("origin", "github")
+        and command[4] == "HEAD"
+    ):
+        return actual_cwd
     if len(command) == 5 and command[:3] == ["git", "clone", "--"]:
         if command[3].startswith("git@"):
             host = command[3][4:].split(":", 1)[0].lower()
