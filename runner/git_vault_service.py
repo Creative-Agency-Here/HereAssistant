@@ -228,14 +228,17 @@ def serve(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--unix-user", required=True)
-    parser.add_argument("--database", type=Path, required=True)
     arguments = parser.parse_args()
     try:
         if pwd is None:
             raise GitVaultError("Linux user database недоступна")
         identity = pwd.getpwnam(arguments.unix_user)
         runner_config = load_config(arguments.unix_user)
-        if not runner_config.git_broker or runner_config.git_vault_socket is None:
+        if (
+            not runner_config.git_broker
+            or runner_config.git_vault_socket is None
+            or runner_config.git_database is None
+        ):
             raise GitVaultError("Git broker config невалиден")
         credentials_directory = Path(os.environ.get("CREDENTIALS_DIRECTORY", ""))
         if not credentials_directory.is_absolute():
@@ -243,7 +246,7 @@ def main() -> int:
         credentials = load_credential_bundle(credentials_directory)
         serve(
             runner_config.git_vault_socket,
-            arguments.database.resolve(strict=True),
+            runner_config.git_database,
             runner_config.user_id,
             identity.pw_uid,
             identity.pw_gid,

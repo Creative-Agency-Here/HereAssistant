@@ -44,6 +44,7 @@ def runner_config(tmp_path: Path) -> RunnerConfig:
         git_broker=False,
         git_credential_helper=None,
         git_vault_socket=None,
+        git_database=None,
     )
 
 

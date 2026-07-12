@@ -533,11 +533,18 @@ providers/
 - Добавлен Linux vault service и systemd unit: `SO_PEERCRED` проверяет Git UID,
   SQLite grant — owner/host/repository/read-write permission, а credential bundle
   загружается через `LoadCredentialEncrypted` только в память.
-- OAuth-driven atomic rotation/reload encrypted bundle и production canary остаются
-  следующим подэтапом P1. Текущий production не изменён.
+- Root-owned vault admin принимает OAuth/PAT credential только через bounded stdin,
+  сверяет connection с `user_id` из root config, обновляет encrypted bundle через
+  `systemd-creds` и `fsync + os.replace`, затем перезапускает только активный
+  per-user vault service. Путь к SQLite теперь также закреплён root config и не
+  приходит через argv.
+- При ошибке encrypt прежний ciphertext остаётся неизменным; revoke удаляет только
+  opaque ref выбранного connection. Токен не попадает в argv/env/stdout/logs или
+  plaintext-файл. OAuth callback и production canary остаются следующим подэтапом
+  P1; текущий production не изменён.
 - Repository-controlled Git execution закрыт дополнительным gate: local config
   keys allowlisted, hooks/system/global config и unsafe protocols отключены; при
   включённом helper control files обязаны иметь Linux immutable flag, что закрывает
   замену после аудита. До реального credential всё ещё нужен negative canary.
-- Полный quality gate: 426 тестов, Pyright, Ruff/format, compileall, lock,
+- Полный quality gate: 431 тест, Pyright, Ruff/format, compileall, lock,
   exception ratchet и repository hygiene — зелёные; installer проходит `bash -n`.

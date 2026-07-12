@@ -257,6 +257,8 @@ sidebar. Existing `/history`, `/edits`, `/stats` сохраняются как r
 - [x] Реализовать portable Git credential-helper proxy interface.
 - [x] Реализовать root/systemd-backed vault socket service с `SO_PEERCRED` и
   `LoadCredentialEncrypted`.
+- [x] Реализовать owner-bound atomic rotation encrypted bundle: credential идёт
+  только через bounded stdin, plaintext-файл не создаётся, reload контролируемый.
 - [ ] Связать OAuth callback с безопасной rotation encrypted bundle и reload service.
 - [ ] Проверить, что code runner не читает vault/HOME и не получает token через
   argv, env, stdout, logs, process list или Git remote.

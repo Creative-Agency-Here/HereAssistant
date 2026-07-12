@@ -169,6 +169,8 @@ the backend can actually perform that action safely.
 - [x] Implement a portable Git credential-helper proxy interface.
 - [x] Implement the root/systemd-backed vault socket service with `SO_PEERCRED` and
   `LoadCredentialEncrypted`.
+- [x] Implement owner-bound, stdin-only atomic encrypted-bundle rotation and
+  controlled reload without plaintext files.
 - [ ] Connect OAuth callbacks to safe encrypted-bundle rotation and service reload.
 - [ ] Prove tokens cannot leak through argv, env, stdout, logs, process listing,
   RTK history, remote URLs, or the coding agent's filesystem.

@@ -54,6 +54,10 @@ cd /opt/hereassistant
 sudo scripts/install_os_runner.sh
 ```
 
+Authenticated Git vault rotation requires `systemd-creds` and systemd 250 or
+newer. Confirm the host version with `systemd-creds --version` before canary. The
+stdin/stdout form and credential-name binding used here were introduced in 250.
+
 Create a metrics-only group. It grants `here` access only to aggregate JSON, not
 to CLI credentials or RTK command history.
 
@@ -131,7 +135,8 @@ The Git broker has a separate root-owned config
   "project_roots": ["/home/ha-ilya/projects"],
   "git_allowed_hosts": ["github.com", "git.example.com"],
   "git_credential_helper": "/usr/local/libexec/hereassistant-git-credential",
-  "git_vault_socket": "/run/hereassistant/git-vault/ha-ilya/broker.sock"
+  "git_vault_socket": "/run/hereassistant/git-vault/ha-ilya/broker.sock",
+  "git_database": "/opt/hereassistant/bridge.sqlite3"
 }
 ```
 
@@ -168,16 +173,36 @@ The decrypted in-memory bundle uses opaque references already stored in
 }
 ```
 
-Encrypt the bundle outside the repository into
-`/etc/hereassistant/git-credentials/ha-ilya-git.json.cred`, remove the plaintext,
-then run `systemctl daemon-reload` and start
-`hereassistant-git-vault@ha-ilya-git.service`. The installer copies the unit but
-does not start it. The provided unit assumes `/opt/hereassistant/bridge.sqlite3`;
-override `ExecStart` for another installation root.
+The root-owned `hereassistant-git-vault-admin` is the only supported writer for
+`/etc/hereassistant/git-credentials/ha-ilya-git.json.cred`. It verifies that the
+connection belongs to the Telegram user fixed in the runner config, accepts the
+credential only as bounded JSON on stdin, invokes `systemd-creds` without secrets
+in argv, atomically replaces the encrypted file and uses `systemctl try-restart`
+to reload an already active broker. No plaintext credential file is created.
 
-The current bundle is loaded once at service start. OAuth-driven atomic rotation
-and controlled reload are intentionally pending; do not place a real credential
-in the bundle until that flow and a canary are complete. The wrapper allowlists
+For a controlled callback/canary, the contract is:
+
+```bash
+printf '%s' "$OAUTH_JSON_FROM_EPHEMERAL_CALLBACK" | sudo \
+  /usr/local/libexec/hereassistant-git-vault-admin \
+  --unix-user ha-ilya-git --connection-id CONNECTION_ID put
+
+printf '{}' | sudo /usr/local/libexec/hereassistant-git-vault-admin \
+  --unix-user ha-ilya-git --connection-id CONNECTION_ID revoke
+```
+
+Do not type a token literally in shell history. The callback process should write
+JSON directly to stdin and erase its in-memory exchange result after completion.
+After the first encrypted bundle is provisioned, run `systemctl daemon-reload` and
+start
+`hereassistant-git-vault@ha-ilya-git.service`. The installer copies the unit but
+does not start it. The database path is taken exclusively from the root-owned
+runner config; it cannot be selected through service or helper argv.
+
+The current bundle is loaded once at service start. Atomic encrypted rotation and
+controlled reload are implemented; the OAuth provider callback and production
+canary remain pending. Do not place a real credential in the bundle until those
+steps pass. The wrapper allowlists
 local Git config keys, disables hooks/system/global config and unsafe protocols,
 and requires Linux immutable flags on `.git/config`, `config.worktree`, `.git`
 pointer and `commondir` whenever a credential helper is configured. Provisioning
@@ -196,6 +221,20 @@ here ALL=(ha-ilya,ha-pavel,ha-ilya-git,ha-pavel-git) NOPASSWD: HEREASSISTANT_RUN
 
 The wildcard does not grant arbitrary commands: arguments are revalidated inside
 the root-owned wrapper before a provider executable is started.
+
+When OAuth callbacks are enabled, add the root admin command separately. Its
+arguments contain only the mapped Git Unix user, numeric connection ID and
+`put|revoke`; credential JSON crosses stdin only:
+
+```sudoers
+Cmnd_Alias HEREASSISTANT_GIT_VAULT_ADMIN = /usr/local/libexec/hereassistant-git-vault-admin *
+here ALL=(root) NOPASSWD: HEREASSISTANT_GIT_VAULT_ADMIN
+```
+
+Validate the installed file with `visudo -cf`. The root-owned helper repeats the
+owner check against the root-pinned SQLite path; a foreign connection ID fails
+closed. Core remains a trusted control plane and must never expose this command
+as a generic user-supplied shell surface.
 
 ## Application config
 

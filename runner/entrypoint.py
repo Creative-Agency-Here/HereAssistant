@@ -91,6 +91,7 @@ class RunnerConfig:
     git_broker: bool
     git_credential_helper: Path | None
     git_vault_socket: Path | None
+    git_database: Path | None
 
 
 def _inside(path: Path, root: Path) -> bool:
@@ -273,6 +274,7 @@ def load_config(unix_user: str, *, config_dir: Path = CONFIG_DIR) -> RunnerConfi
         git_broker = bool(raw.get("git_broker", False))
         helper_value = str(raw.get("git_credential_helper") or "").strip()
         vault_socket_value = str(raw.get("git_vault_socket") or "").strip()
+        database_value = str(raw.get("git_database") or "").strip()
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as error:
         raise RunnerDenied("runner config повреждён") from error
     if configured_user != unix_user:
@@ -301,6 +303,7 @@ def load_config(unix_user: str, *, config_dir: Path = CONFIG_DIR) -> RunnerConfi
         raise RunnerDenied("runner project_roots пуст")
     credential_helper: Path | None = None
     vault_socket: Path | None = None
+    git_database: Path | None = None
     if helper_value:
         if not git_broker:
             raise RunnerDenied("credential helper разрешён только Git broker")
@@ -321,8 +324,20 @@ def load_config(unix_user: str, *, config_dir: Path = CONFIG_DIR) -> RunnerConfi
         vault_socket = Path(vault_socket_value)
         if not vault_socket.is_absolute():
             raise RunnerDenied("Git vault socket должен быть абсолютным")
+        database_path = Path(database_value)
+        if not database_path.is_absolute():
+            raise RunnerDenied("Git grant database должна быть абсолютной")
+        try:
+            git_database = database_path.resolve(strict=True)
+            database_stat = git_database.stat()
+        except OSError as error:
+            raise RunnerDenied("Git grant database отсутствует") from error
+        if not git_database.is_file() or database_stat.st_mode & 0o022:
+            raise RunnerDenied("Git grant database permissions запрещены")
     elif vault_socket_value:
         raise RunnerDenied("Git vault socket без credential helper запрещён")
+    elif database_value:
+        raise RunnerDenied("Git grant database без credential helper запрещена")
     return RunnerConfig(
         user_id=user_id,
         unix_user=unix_user,
@@ -334,6 +349,7 @@ def load_config(unix_user: str, *, config_dir: Path = CONFIG_DIR) -> RunnerConfi
         git_broker=git_broker,
         git_credential_helper=credential_helper,
         git_vault_socket=vault_socket,
+        git_database=git_database,
     )
 
 
