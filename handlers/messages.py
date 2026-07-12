@@ -89,7 +89,7 @@ async def handle_any(message: Message, bot: Bot):
     key = (user_id, chat_id, thread_id)
 
     user_text = _extract_user_text(message)
-    attachment_path: Path | None = await download_attachment(bot, message)
+    attachment_path: Path | None = await download_attachment(bot, message, user_id)
     if attachment_path:
         log.info("downloaded attachment to %s", attachment_path)
     if not user_text and not attachment_path:

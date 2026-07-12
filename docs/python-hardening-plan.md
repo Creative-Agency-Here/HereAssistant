@@ -487,3 +487,9 @@ providers/
   в `docs/os-runners.md`; 382 теста и полный локальный quality gate зелёные.
 - Production activation остаётся заблокирован до user-scoped Git broker и
   безопасного attachment staging: включать runners раньше нельзя.
+- Git broker завершён: runner принимает только allowlisted status/remote/pull,
+  push origin|github, clone с разрешённого host и worktree внутри project root.
+- Telegram attachments складываются в `downloads/<user_id>` с mode `0640`;
+  production runbook требует отдельную Unix-группу на пользователя.
+- Итог checkpoint: 388 тестов и полный quality gate зелёные; включение production
+  требует реальных Unix users, memberships, credentials и canary.

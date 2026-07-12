@@ -60,6 +60,11 @@ def user_workspace(user_id: int) -> Path:
     return WORKSPACE_DIR / str(int(user_id))
 
 
+def user_downloads(user_id: int) -> Path:
+    """Изолированный staging вложений конкретного Telegram-пользователя."""
+    return DOWNLOADS_DIR / str(int(user_id))
+
+
 def user_default_cwd(user_id: int) -> str:
     """Дефолтная рабочая папка нового диалога пользователя (его личный default)."""
     d = user_workspace(user_id) / "default"

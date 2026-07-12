@@ -9,6 +9,7 @@ from runner.entrypoint import (
     RunnerProfile,
     provider_environment,
     sanitize_rtk,
+    validate_git_request,
     write_rtk_metrics,
 )
 from runner.entrypoint import validate_request as validate
@@ -32,6 +33,7 @@ def runner_config(tmp_path: Path) -> RunnerConfig:
             )
         },
         project_roots=(project.resolve(),),
+        git_allowed_hosts=("github.com",),
     )
 
 
@@ -130,3 +132,50 @@ def test_runner_sanitizes_rtk_history_and_raw_tee(runner_config: RunnerConfig) -
     assert '"commands":1' in payload
     assert "git" not in payload
     assert "private" not in payload
+
+
+def test_git_request_allowlist_accepts_status_and_safe_clone(runner_config: RunnerConfig) -> None:
+    root = runner_config.project_roots[0]
+
+    assert (
+        validate_git_request(
+            runner_config,
+            user_id=100,
+            cwd=str(root),
+            command=["git", "status", "--short", "--branch"],
+        )
+        == root
+    )
+    assert (
+        validate_git_request(
+            runner_config,
+            user_id=100,
+            cwd=str(root),
+            command=[
+                "git",
+                "clone",
+                "--",
+                "https://github.com/example/repo.git",
+                str(root / "repo"),
+            ],
+        )
+        == root
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["git", "-C", "/etc", "status"],
+        ["git", "config", "--global", "credential.helper", "evil"],
+        ["git", "clone", "--", "http://github.com/example/repo.git", "repo"],
+        ["git", "push", "evil", "HEAD"],
+    ],
+)
+def test_git_request_allowlist_rejects_arbitrary_commands(
+    runner_config: RunnerConfig, command: list[str]
+) -> None:
+    with pytest.raises(RunnerDenied):
+        validate_git_request(
+            runner_config, user_id=100, cwd=str(runner_config.project_roots[0]), command=command
+        )

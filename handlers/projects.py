@@ -170,9 +170,9 @@ async def cmd_project(message: Message, command: CommandObject):
             return
         try:
             output = (
-                await git_projects.status(root)
+                await git_projects.status(message.from_user.id, root)
                 if args[0] == "status"
-                else await git_projects.pull(root)
+                else await git_projects.pull(message.from_user.id, root)
             )
         except git_projects.GitProjectError as error:
             await message.answer(f"Git error: {error}")
@@ -233,7 +233,7 @@ async def cb_project_push(query: CallbackQuery):
         return
     await query.answer("Выполняю push…")
     try:
-        output = await git_projects.push(conv["cwd"])
+        output = await git_projects.push(query.from_user.id, conv["cwd"])
     except git_projects.GitProjectError as error:
         await query.message.edit_text(f"Push не выполнен: {error}")
         return

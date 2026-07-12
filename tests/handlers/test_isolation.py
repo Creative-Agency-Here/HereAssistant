@@ -135,3 +135,13 @@ def test_shared_project_requires_explicit_membership(isolation_db: Path, tmp_pat
         )
 
     assert projects.resolve_authorized_project_path(100, project["id"], ".") == root
+
+
+def test_attachment_staging_is_scoped_by_telegram_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(config, "DOWNLOADS_DIR", tmp_path / "downloads")
+
+    assert config.user_downloads(100) == tmp_path / "downloads" / "100"
+    assert config.user_downloads(200) == tmp_path / "downloads" / "200"
+    assert config.user_downloads(100) != config.user_downloads(200)

@@ -16,11 +16,13 @@ def _safe_name(name: str) -> str:
     return name.strip("_") or "file"
 
 
-async def download_attachment(bot: Bot, message: Message) -> Optional[Path]:
+async def download_attachment(bot: Bot, message: Message, user_id: int) -> Optional[Path]:
     """Если в сообщении есть документ/фото/аудио/voice — скачать и вернуть путь.
     Иначе None.
     """
-    config.DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    staging = config.user_downloads(user_id)
+    if not staging.exists():
+        staging.mkdir(parents=True, exist_ok=True, mode=0o750)
 
     file_id = None
     suggested_name = None
@@ -51,11 +53,13 @@ async def download_attachment(bot: Bot, message: Message) -> Optional[Path]:
 
     ts = time.strftime("%Y%m%d-%H%M%S")
     safe = _safe_name(suggested_name)
-    dest = config.DOWNLOADS_DIR / f"{ts}_{safe}"
+    dest = staging / f"{ts}_{safe}"
 
     try:
         file = await bot.get_file(file_id)
         await bot.download_file(file.file_path, destination=str(dest))
+        dest.chmod(0o640)
         return dest
     except Exception:
+        dest.unlink(missing_ok=True)
         return None

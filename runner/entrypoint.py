@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 try:
     import pwd
@@ -52,6 +53,7 @@ class RunnerConfig:
     path: str
     providers: dict[str, RunnerProfile]
     project_roots: tuple[Path, ...]
+    git_allowed_hosts: tuple[str, ...]
 
 
 def _inside(path: Path, root: Path) -> bool:
@@ -73,6 +75,7 @@ def load_config(unix_user: str, *, config_dir: Path = CONFIG_DIR) -> RunnerConfi
         home = Path(raw["home"]).resolve(strict=True)
         provider_values: dict[str, dict[str, str]] = dict(raw["providers"])
         root_values = list(raw["project_roots"])
+        git_hosts = tuple(str(value).lower() for value in raw.get("git_allowed_hosts", []))
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as error:
         raise RunnerDenied("runner config повреждён") from error
     if configured_user != unix_user:
@@ -99,6 +102,7 @@ def load_config(unix_user: str, *, config_dir: Path = CONFIG_DIR) -> RunnerConfi
         path=str(raw.get("path") or "/usr/local/bin:/usr/bin:/bin"),
         providers=providers,
         project_roots=roots,
+        git_allowed_hosts=git_hosts,
     )
 
 
@@ -125,6 +129,50 @@ def validate_request(
     if not command or command[0] != PROVIDER_COMMANDS[provider]:
         raise RunnerDenied("provider executable не разрешён")
     return actual_home, actual_cwd
+
+
+def validate_git_request(
+    config: RunnerConfig, *, user_id: int, cwd: str, command: list[str]
+) -> Path:
+    actual_cwd = Path(cwd).resolve(strict=True)
+    if user_id != config.user_id or not any(
+        _inside(actual_cwd, root) for root in config.project_roots
+    ):
+        raise RunnerDenied("Git identity/cwd запрещены")
+    if command in (
+        ["git", "remote"],
+        ["git", "status", "--short", "--branch"],
+        ["git", "pull", "--ff-only"],
+    ):
+        return actual_cwd
+    if (
+        len(command) == 4
+        and command[:2] == ["git", "push"]
+        and command[2] in ("origin", "github")
+        and command[3] == "HEAD"
+    ):
+        return actual_cwd
+    if len(command) == 5 and command[:3] == ["git", "clone", "--"]:
+        if command[3].startswith("git@"):
+            host = command[3][4:].split(":", 1)[0].lower()
+        else:
+            url = urlsplit(command[3])
+            if url.scheme != "https" or url.username or url.password:
+                raise RunnerDenied("Git URL запрещён")
+            host = (url.hostname or "").lower()
+        if host not in config.git_allowed_hosts:
+            raise RunnerDenied("Git host запрещён")
+        target = Path(command[4])
+    elif len(command) == 6 and command[:4] == ["git", "worktree", "add", "-b"]:
+        if not all(char.isalnum() or char in "-_" for char in command[4]):
+            raise RunnerDenied("Git branch запрещена")
+        target = Path(command[5])
+    else:
+        raise RunnerDenied("Git command не входит в allowlist")
+    resolved_target = target.parent.resolve(strict=True) / target.name
+    if not any(_inside(resolved_target, root) for root in config.project_roots):
+        raise RunnerDenied("Git destination вне project_roots")
+    return actual_cwd
 
 
 def provider_environment(config: RunnerConfig, provider: str, cli_home: Path) -> dict[str, str]:
@@ -255,8 +303,10 @@ def run(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--user-id", type=int, required=True)
-    parser.add_argument("--provider", choices=sorted(PROVIDER_COMMANDS), required=True)
-    parser.add_argument("--cli-home", required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--provider", choices=sorted(PROVIDER_COMMANDS))
+    mode.add_argument("--git", action="store_true")
+    parser.add_argument("--cli-home")
     parser.add_argument("--cwd", required=True)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -267,17 +317,36 @@ def main() -> int:
     unix_user = pwd.getpwuid(os.getuid()).pw_name
     try:
         config = load_config(unix_user)
-        cli_home, cwd = validate_request(
-            config,
-            user_id=args.user_id,
-            provider=args.provider,
-            cli_home=args.cli_home,
-            cwd=args.cwd,
-            command=command,
-        )
+        if args.git:
+            cwd = validate_git_request(config, user_id=args.user_id, cwd=args.cwd, command=command)
+            cli_home = None
+        else:
+            if not args.provider or not args.cli_home:
+                raise RunnerDenied("provider/cli_home обязательны")
+            cli_home, cwd = validate_request(
+                config,
+                user_id=args.user_id,
+                provider=args.provider,
+                cli_home=args.cli_home,
+                cwd=args.cwd,
+                command=command,
+            )
     except RunnerDenied as error:
         print(f"runner denied: {error}", file=sys.stderr)
         return 77
+    if args.git:
+        return subprocess.call(
+            command,
+            cwd=cwd,
+            env={
+                "HOME": str(config.home),
+                "USER": config.unix_user,
+                "LOGNAME": config.unix_user,
+                "PATH": config.path,
+                "LANG": os.environ.get("LANG", "C.UTF-8"),
+            },
+        )
+    assert args.provider and cli_home is not None
     return run(
         command,
         cwd,

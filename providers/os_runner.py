@@ -98,3 +98,37 @@ class ProcessBoundary:
             *argv,
         ]
         return PreparedProcess(argv=wrapped, cwd=None, env=_host_environment())
+
+
+class GitBoundary:
+    def __init__(self, user_id: int):
+        self.user_id = user_id
+        self.enabled = config.OS_RUNNERS_ENABLED
+        self.unix_user = config.OS_RUNNER_MAP.get(user_id) if self.enabled else None
+        if self.enabled and (os.name == "nt" or not self.unix_user):
+            raise RunnerConfigurationError(f"RUNNER_NOT_CONFIGURED для user_id={user_id}")
+
+    def prepare(self, argv: list[str], cwd: str) -> PreparedProcess:
+        if not self.enabled:
+            return PreparedProcess(argv=argv, cwd=cwd, env=dict(os.environ))
+        assert self.unix_user is not None
+        return PreparedProcess(
+            argv=[
+                "/usr/bin/sudo",
+                "-n",
+                "-H",
+                "-u",
+                self.unix_user,
+                "--",
+                config.OS_RUNNER_EXECUTABLE,
+                "--user-id",
+                str(self.user_id),
+                "--git",
+                "--cwd",
+                cwd,
+                "--",
+                *argv,
+            ],
+            cwd=None,
+            env=_host_environment(),
+        )

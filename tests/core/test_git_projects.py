@@ -73,7 +73,7 @@ async def test_worktree_is_created_and_registered_per_user(project_db: Path) -> 
     assert (worktree_path / ".git").exists()
     assert projects.get_accessible_project(100, worktree["id"]) is not None
     assert projects.get_accessible_project(200, worktree["id"]) is None
-    assert "feature-1" in await git_projects.status(worktree_path)
+    assert "feature-1" in await git_projects.status(100, worktree_path)
 
 
 @pytest.mark.asyncio

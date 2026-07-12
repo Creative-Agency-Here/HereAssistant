@@ -1,7 +1,7 @@
 # Per-user Unix runners
 
-Status: code boundary implemented, disabled by default. Do not enable on production
-until every checklist item in this document is complete.
+Status: provider, Git and attachment boundaries implemented; disabled by default.
+Do not enable on production until every provisioning/canary item is complete.
 
 ## Threat boundary
 
@@ -14,14 +14,11 @@ This protects credentials from other provider processes. It does not make the
 trusted HereAssistant core harmless: core still chooses prompts and schedules
 runs. A compromised root or core control plane remains outside this boundary.
 
-## Current activation blocker
+## Activation prerequisites
 
-The provider boundary is ready, but production activation is intentionally
-blocked until Git operations and attachment staging use the same user boundary.
-Today `/project clone|pull|push|worktree` and downloaded attachments are still
-owned by Unix user `here`. Enabling private runner-owned repositories before that
-broker is implemented would either break those flows or require unsafe broad
-filesystem permissions.
+`/project clone|pull|push|worktree` now use the same runner with a strict Git
+command allowlist. Telegram attachments are staged under `downloads/<user_id>`.
+Production still needs per-user Unix groups and ownership before activation.
 
 ## Provisioning skeleton
 
@@ -59,6 +56,23 @@ sudo install -d -o ha-pavel -g hereassistant-metrics -m 2750 \
   /var/lib/hereassistant/runner-metrics/USER_ID_PAVEL
 ```
 
+Create separate collaboration groups for repositories and attachment staging;
+never put both runners in one shared group:
+
+```bash
+sudo groupadd --force ha-ilya-core
+sudo groupadd --force ha-pavel-core
+sudo usermod -aG ha-ilya-core here
+sudo usermod -aG ha-ilya-core ha-ilya
+sudo usermod -aG ha-pavel-core here
+sudo usermod -aG ha-pavel-core ha-pavel
+sudo chown -R ha-ilya:ha-ilya-core /home/ha-ilya/projects
+sudo chown -R ha-pavel:ha-pavel-core /home/ha-pavel/projects
+sudo chmod -R 2770 /home/ha-ilya/projects /home/ha-pavel/projects
+sudo install -d -o here -g ha-ilya-core -m 2750 /opt/hereassistant/.runtime/downloads/USER_ID_ILYA
+sudo install -d -o here -g ha-pavel-core -m 2750 /opt/hereassistant/.runtime/downloads/USER_ID_PAVEL
+```
+
 ## Root-owned runner config
 
 `/etc/hereassistant/runners/ha-ilya.json`:
@@ -80,6 +94,7 @@ sudo install -d -o ha-pavel -g hereassistant-metrics -m 2750 \
     }
   },
   "project_roots": ["/home/ha-ilya/projects"]
+  ,"git_allowed_hosts": ["github.com", "git.example.com"]
 }
 ```
 
@@ -129,7 +144,7 @@ routing is added to the wrapper.
 2. Provision only `ha-ilya` with a separate canary profile and repository.
 3. Verify Claude/Codex login, Git SSH, build/tests, cancellation and RTK metrics.
 4. Verify an attempted foreign CLI home and `../`/symlink cwd both return 77.
-5. Keep `OS_RUNNERS_ENABLED=0` for the real accounts until Git/attachment broker
-   support lands.
+5. Verify Git clone/status/pull/worktree/push and attachment reads for each user,
+   including negative cross-user checks.
 6. Rollback is disabling `OS_RUNNERS_ENABLED` and restarting bot/API; no schema
    migration is involved.
