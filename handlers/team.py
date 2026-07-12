@@ -13,6 +13,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from core import access, events
+
 from .common import is_admin
 
 router = Router()
@@ -25,8 +26,7 @@ async def handle_unauthorized(message: Message, bot: Bot):
     u = message.from_user
     if not u:
         return
-    row = access.get_user(u.id) or access.upsert_seen(
-        u.id, u.username, u.first_name)
+    row = access.get_user(u.id) or access.upsert_seen(u.id, u.username, u.first_name)
     mode = access.get_mode()
     if row["status"] == "denied":
         await message.answer("⛔ Доступ отклонён владельцем бота.")
@@ -46,8 +46,12 @@ async def handle_unauthorized(message: Message, bot: Bot):
     # без отметки следующее сообщение повторит отправку.
     if not row["requested_at"]:
         sent = await notify_access_request(bot, row)
-        events.log("access_request", user_id=u.id, chat_id=message.chat.id,
-                   payload={"username": u.username, "notified": sent})
+        events.log(
+            "access_request",
+            user_id=u.id,
+            chat_id=message.chat.id,
+            payload={"username": u.username, "notified": sent},
+        )
         if sent:
             access.mark_requested(u.id)
             await message.answer(
@@ -56,26 +60,26 @@ async def handle_unauthorized(message: Message, bot: Bot):
             )
         else:
             log.warning("заявка от %s не доставлена ни одному админу", u.id)
-            await message.answer(
-                "⚠️ Не смог достучаться до владельца — попробуй написать позже."
-            )
+            await message.answer("⚠️ Не смог достучаться до владельца — попробуй написать позже.")
     else:
         await message.answer("⏳ Твоя заявка ещё на рассмотрении — владелец увидит её.")
 
 
 def _request_kb(uid: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Разрешить", callback_data=f"usr:approve:{uid}"),
-         InlineKeyboardButton(text="👑 Сразу админом", callback_data=f"usr:promote:{uid}")],
-        [InlineKeyboardButton(text="⛔ Отклонить", callback_data=f"usr:deny:{uid}")],
-    ])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Разрешить", callback_data=f"usr:approve:{uid}"),
+                InlineKeyboardButton(text="👑 Сразу админом", callback_data=f"usr:promote:{uid}"),
+            ],
+            [InlineKeyboardButton(text="⛔ Отклонить", callback_data=f"usr:deny:{uid}")],
+        ]
+    )
 
 
 async def notify_access_request(bot: Bot, row) -> int:
     """Карточка-заявка всем эффективным админам. Возвращает, скольким дошло."""
-    text = ("🔔 Заявка на доступ к боту\n\n"
-            f"{access.user_line(row)}\n\n"
-            "Разрешить работу с агентом?")
+    text = f"🔔 Заявка на доступ к боту\n\n{access.user_line(row)}\n\nРазрешить работу с агентом?"
     sent = 0
     for admin_id in _admin_ids_all():
         try:
@@ -91,6 +95,7 @@ def _admin_ids_all():
     """Владельцы из .env + назначенные админы из БД (без дублей)."""
     ids = []
     from core import config
+
     for uid in config.ADMIN_IDS:
         if uid not in ids:
             ids.append(uid)
@@ -123,16 +128,20 @@ def _users_list_view(search: str = ""):
     total = access.count_users(search)
     rows = access.list_users(search, limit=10)  # pending — первыми (не тонут)
     if not rows:
-        return ("Никого не нашёл" + (f" по «{search}»" if search else "") +
-                ".\nЗдесь появляются все, кто писал боту."), None
+        return (
+            "Никого не нашёл"
+            + (f" по «{search}»" if search else "")
+            + ".\nЗдесь появляются все, кто писал боту."
+        ), None
     head = ("Команда бота" if not search else f"Поиск: «{search}»") + f" · {total} чел."
     lines = [head + "\n👑 владелец · ⭐ админ · ✅ допущен · ⏳ заявка · ⛔ отказ\n"]
     buttons = []
     row_btns = []
     for i, r in enumerate(rows, 1):
         lines.append(f"{i}. {access.user_line(r)}")
-        row_btns.append(InlineKeyboardButton(
-            text=str(i), callback_data=f"usr:card:{r['telegram_id']}"))
+        row_btns.append(
+            InlineKeyboardButton(text=str(i), callback_data=f"usr:card:{r['telegram_id']}")
+        )
         if len(row_btns) == 5:
             buttons.append(row_btns)
             row_btns = []
@@ -164,17 +173,37 @@ def _card_view(uid: int):
         lines.append("владелец бота (бутстрап из .env) — роль не меняется")
     else:
         if row["status"] == "pending":
-            btns.append([InlineKeyboardButton(text="✅ Разрешить", callback_data=f"usr:approve:{uid}"),
-                         InlineKeyboardButton(text="👑 Сразу админом", callback_data=f"usr:promote:{uid}")])
-            btns.append([InlineKeyboardButton(text="⛔ Отклонить", callback_data=f"usr:deny:{uid}")])
+            btns.append(
+                [
+                    InlineKeyboardButton(text="✅ Разрешить", callback_data=f"usr:approve:{uid}"),
+                    InlineKeyboardButton(
+                        text="👑 Сразу админом", callback_data=f"usr:promote:{uid}"
+                    ),
+                ]
+            )
+            btns.append(
+                [InlineKeyboardButton(text="⛔ Отклонить", callback_data=f"usr:deny:{uid}")]
+            )
         elif row["status"] == "denied":
-            btns.append([InlineKeyboardButton(text="✅ Открыть доступ", callback_data=f"usr:approve:{uid}")])
+            btns.append(
+                [InlineKeyboardButton(text="✅ Открыть доступ", callback_data=f"usr:approve:{uid}")]
+            )
         elif row["role"] == "admin":
-            btns.append([InlineKeyboardButton(text="⬇️ Снять админа", callback_data=f"usr:demote:{uid}"),
-                         InlineKeyboardButton(text="⛔ Закрыть доступ", callback_data=f"usr:deny:{uid}")])
+            btns.append(
+                [
+                    InlineKeyboardButton(text="⬇️ Снять админа", callback_data=f"usr:demote:{uid}"),
+                    InlineKeyboardButton(text="⛔ Закрыть доступ", callback_data=f"usr:deny:{uid}"),
+                ]
+            )
         else:
-            btns.append([InlineKeyboardButton(text="👑 Назначить админом", callback_data=f"usr:promote:{uid}"),
-                         InlineKeyboardButton(text="⛔ Закрыть доступ", callback_data=f"usr:deny:{uid}")])
+            btns.append(
+                [
+                    InlineKeyboardButton(
+                        text="👑 Назначить админом", callback_data=f"usr:promote:{uid}"
+                    ),
+                    InlineKeyboardButton(text="⛔ Закрыть доступ", callback_data=f"usr:deny:{uid}"),
+                ]
+            )
     btns.append([InlineKeyboardButton(text="← Список", callback_data="usr:list")])
     return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=btns)
 
@@ -218,18 +247,21 @@ async def _apply_role_action(query: CallbackQuery, action: str):
     if access.is_owner(uid):
         await query.answer("Это владелец — роль фиксирована", show_alert=True)
         return
-    if uid == query.from_user.id and action in ("deny", "demote"):
-        await query.answer("Себя понижать нельзя — попроси другого админа", show_alert=True)
+    if uid == query.from_user.id and action in ("promote", "deny", "demote"):
+        await query.answer("Свою роль менять нельзя — попроси другого админа", show_alert=True)
         return
     row_before = access.get_user(uid)
     if not row_before:
         await query.answer("Пользователь не найден", show_alert=True)
         return
-    do = {"approve": access.approve, "deny": access.deny,
-          "promote": access.promote, "demote": access.demote}[action]
+    do = {
+        "approve": access.approve,
+        "deny": access.deny,
+        "promote": access.promote,
+        "demote": access.demote,
+    }[action]
     do(uid)
-    events.log("access_" + action, user_id=query.from_user.id,
-               payload={"target": uid})
+    events.log("access_" + action, user_id=query.from_user.id, payload={"target": uid})
     # уведомить пользователя о решении (если это была заявка/смена доступа)
     note = {
         "approve": "✅ Доступ к боту открыт — пиши задачу обычным текстом.",
@@ -275,9 +307,14 @@ def _access_view():
     for mode in access.MODES:
         mark = "✓ " if mode == cur else "   "
         lines.append(f"{mark}{access.MODE_TITLES[mode]}")
-        buttons.append([InlineKeyboardButton(
-            text=("✓ " if mode == cur else "") + access.MODE_TITLES[mode].split(" — ")[0],
-            callback_data=f"axs:set:{mode}")])
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=("✓ " if mode == cur else "") + access.MODE_TITLES[mode].split(" — ")[0],
+                    callback_data=f"axs:set:{mode}",
+                )
+            ]
+        )
     lines.append("\nРоли и заявки: /users")
     return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=buttons)
 

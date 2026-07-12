@@ -7,7 +7,6 @@ Telegram HTML поддерживает теги: b, i, u, s, code, pre, a, block
 """
 
 import re
-from typing import Optional
 
 
 def html_escape(text: str) -> str:
@@ -25,8 +24,9 @@ def markdown_to_html(text: str) -> str:
         return f"\x00PH{len(placeholders) - 1}\x00"
 
     # 1) Вырезаем код-блоки и inline-код ДО эскейпа, чтобы внутри не сломать символы
-    text = re.sub(r"```([a-zA-Z0-9_+\-]*)\n?([\s\S]*?)```",
-                  lambda m: stash(m.group(2), "pre"), text)
+    text = re.sub(
+        r"```([a-zA-Z0-9_+\-]*)\n?([\s\S]*?)```", lambda m: stash(m.group(2), "pre"), text
+    )
     text = re.sub(r"`([^`\n]+?)`", lambda m: stash(m.group(1), "code"), text)
 
     # 2) Эскейпим весь оставшийся текст
@@ -74,6 +74,8 @@ def split_for_telegram(text: str, limit: int = 4000) -> list[str]:
     """Разбить длинный текст на куски с учётом переносов строк."""
     if len(text) <= limit:
         return [text]
+    if re.search(r"</?[a-zA-Z][^>]*>|&(?:[a-zA-Z]+|#\d+|#x[0-9a-fA-F]+);", text):
+        return _split_html(text, limit)
     chunks = []
     while text:
         if len(text) <= limit:
@@ -85,3 +87,75 @@ def split_for_telegram(text: str, limit: int = 4000) -> list[str]:
         chunks.append(text[:cut])
         text = text[cut:].lstrip("\n")
     return chunks
+
+
+def _split_html(text: str, limit: int) -> list[str]:
+    """Режет Telegram HTML, закрывая и переоткрывая активные теги."""
+    if limit < 16:
+        raise ValueError("HTML chunk limit is too small")
+    tokens = re.findall(r"<[^>]+>|&(?:[a-zA-Z]+|#\d+|#x[0-9a-fA-F]+);|[^<&]+|[<&]", text)
+    chunks: list[str] = []
+    current = ""
+    stack: list[tuple[str, str]] = []
+
+    def closing(tags: list[tuple[str, str]]) -> str:
+        return "".join(f"</{name}>" for name, _opening in reversed(tags))
+
+    def emit() -> None:
+        nonlocal current
+        if not current:
+            return
+        chunks.append(current + closing(stack))
+        current = "".join(opening for _name, opening in stack)
+
+    for token in tokens:
+        tag = _html_tag(token)
+        if tag is not None:
+            name, is_closing, is_self_closing = tag
+            future_stack = list(stack)
+            if is_closing:
+                for index in range(len(future_stack) - 1, -1, -1):
+                    if future_stack[index][0] == name:
+                        del future_stack[index:]
+                        break
+            elif not is_self_closing:
+                future_stack.append((name, token))
+            if len(current) + len(token) + len(closing(future_stack)) > limit:
+                emit()
+            current += token
+            stack = future_stack
+            continue
+
+        if token.startswith("&") and token.endswith(";"):
+            if len(current) + len(token) + len(closing(stack)) > limit:
+                emit()
+            current += token
+            continue
+
+        offset = 0
+        while offset < len(token):
+            available = limit - len(current) - len(closing(stack))
+            if available <= 0:
+                emit()
+                available = limit - len(current) - len(closing(stack))
+            if available <= 0:
+                raise ValueError("HTML tag nesting exceeds chunk limit")
+            piece = token[offset : offset + available]
+            # Entity tokens are atomic due tokenizer; ordinary text prefers a newline.
+            if len(piece) == available and offset + available < len(token):
+                newline = piece.rfind("\n")
+                if newline >= available // 2:
+                    piece = piece[: newline + 1]
+            current += piece
+            offset += len(piece)
+            if offset < len(token):
+                emit()
+    emit()
+    return chunks
+
+
+def _html_tag(token: str) -> tuple[str, bool, bool] | None:
+    match = re.fullmatch(r"<\s*(/?)\s*([a-zA-Z][\w-]*)(?:\s[^>]*)?\s*(/?)>", token)
+    if not match:
+        return None
+    return match.group(2).lower(), bool(match.group(1)), bool(match.group(3))

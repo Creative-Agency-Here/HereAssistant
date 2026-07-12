@@ -28,6 +28,7 @@ def _parse_payload(s: Optional[str]) -> dict:
 
 # ---------- активная задача ----------
 
+
 def get_active_task(stale_after_sec: int = 1800) -> Optional[dict]:
     """Активная задача = последний message_in без сопровождающего message_out/error.
 
@@ -48,10 +49,10 @@ def get_active_task(stale_after_sec: int = 1800) -> Optional[dict]:
         # есть ли после него message_out / error для той же пары chat+thread?
         closed = c.execute(
             """SELECT 1 FROM events
-               WHERE id > ? AND chat_id=? AND thread_id=?
+               WHERE id > ? AND user_id=? AND chat_id=? AND thread_id=?
                  AND event_type IN ('message_out', 'error')
                LIMIT 1""",
-            (row["id"], row["chat_id"], row["thread_id"]),
+            (row["id"], row["user_id"], row["chat_id"], row["thread_id"]),
         ).fetchone()
         if closed:
             return None
@@ -61,8 +62,8 @@ def get_active_task(stale_after_sec: int = 1800) -> Optional[dict]:
             """SELECT c.model, c.cwd, c.project_name, a.label AS account_label
                FROM conversations c
                LEFT JOIN accounts a ON a.id = c.account_id
-               WHERE c.chat_id=? AND c.thread_id=?""",
-            (row["chat_id"], row["thread_id"]),
+               WHERE c.user_id=? AND c.chat_id=? AND c.thread_id=?""",
+            (row["user_id"], row["chat_id"], row["thread_id"]),
         ).fetchone()
         conv_d = _row(conv) or {}
 
@@ -97,16 +98,23 @@ def get_recent_actions(limit: int = 5) -> list[str]:
 
 # ---------- история диалогов ----------
 
-def list_conversations(limit: int = 50, offset: int = 0,
-                       account: Optional[str] = None,
-                       q: Optional[str] = None) -> list[dict]:
-    where = ["1=1"]
-    args: list[Any] = []
+
+def list_conversations(
+    user_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    account: Optional[str] = None,
+    q: Optional[str] = None,
+) -> list[dict]:
+    where = ["c.user_id=?"]
+    args: list[Any] = [user_id]
     if account:
         where.append("a.label = ?")
         args.append(account)
     if q:
-        where.append("EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id=c.id AND m.content LIKE ?)")
+        where.append(
+            "EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id=c.id AND m.content LIKE ?)"
+        )
         args.append(f"%{q}%")
 
     sql = f"""
@@ -119,7 +127,7 @@ def list_conversations(limit: int = 50, offset: int = 0,
                (SELECT COUNT(*) FROM messages m WHERE m.conversation_id=c.id) AS msg_count
         FROM conversations c
         LEFT JOIN accounts a ON a.id = c.account_id
-        WHERE {' AND '.join(where)}
+        WHERE {" AND ".join(where)}
         ORDER BY c.updated_at DESC
         LIMIT ? OFFSET ?
     """
@@ -128,22 +136,24 @@ def list_conversations(limit: int = 50, offset: int = 0,
         return [dict(r) for r in c.execute(sql, args)]
 
 
-def get_conversation(conv_id: int) -> Optional[dict]:
+def get_conversation(conv_id: int, user_id: int) -> Optional[dict]:
     with db.conn() as c:
         conv = c.execute(
             """SELECT c.*, a.label AS account
                FROM conversations c
                LEFT JOIN accounts a ON a.id = c.account_id
-               WHERE c.id = ?""",
-            (conv_id,),
+               WHERE c.id = ? AND c.user_id=?""",
+            (conv_id, user_id),
         ).fetchone()
         if not conv:
             return None
-        msgs = list(c.execute(
-            """SELECT id, role, content, model, provider, created_at
+        msgs = list(
+            c.execute(
+                """SELECT id, role, content, model, provider, created_at
                FROM messages WHERE conversation_id=? ORDER BY id""",
-            (conv_id,),
-        ))
+                (conv_id,),
+            )
+        )
     out = dict(conv)
     out["messages"] = [dict(m) for m in msgs]
     return out
@@ -151,11 +161,15 @@ def get_conversation(conv_id: int) -> Optional[dict]:
 
 # ---------- журнал изменений файлов ----------
 
-def list_file_changes(limit: int = 50, offset: int = 0,
-                      file: Optional[str] = None,
-                      thread_id: Optional[int] = None,
-                      since: Optional[int] = None,
-                      until: Optional[int] = None) -> list[dict]:
+
+def list_file_changes(
+    limit: int = 50,
+    offset: int = 0,
+    file: Optional[str] = None,
+    thread_id: Optional[int] = None,
+    since: Optional[int] = None,
+    until: Optional[int] = None,
+) -> list[dict]:
     """Лента правок из file_changes (свежие первыми).
     Фильтры: файл, тред, окно времени [since, until] по ts — для «правок одного запроса»."""
     where = ["1=1"]
@@ -175,7 +189,7 @@ def list_file_changes(limit: int = 50, offset: int = 0,
     sql = f"""
         SELECT id, ts, thread_id, account, model, file, tool, added, removed, diff
         FROM file_changes
-        WHERE {' AND '.join(where)}
+        WHERE {" AND ".join(where)}
         ORDER BY id DESC
         LIMIT ? OFFSET ?
     """

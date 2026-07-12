@@ -8,15 +8,17 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
 import time
-from typing import Optional
 from urllib.parse import parse_qsl
 
 from core import config
+from webapp.api.models import TelegramUserDTO
 
-import logging
 log = logging.getLogger("webapp.auth")
+
+MAX_FUTURE_SKEW_SEC = 60
 
 
 def _admin_ids() -> set[int]:
@@ -32,7 +34,7 @@ def _admin_ids() -> set[int]:
     return ids
 
 
-def validate_init_data(init_data: str, max_age_sec: int = 86400) -> Optional[dict]:
+def validate_init_data(init_data: str, max_age_sec: int = 86400) -> TelegramUserDTO | None:
     """Валидирует initData, возвращает распарсенный user-dict или None.
     Логирует причину отказа (видно в pm2-api логах)."""
     if not init_data:
@@ -42,7 +44,12 @@ def validate_init_data(init_data: str, max_age_sec: int = 86400) -> Optional[dic
         log.warning("auth: TELEGRAM_TOKEN не задан")
         return None
 
-    pairs = dict(parse_qsl(init_data, keep_blank_values=True))
+    raw_pairs = parse_qsl(init_data, keep_blank_values=True)
+    keys = [key for key, _ in raw_pairs]
+    if len(keys) != len(set(keys)):
+        log.warning("auth: повторяющиеся параметры initData")
+        return None
+    pairs = dict(raw_pairs)
     received_hash = pairs.pop("hash", None)
     # ВАЖНО: исключаем ТОЛЬКО hash. Поле signature (Ed25519, новые клиенты)
     # ВХОДИТ в data-check-string для hash-проверки — проверено эмпирически на реальном initData.
@@ -58,11 +65,16 @@ def validate_init_data(init_data: str, max_age_sec: int = 86400) -> Optional[dic
         return None
 
     auth_date = pairs.get("auth_date")
-    if auth_date and auth_date.isdigit():
-        age = time.time() - int(auth_date)
-        if age > max_age_sec:
-            log.warning("auth: initData протух (%.0f сек > %d)", age, max_age_sec)
-            return None
+    if not auth_date or not auth_date.isdigit():
+        log.warning("auth: нет корректного auth_date")
+        return None
+    age = time.time() - int(auth_date)
+    if age < -MAX_FUTURE_SKEW_SEC:
+        log.warning("auth: auth_date из будущего (%.0f сек)", -age)
+        return None
+    if age > max_age_sec:
+        log.warning("auth: initData протух (%.0f сек > %d)", age, max_age_sec)
+        return None
 
     user_raw = pairs.get("user")
     if not user_raw:
@@ -74,9 +86,21 @@ def validate_init_data(init_data: str, max_age_sec: int = 86400) -> Optional[dic
         log.warning("auth: user не распарсился")
         return None
 
+    if not isinstance(user, dict):
+        log.warning("auth: user не является object")
+        return None
     tg_id = user.get("id")
     if not isinstance(tg_id, int) or tg_id not in _admin_ids():
         log.warning("auth: id=%s не в списке админов %s", tg_id, _admin_ids())
         return None
 
-    return user
+    result: TelegramUserDTO = {"id": tg_id}
+    if isinstance(user.get("first_name"), str):
+        result["first_name"] = user["first_name"]
+    if isinstance(user.get("last_name"), str):
+        result["last_name"] = user["last_name"]
+    if isinstance(user.get("username"), str):
+        result["username"] = user["username"]
+    if isinstance(user.get("language_code"), str):
+        result["language_code"] = user["language_code"]
+    return result

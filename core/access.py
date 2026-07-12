@@ -75,17 +75,22 @@ def _search_where(search: str):
     if not search:
         return "", []
     like = f"%{search.lstrip('@')}%"
-    return (" WHERE CAST(telegram_id AS TEXT) LIKE ? "
-            "OR username LIKE ? COLLATE NOCASE "
-            "OR first_name LIKE ? COLLATE NOCASE"), [like, like, like]
+    return (
+        " WHERE CAST(telegram_id AS TEXT) LIKE ? "
+        "OR username LIKE ? COLLATE NOCASE "
+        "OR first_name LIKE ? COLLATE NOCASE"
+    ), [like, like, like]
 
 
 def list_users(search: str = "", limit: int = 30):
     """Все, кто писал боту; поиск по нику/имени/id (LIKE, регистр не важен).
     Заявки (pending) — первыми, чтобы не тонули среди активных."""
     where, args = _search_where(search)
-    q = ("SELECT * FROM users" + where +
-         " ORDER BY (status='pending') DESC, COALESCE(last_seen, created_at) DESC LIMIT ?")
+    q = (
+        "SELECT * FROM users"
+        + where
+        + " ORDER BY (status='pending') DESC, COALESCE(last_seen, created_at) DESC LIMIT ?"
+    )
     with db.conn() as c:
         return list(c.execute(q, args + [limit]))
 
@@ -132,8 +137,7 @@ def is_allowed_id(uid) -> bool:
 def _set(uid: int, **fields):
     cols = ", ".join(f"{k}=?" for k in fields)
     with db.conn() as c:
-        c.execute(f"UPDATE users SET {cols} WHERE telegram_id=?",
-                  (*fields.values(), uid))
+        c.execute(f"UPDATE users SET {cols} WHERE telegram_id=?", (*fields.values(), uid))
 
 
 def approve(uid: int):

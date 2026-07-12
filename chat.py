@@ -25,10 +25,28 @@ import os
 import random
 import sys
 import time
-from pathlib import Path
 
-from core import config, db
 import providers
+from chat_commands import CommandRouter
+from chat_identity import find_user as _find_user
+from chat_identity import user_display as _user_display
+from chat_renderer import (
+    ITALIC,
+    TTY,
+    B,
+    D,
+    M,
+    ProgressRenderState,
+    R,
+    X,
+    Y,
+    finish_stream,
+    format_run_summary,
+    make_progress,
+)
+from chat_sessions import Session
+from chat_sessions import list_resumable as _list_resumable
+from core import config, db
 
 # Аккаунты читаем напрямую из БД, НЕ через handlers.repo: пакет handlers/__init__
 # тянет все telegram-хендлеры (aiogram) — лишняя тяжёлая зависимость для CLI, и
@@ -42,24 +60,15 @@ def _db_accounts():
 
 def _db_account_by_label(label: str):
     with db.conn() as c:
-        return c.execute(
-            "SELECT * FROM accounts WHERE label=? AND enabled=1", (label,)
-        ).fetchone()
+        return c.execute("SELECT * FROM accounts WHERE label=? AND enabled=1", (label,)).fetchone()
 
 
 def _db_users():
     with db.conn() as c:
         return list(c.execute("SELECT * FROM users ORDER BY created_at"))
 
-# --- ANSI (как в manage.py; при отсутствии TTY гасим) ---
-_TTY = sys.stdout.isatty()
-def _c(code: str) -> str:
-    return code if _TTY else ""
-G = _c("\033[92m"); R = _c("\033[91m"); Y = _c("\033[93m"); C = _c("\033[96m")
-M = _c("\033[95m"); W = _c("\033[97m"); B = _c("\033[1m"); D = _c("\033[2m")
-I = _c("\033[3m"); X = _c("\033[0m")
 
-STEP_ICON = {"run": f"{Y}⏺{X}", "ok": f"{G}✓{X}", "err": f"{R}✗{X}"}
+_TTY = TTY
 
 
 # Градиент логотипа: розовый → фиолетовый (256-цветная палитра xterm).
@@ -79,29 +88,10 @@ def _logo() -> None:
     for ln, shade in zip(art, _LOGO_SHADES):
         color = f"\033[38;5;{shade}m" if _TTY else ""
         print(f"  {B}{color}{ln}{X}")
-    print(f"  {D}·  A S S I S T A N T  ·{X}  {M}v{config.APP_VERSION}{X}"
-          f"  {D}·  терминальный чат с CLI-агентом{X}\n")
-
-
-class Session:
-    """Состояние одной терминальной сессии: аккаунт, модель, папка, id сессии."""
-
-    def __init__(self, account, user_id: int, user_name: str = ""):
-        self.account = account            # sqlite3.Row аккаунта
-        self.user_id = user_id
-        self.user_name = user_name        # отображаемое имя (для статуса)
-        self.model = account["default_model"]
-        self.cwd = config.user_default_cwd(user_id)
-        self.session_id = None            # provider_session_id для --resume
-        self.last_meta = {}               # meta последнего ответа (для /diff)
-
-    @property
-    def label(self) -> str:
-        return self.account["label"]
-
-    @property
-    def provider(self) -> str:
-        return self.account["provider"]
+    print(
+        f"  {D}·  A S S I S T A N T  ·{X}  {M}v{config.APP_VERSION}{X}"
+        f"  {D}·  терминальный чат с CLI-агентом{X}\n"
+    )
 
 
 # ---------- выбор аккаунта ----------
@@ -120,7 +110,9 @@ def _pick_account(preselect: str | None):
     print(f"{B}Аккаунты:{X}")
     for i, a in enumerate(accounts, 1):
         owner = "" if a["owner_user_id"] is None else f" {D}(личный){X}"
-        print(f"  {B}{i}{X}. {a['label']}  {D}{a['provider']} · {a['default_model'] or '—'}{X}{owner}")
+        print(
+            f"  {B}{i}{X}. {a['label']}  {D}{a['provider']} · {a['default_model'] or '—'}{X}{owner}"
+        )
     while True:
         try:
             raw = input(f"{D}номер аккаунта › {X}").strip()
@@ -133,22 +125,6 @@ def _pick_account(preselect: str | None):
 
 
 # ---------- выбор пользователя ----------
-def _user_display(u) -> str:
-    """Отображаемое имя пользователя: @username или tg-id."""
-    return f"@{u['username']}" if u["username"] else str(u["telegram_id"])
-
-
-def _find_user(users, key: str):
-    """Найти пользователя по tg-id или @username (регистр не важен)."""
-    key = key.lstrip("@").lower()
-    for u in users:
-        if str(u["telegram_id"]) == key:
-            return u
-        if u["username"] and u["username"].lower() == key:
-            return u
-    return None
-
-
 def _pick_user(preselect: str | None):
     """От чьего имени работаем: сессии, workspace и архив припишутся ему.
     Порядок: -u <id|@username> → env HEREASSISTANT_USER → один юзер — сразу он →
@@ -181,415 +157,25 @@ def _pick_user(preselect: str | None):
         print(f"{R}нет такого номера{X}")
 
 
-# ---------- нативный стор сессий Claude (для /resume) ----------
-def _claude_sessions_dir(sess: Session) -> Path | None:
-    """Каталог нативных .jsonl-сессий Claude Code для текущего аккаунта+cwd."""
-    if sess.provider != "claude_code":
-        return None
-    slug = str(sess.cwd).replace("/", "-").replace("\\", "-")
-    d = Path(sess.account["cli_home_path"]) / "projects" / slug
-    return d if d.exists() else None
-
-
-def _list_resumable(sess: Session):
-    """Список прошлых сессий текущего проекта: (session_id, заголовок, mtime)."""
-    d = _claude_sessions_dir(sess)
-    if not d:
-        return []
-    import json
-    out = []
-    for f in sorted(d.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
-        title = ""
-        try:
-            with open(f, encoding="utf-8", errors="replace") as fh:
-                for line in fh:
-                    try:
-                        o = json.loads(line)
-                    except Exception:
-                        continue
-                    if o.get("type") == "user" and not o.get("isMeta"):
-                        msg = o.get("message", {})
-                        content = msg.get("content")
-                        if isinstance(content, str):
-                            title = content
-                        elif isinstance(content, list):
-                            for b in content:
-                                if isinstance(b, dict) and b.get("type") == "text":
-                                    title = b.get("text", "")
-                                    break
-                        if title.strip():
-                            break
-        except Exception:
-            pass
-        out.append((f.stem, title.strip()[:70] or "(без текста)", f.stat().st_mtime))
-    return out[:20]
-
-
-# ---------- markdown → ANSI (потоково) ----------
-class MdStream:
-    """Потоковый рендер markdown в ANSI: **жирный**, `код`, ```блоки```,
-    # заголовки, маркеры списков. Работает по дельтам стрима: если дельта
-    обрывается посреди токена (одиночная `*` в конце), хвост придерживается
-    до следующего куска — звёздочки никогда не «протекают» в вывод."""
-
-    def __init__(self):
-        self.bold = False      # внутри **…**
-        self.code = False      # внутри `…`
-        self.fence = False     # внутри ```…```
-        self.heading = False   # строка-заголовок #…
-        self.line_start = True
-        self.tail = ""        # недорендеренный хвост дельты
-
-    def _style(self) -> str:
-        """ANSI-префикс текущего стиля (всегда после сброса)."""
-        s = X
-        if self.fence or self.code:
-            s += C
-        if self.heading:
-            s += B + M
-        if self.bold:
-            s += B
-        return s
-
-    def feed(self, chunk: str) -> str:
-        s = self.tail + chunk
-        self.tail = ""
-        out = []
-        i, n = 0, len(s)
-        while i < n:
-            ch = s[i]
-            rem = n - i
-            # конец строки: сбросить строчные стили, вернуть стиль фенса
-            if ch == "\n":
-                self.heading = False
-                self.code = False
-                out.append(X + "\n")
-                self.line_start = True
-                if self.fence or self.bold:
-                    out.append(self._style())
-                i += 1
-                continue
-            # ```фенс``` — только с начала строки; язык после ``` глотаем
-            if ch == "`" and self.line_start:
-                if rem < 3:
-                    self.tail = s[i:]
-                    break
-                if s[i:i + 3] == "```":
-                    nl = s.find("\n", i)
-                    if nl == -1:
-                        self.tail = s[i:]
-                        break
-                    self.fence = not self.fence
-                    out.append(self._style())
-                    i = nl + 1
-                    continue
-            # `инлайн-код` (внутри фенса бэктики литеральны)
-            if ch == "`" and not self.fence:
-                self.code = not self.code
-                out.append(self._style())
-                i += 1
-                self.line_start = False
-                continue
-            if self.fence or self.code:
-                out.append(ch)
-                i += 1
-                self.line_start = False
-                continue
-            # * — жирный ** / маркер списка "* " / литеральная звёздочка
-            if ch == "*":
-                if rem == 1:
-                    self.tail = s[i:]
-                    break
-                if s[i + 1] == "*":
-                    self.bold = not self.bold
-                    out.append(self._style())
-                    i += 2
-                    self.line_start = False
-                    continue
-                if self.line_start and s[i + 1] == " ":
-                    out.append(f"{M}•{self._style()} ")
-                    i += 2
-                    self.line_start = False
-                    continue
-                out.append(ch)
-                i += 1
-                self.line_start = False
-                continue
-            # "- " в начале строки — маркер списка
-            if ch == "-" and self.line_start:
-                if rem == 1:
-                    self.tail = s[i:]
-                    break
-                if s[i + 1] == " ":
-                    out.append(f"{M}•{self._style()} ")
-                    i += 2
-                    self.line_start = False
-                    continue
-            # заголовок #…#### с пробелом — жирным, решётки глотаем
-            if ch == "#" and self.line_start:
-                k = i
-                while k < n and s[k] == "#":
-                    k += 1
-                if k >= n:
-                    self.tail = s[i:]
-                    break
-                if k - i <= 4 and s[k] == " ":
-                    self.heading = True
-                    out.append(self._style())
-                    i = k + 1
-                    self.line_start = False
-                    continue
-            out.append(ch)
-            if ch != " ":
-                self.line_start = False
-            i += 1
-        return "".join(out)
-
-    def close(self) -> str:
-        """Дорендерить хвост литерально и закрыть стили."""
-        t, self.tail = self.tail, ""
-        need_reset = t or self.bold or self.code or self.fence or self.heading
-        return (t + X) if need_reset else ""
-
-
-# ---------- рендер стрима в терминал ----------
-def _make_progress(state: dict):
-    """Async-callback для provider.run: печатает события по мере прихода —
-    рассуждения (серым), вызовы инструментов (⏺), их результаты (⎿), текст ответа."""
-    async def progress(text: str, event_type: str, meta: dict):
-        # 1) рассуждения модели — серым хвостом
-        th = meta.get("thinking") or ""
-        if len(th) > state["thinking_len"]:
-            chunk = th[state["thinking_len"]:]
-            state["thinking_len"] = len(th)
-            if not state["thinking_shown"]:
-                sys.stdout.write(f"\n{D}{I}💭 ")
-                state["thinking_shown"] = True
-            sys.stdout.write(f"{D}{I}{chunk}{X}")
-        # 2) шаги: печатаем вызов инструмента, когда шаг завершён (статус ⏺→✓/✗
-        # или пришёл результат) — к этому моменту описание уже с полными
-        # аргументами (на старте content_block_start input часто пуст).
-        steps = meta.get("steps") or []
-        for idx, st in enumerate(steps):
-            key = st.get("id") or f"i{idx}"
-            done = st.get("status") != "run" or st.get("result")
-            if done and key not in state["printed_tools"]:
-                state["printed_tools"].add(key)
-                _flush_text(state)
-                icon = STEP_ICON.get(st.get("status"), f"{Y}⏺{X}")
-                sys.stdout.write(f"\n{icon} {W}{st.get('desc')}{X}")
-                res = st.get("result")
-                if res:
-                    r = str(res)
-                    if len(r) > 400:
-                        r = r[:400] + "…"
-                    sys.stdout.write(f"\n   {D}⎿ {r}{X}")
-        # 3) текст ответа — печатаем дельту
-        if event_type in ("assistant_delta", "partial_delta") and text:
-            state["pending_text"] = text
-            _flush_text(state)
-        sys.stdout.flush()
-    return progress
-
-
-def _flush_text(state: dict):
-    """Допечатать хвост накопленного текста ответа (дельту к уже показанному),
-    прогнав через потоковый markdown-рендер (жирный/код/заголовки/списки)."""
-    text = state.get("pending_text") or ""
-    shown = state["text_len"]
-    if len(text) <= shown:
-        return
-    if not text.startswith(state["text_prefix"]):
-        # редкий случай: провайдер переустановил текст — начинаем абзац заново
-        sys.stdout.write("\n")
-        shown = 0
-        state["md"] = MdStream()
-    if not state["answer_started"]:
-        sys.stdout.write(f"\n{C}▌{X} ")
-        state["answer_started"] = True
-    sys.stdout.write(state["md"].feed(text[shown:]))
-    state["text_len"] = len(text)
-    state["text_prefix"] = text[:200]
-
-
 async def _run_prompt(sess: Session, prompt: str):
-    state = {
-        "thinking_len": 0, "thinking_shown": False,
-        "printed_tools": set(), "printed_res": set(),
-        "pending_text": "", "text_len": 0, "text_prefix": "", "answer_started": False,
-        "md": MdStream(),
-    }
-    prov = providers.make(sess.account)
+    state = ProgressRenderState()
+    prov = providers.make(sess.account, user_id=sess.user_id)
     t0 = time.time()
     try:
         text, new_session, meta = await prov.run(
-            prompt, sess.cwd, sess.session_id, sess.model, progress=_make_progress(state),
+            prompt,
+            sess.cwd,
+            sess.session_id,
+            sess.model,
+            progress=make_progress(state),
         )
     except Exception as e:
         print(f"\n{R}✗ Ошибка: {e}{X}")
         return
-    # Финальный текст: дофлашиваем в ТОТ ЖЕ state (не в копию — иначе
-    # answer_started не обновится и нестримящий провайдер напечатает дважды),
-    # затем закрываем markdown-рендер (хвост + сброс стилей).
-    if text:
-        state["pending_text"] = text
-        _flush_text(state)
-    sys.stdout.write(state["md"].close())
+    finish_stream(state, text)
     sess.session_id = new_session or sess.session_id
     sess.last_meta = meta or {}
-    # Подпись: правки + токены + время
-    edits = meta.get("edits") or []
-    dur = time.time() - t0
-    bits = [f"{dur:.0f}с"]
-    if edits:
-        add = sum(e.get("added", 0) for e in edits)
-        rem = sum(e.get("removed", 0) for e in edits)
-        bits.append(f"{G}+{add}{X} {R}−{rem}{X} в {len(edits)} файл.")
-    tin, tout = meta.get("tokens_in"), meta.get("tokens_out")
-    if tin or tout:
-        bits.append(f"токены {tin or 0}/{tout or 0}")
-    print(f"\n{D}— {' · '.join(bits)}{X}\n")
-
-
-# ---------- слэш-команды ----------
-def _print_help():
-    print(f"""{B}Команды:{X}
-  {C}/help{X}              эта справка
-  {C}/model{X} [имя]       показать/сменить модель
-  {C}/account{X} [label]   показать/сменить аккаунт (сбрасывает сессию)
-  {C}/user{X} [@имя|id]    кто работает: workspace и сессии пишутся на него
-  {C}/cwd{X} [путь]        показать/сменить рабочую папку
-  {C}/new{X}               начать новую сессию (забыть контекст)
-  {C}/resume{X}            выбрать и продолжить прошлую сессию проекта
-  {C}/status{X}            аккаунт, модель, папка, id сессии
-  {C}/diff{X}              диффы правок последнего ответа
-  {C}/clear{X}             очистить экран
-  {C}/exit{X} (или Ctrl+D) выход
-{D}Просто пиши текст — это уйдёт агенту. Многострочность: заканчивай пустой строкой не нужно, отправляется по Enter.{X}""")
-
-
-def _pretty_path(p: str) -> str:
-    """Короткий путь для показа: домашняя папка → ~."""
-    home = str(Path.home())
-    return "~" + p[len(home):] if p.startswith(home) else p
-
-
-def _cmd_status(sess: Session):
-    print(f"  {D}кто    {X}  {W}{sess.user_name or sess.user_id}{X}"
-          f"  {D}— от его имени: workspace, сессии и архив{X}")
-    print(f"  {D}аккаунт{X}  {W}{sess.label}{X}  {D}({sess.provider}){X}")
-    print(f"  {D}модель {X}  {W}{sess.model or '—'}{X}")
-    print(f"  {D}проект {X}  {W}{_pretty_path(sess.cwd)}{X}")
-    print(f"           {D}└ рабочая папка агента: здесь он читает и создаёт файлы · сменить: /cwd <путь>{X}")
-    if sess.session_id:
-        print(f"  {D}сессия {X}  {W}{sess.session_id[:8]}{X}"
-              f"  {D}— контекст продолжается · /new — с чистого листа{X}")
-    else:
-        print(f"  {D}сессия {X}  {W}новая{X}"
-              f"  {D}— контекст пуст, id появится после первого ответа · /resume — вернуть прошлую{X}")
-
-
-def _cmd_resume(sess: Session):
-    items = _list_resumable(sess)
-    if not items:
-        print(f"{D}Прошлых сессий для этого проекта не найдено "
-              f"(или провайдер не поддерживает).{X}")
-        return
-    print(f"{B}Прошлые сессии этого проекта:{X}")
-    for i, (sid, title, mtime) in enumerate(items, 1):
-        ago = time.strftime("%d.%m %H:%M", time.localtime(mtime))
-        cur = f" {G}← текущая{X}" if sid == sess.session_id else ""
-        print(f"  {B}{i}{X}. {title}  {D}{ago} · {sid[:8]}{X}{cur}")
-    raw = input(f"{D}номер (Enter — отмена) › {X}").strip()
-    if raw.isdigit() and 1 <= int(raw) <= len(items):
-        sess.session_id = items[int(raw) - 1][0]
-        print(f"{G}▸ продолжаю сессию {sess.session_id[:8]}{X}")
-
-
-def _handle_command(sess: Session, line: str) -> bool:
-    """Обработать слэш-команду. Возвращает False, если пора выходить."""
-    parts = line.strip().split(maxsplit=1)
-    cmd = parts[0].lower()
-    arg = parts[1].strip() if len(parts) > 1 else ""
-    if cmd in ("/exit", "/quit", "/q"):
-        return False
-    if cmd == "/help":
-        _print_help()
-    elif cmd == "/status":
-        _cmd_status(sess)
-    elif cmd == "/model":
-        if arg:
-            sess.model = arg
-            print(f"{G}▸ модель: {arg}{X}")
-        else:
-            print(f"  модель: {sess.model or '—'}  {D}(/model <имя> — сменить){X}")
-    elif cmd == "/account":
-        if arg:
-            a = _db_account_by_label(arg)
-            if a and a["enabled"]:
-                sess.account = a
-                sess.model = a["default_model"]
-                sess.session_id = None
-                print(f"{G}▸ аккаунт: {arg} · {a['provider']} (сессия сброшена){X}")
-            else:
-                print(f"{R}аккаунт '{arg}' не найден/выключен{X}")
-        else:
-            print(f"  аккаунт: {sess.label} {D}({sess.provider}){X}  {D}(/account <label>){X}")
-    elif cmd == "/cwd":
-        if arg:
-            p = Path(os.path.expanduser(arg))
-            if p.is_dir():
-                sess.cwd = str(p.resolve())
-                sess.session_id = None  # смена папки → другой проект → новая сессия
-                print(f"{G}▸ проект: {_pretty_path(sess.cwd)} (сессия сброшена){X}")
-            else:
-                print(f"{R}нет такой папки: {arg}{X}")
-        else:
-            print(f"  проект: {_pretty_path(sess.cwd)}"
-                  f"  {D}— рабочая папка агента (/cwd <путь> — сменить){X}")
-    elif cmd == "/user":
-        if arg:
-            u = _find_user(_db_users(), arg)
-            if u:
-                sess.user_id = u["telegram_id"]
-                sess.user_name = _user_display(u)
-                sess.cwd = config.user_default_cwd(sess.user_id)
-                sess.session_id = None  # чужой контекст не продолжаем
-                print(f"{G}▸ теперь работает {sess.user_name} (workspace и сессия — его){X}")
-            else:
-                print(f"{R}пользователь '{arg}' не найден{X}")
-        else:
-            print(f"  кто: {sess.user_name or sess.user_id}  {D}(/user <id|@username> — сменить){X}")
-    elif cmd == "/new":
-        sess.session_id = None
-        print(f"{G}▸ новая сессия — контекст забыт{X}")
-    elif cmd == "/resume":
-        _cmd_resume(sess)
-    elif cmd == "/diff":
-        _cmd_diff(sess)
-    elif cmd == "/clear":
-        os.system("cls" if os.name == "nt" else "clear")
-    else:
-        print(f"{R}неизвестная команда {cmd}{X} — /help")
-    return True
-
-
-def _cmd_diff(sess: Session):
-    edits = (sess.last_meta or {}).get("edits") or []
-    if not edits:
-        print(f"{D}В последнем ответе правок файлов не было.{X}")
-        return
-    for e in edits:
-        f = e.get("file", "?")
-        print(f"\n{B}{f}{X}  {G}+{e.get('added', 0)}{X} {R}−{e.get('removed', 0)}{X}")
-        old = (e.get("old") or "").splitlines()
-        new = (e.get("new") or "").splitlines()
-        for ln in old[:40]:
-            print(f"{R}- {ln}{X}")
-        for ln in new[:40]:
-            print(f"{G}+ {ln}{X}")
-        if len(old) > 40 or len(new) > 40:
-            print(f"{D}  …(обрезано, полностью — в вебапе правок){X}")
+    sys.stdout.write(format_run_summary(meta, time.time() - t0))
 
 
 # ---------- прощание ----------
@@ -612,7 +198,7 @@ def _farewell():
     if not _TTY:
         print(msg)
         return
-    sys.stdout.write(f"\n{M}▸{X} {I}")
+    sys.stdout.write(f"\n{M}▸{X} {ITALIC}")
     for ch in msg:
         sys.stdout.write(ch)
         sys.stdout.flush()
@@ -622,7 +208,13 @@ def _farewell():
 
 # ---------- REPL ----------
 async def _repl(sess: Session):
-    _cmd_status(sess)
+    commands = CommandRouter(
+        account_by_label=_db_account_by_label,
+        users=_db_users,
+        default_cwd=config.user_default_cwd,
+        resumable=_list_resumable,
+    )
+    commands.status(sess)
     print(f"\n{D}/help — команды · /exit — выход{X}")
     loop = asyncio.get_event_loop()
     while True:
@@ -636,7 +228,7 @@ async def _repl(sess: Session):
         if not line:
             continue
         if line.startswith("/"):
-            if not _handle_command(sess, line):
+            if not commands.handle(sess, line):
                 _farewell()
                 return
             continue
@@ -676,11 +268,14 @@ def main():
         pass  # ввод закрыт (не-интерактивный запуск) — тихо выходим
     except Exception as e:
         import traceback
+
         print(f"\n{R}✗ Не удалось запустить чат: {e}{X}")
         print(f"{D}{traceback.format_exc().strip()}{X}")
-        print(f"\n{Y}Подсказка:{X} запускай тем же Python, что и бот "
-              f"(в проекте: {D}.venv/bin/python chat.py{X}), из папки бота "
-              f"(где лежит bridge.sqlite3). Аккаунты добавляются в {D}manage.py{X}.")
+        print(
+            f"\n{Y}Подсказка:{X} запускай тем же Python, что и бот "
+            f"(в проекте: {D}.venv/bin/python chat.py{X}), из папки бота "
+            f"(где лежит bridge.sqlite3). Аккаунты добавляются в {D}manage.py{X}."
+        )
         if sys.stdin.isatty():
             try:
                 input(f"\n{D}Enter — закрыть…{X}")

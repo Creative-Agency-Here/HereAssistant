@@ -9,9 +9,8 @@ import asyncio
 import json
 import logging
 import os
-from pathlib import Path
 
-from aiohttp import WSMsgType, web
+from aiohttp import web
 
 from core import config
 from webapp.api import repo
@@ -20,7 +19,7 @@ log = logging.getLogger("webapp.ws")
 
 LOG_FILE = config.LOGS_DIR / "bot.log"
 TICK_SEC = float(os.environ.get("WS_TICK_SEC", "2.0"))
-MAX_LINES_INIT = 50      # сколько строк лога присылаем на первом подключении
+MAX_LINES_INIT = 50  # сколько строк лога присылаем на первом подключении
 
 
 async def handler(request: web.Request) -> web.WebSocketResponse:
@@ -90,7 +89,9 @@ async def _stream_new_lines(ws: web.WebSocketResponse, last_pos: int) -> int:
         log.warning("read log failed: %s", e)
         return last_pos
     if new_lines:
-        await ws.send_str(json.dumps({"type": "log_append", "lines": new_lines}))  # ошибки отправки — наружу
+        await ws.send_str(
+            json.dumps({"type": "log_append", "lines": new_lines})
+        )  # ошибки отправки — наружу
     return size
 
 
@@ -101,8 +102,13 @@ async def _send_status(ws: web.WebSocketResponse):
     except Exception as e:
         log.warning("status build failed: %s", e)
         return
-    await ws.send_str(json.dumps({
-        "type": "status",
-        "task": task,
-        "recent_actions": actions,
-    }, ensure_ascii=False))  # ошибки отправки — наружу, цикл оборвётся
+    await ws.send_str(
+        json.dumps(
+            {
+                "type": "status",
+                "task": task,
+                "recent_actions": actions,
+            },
+            ensure_ascii=False,
+        )
+    )  # ошибки отправки — наружу, цикл оборвётся

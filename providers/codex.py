@@ -1,7 +1,12 @@
 """Codex CLI provider."""
 
 from core import config
+from providers.models import ProviderMeta, ProviderResult
+from providers.parsers.codex import extract_session_id
+
 from .base import CLIProvider
+
+_extract_session_id = extract_session_id
 
 
 class CodexProvider(CLIProvider):
@@ -26,19 +31,16 @@ class CodexProvider(CLIProvider):
         if model:
             argv += ["-c", f"model={model}"]
         # инструкция языка через config override
-        argv += ["-c", f'instructions={config.RU_SYSTEM_INSTRUCTION!r}']
+        argv += ["-c", f"instructions={config.RU_SYSTEM_INSTRUCTION!r}"]
         argv += [full_prompt]
 
         rc, out, err = await self._exec(argv, cwd)
         if rc != 0:
             raise RuntimeError(f"codex failed (rc={rc}): {err[:2000]}")
 
-        new_session = session_id
-        for line in (err + "\n" + out).splitlines():
-            if "session" in line.lower() and "id" in line.lower():
-                for tok in line.replace(":", " ").replace(",", " ").split():
-                    if len(tok) >= 16 and "-" in tok:
-                        new_session = tok.strip().strip('"').strip("'")
-                        break
-
-        return out.strip(), new_session, {}
+        result = ProviderResult(
+            text=out.strip(),
+            session_id=_extract_session_id(out, err, session_id),
+            meta=ProviderMeta(),
+        )
+        return result.as_tuple()

@@ -43,8 +43,9 @@ async def _call(bot, method: str, payload: dict):
     url = f"https://api.telegram.org/bot{bot.token}/{method}"
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload,
-                                    timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            async with session.post(
+                url, json=payload, timeout=aiohttp.ClientTimeout(total=30)
+            ) as resp:
                 data = await resp.json(content_type=None)
     except Exception as e:
         log.warning("%s transport error: %s", method, e)
@@ -52,7 +53,11 @@ async def _call(bot, method: str, payload: dict):
     if data.get("ok"):
         return data.get("result")
     desc = str(data.get("description", ""))
-    if "method not found" in desc.lower() or "not found" in desc.lower() and "method" in desc.lower():
+    if (
+        "method not found" in desc.lower()
+        or "not found" in desc.lower()
+        and "method" in desc.lower()
+    ):
         _available = False
         log.warning("Bot API не знает %s — rich messages выключены до рестарта", method)
     else:
@@ -61,8 +66,7 @@ async def _call(bot, method: str, payload: dict):
     return None
 
 
-async def send_message(bot, chat_id: int, markdown: str,
-                       thread_id: int | None = None):
+async def send_message(bot, chat_id: int, markdown: str, thread_id: int | None = None):
     """Финальное rich-сообщение. Возвращает Message-dict или None."""
     payload = {
         "chat_id": chat_id,
@@ -73,8 +77,9 @@ async def send_message(bot, chat_id: int, markdown: str,
     return await _call(bot, "sendRichMessage", payload)
 
 
-async def send_draft(bot, chat_id: int, draft_id: int, markdown: str,
-                     thread_id: int | None = None) -> bool:
+async def send_draft(
+    bot, chat_id: int, draft_id: int, markdown: str, thread_id: int | None = None
+) -> bool:
     """Стриминговый драфт (эфемерное превью ~30с, анимируется по draft_id).
 
     Только для приватных чатов (ограничение Bot API). Финал обязан уйти

@@ -101,6 +101,7 @@ sudo certbot --nginx -d assistant.example.com
 
 ```bash
 bash scripts/check_runtime.sh
+scripts/quality_gate.sh   # перед release: lock, tests, types, lint, secrets/runtime hygiene
 
 curl -s http://127.0.0.1:8200/health          # {"ok": true, ...}
 curl -s http://127.0.0.1:8200/api/health
@@ -120,7 +121,8 @@ pm2 logs here-assistant-api --lines 50
 ```bash
 cd /opt/hereassistant
 git pull
-.venv/bin/pip install -r requirements.txt -q
+uv sync --frozen  # рекомендуемый воспроизводимый путь
+# fallback без uv: .venv/bin/pip install -r requirements.txt -q
 ( cd webapp/front && npm ci --no-audit --no-fund && npm run generate )
 pm2 restart here-assistant-bot here-assistant-api
 ```

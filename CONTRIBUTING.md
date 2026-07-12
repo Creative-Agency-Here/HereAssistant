@@ -4,6 +4,30 @@
 
 ## Локальная разработка
 
+### Воспроизводимое окружение (рекомендуется)
+
+```bash
+uv sync --frozen
+cp .env.example .env        # заполни TELEGRAM_BOT_TOKEN и ADMIN_IDS
+
+uv run python bot.py
+uv run python webapp/api/server.py
+```
+
+Для локального открытия Mini App без Telegram `initData` явно задай оба dev-флага:
+
+```bash
+HEREASSISTANT_ENV=development WEBAPP_DEV_SKIP_AUTH=1 uv run python webapp/api/server.py
+```
+
+Один `WEBAPP_DEV_SKIP_AUTH=1` в production авторизацию не отключает.
+
+Локальная и поддерживаемая версия движка — Python 3.12 (CI: Ubuntu и Windows).
+Python 3.10 исключён: locked `onnxruntime` не имеет cp310 wheel. Точные версии
+зависимостей — в `uv.lock`.
+
+### pip/venv fallback
+
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 cp .env.example .env        # заполни TELEGRAM_BOT_TOKEN и ADMIN_IDS
@@ -22,7 +46,7 @@ cd webapp/front && npm run dev
 ## Перед PR
 
 ```bash
-.venv/bin/python -m compileall bot.py core handlers providers utils webapp/api
+scripts/quality_gate.sh
 ( cd webapp/front && npm run generate )   # фронт обязан собираться
 bash scripts/check_runtime.sh
 git status --short                        # никаких .env/.runtime/БД в диффе
@@ -42,6 +66,8 @@ git status --short                        # никаких .env/.runtime/БД в
    или общий auth-home — отдельное архитектурное обсуждение, не PR «мимоходом».
 4. Не ломай существующие Telegram-команды и flow провайдеров; кроссплатформенность
    (Ubuntu основной путь, Windows — поддерживаемый legacy) сохраняем.
+5. Ruff lint/format проверяют весь tree; Pyright расширяется ratchet-подходом.
+   Broad exception debt контролирует `scripts/check_exception_ratchet.py`.
 
 ## Стиль
 

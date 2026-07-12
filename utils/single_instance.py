@@ -12,7 +12,6 @@ import os
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 from core import config
 
@@ -40,7 +39,9 @@ def _is_pid_alive(pid: int) -> bool:
         # tasklist выдаёт CSV; ищем точное совпадение PID
         result = subprocess.run(
             ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         return str(pid) in result.stdout
     except Exception:
@@ -85,10 +86,7 @@ def ensure_single_instance():
         other_pid, other_ts = info
         if other_pid != os.getpid() and _is_pid_alive(other_pid):
             uptime_min = int((time.time() - other_ts) / 60)
-            kill_hint = (
-                f"taskkill /PID {other_pid} /F" if os.name == "nt"
-                else f"kill {other_pid}"
-            )
+            kill_hint = f"taskkill /PID {other_pid} /F" if os.name == "nt" else f"kill {other_pid}"
             sys.stderr.write(
                 "\n" + "=" * 60 + "\n"
                 "  Бот уже запущен.\n"
@@ -97,8 +95,7 @@ def ensure_single_instance():
                 "\n"
                 "  Чтобы запустить новый — сначала остановите старый\n"
                 f"  ({kill_hint}) или удалите lock-файл,\n"
-                "  если процесс на самом деле не работает.\n"
-                + "=" * 60 + "\n"
+                "  если процесс на самом деле не работает.\n" + "=" * 60 + "\n"
             )
             sys.exit(2)
         # stale-лок — перезапишем своим

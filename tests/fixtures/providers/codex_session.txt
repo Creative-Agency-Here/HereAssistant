@@ -1,0 +1,3 @@
+Codex CLI
+Session ID: 12345678-abcd-4321-aaaa-123456789012
+Workspace: /workspace/example

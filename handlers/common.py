@@ -1,6 +1,5 @@
 """Общие проверки и хелперы для хендлеров."""
 
-from aiogram import Bot
 from aiogram.types import Message
 
 from core import access

@@ -1,0 +1,7 @@
+{"type":"init","session_id":"gemini-session"}
+{"type":"message","role":"user","content":"эхо запроса"}
+{"type":"message","role":"assistant","delta":true,"content":"Го"}
+{"type":"message","role":"assistant","delta":true,"content":"тово"}
+{"type":"tool_use","tool_id":"tool-1","tool_name":"write_file","parameters":{"file_path":"/workspace/result.txt","content":"one\ntwo"}}
+{"type":"tool_result","tool_id":"tool-1","status":"success"}
+{"type":"result","stats":{"input_tokens":40,"output_tokens":7}}

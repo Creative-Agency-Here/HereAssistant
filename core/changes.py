@@ -60,10 +60,15 @@ def _unified(file: str, old: str, new: str) -> str:
     """Unified-дифф old→new с РЕАЛЬНЫМИ номерами строк файла (по позиции фрагмента)."""
     old_lines = (old or "").splitlines()
     new_lines = (new or "").splitlines()
-    diff = list(difflib.unified_diff(
-        old_lines, new_lines,
-        fromfile=f"a/{file}", tofile=f"b/{file}", lineterm="",
-    ))
+    diff = list(
+        difflib.unified_diff(
+            old_lines,
+            new_lines,
+            fromfile=f"a/{file}",
+            tofile=f"b/{file}",
+            lineterm="",
+        )
+    )
     delta = _file_offset(file, new) - 1
     if delta > 0:
         diff = [_shift_hunk(ln, delta) for ln in diff]
@@ -96,9 +101,19 @@ def record_edits(thread_id, account, model, edits) -> None:
         tool = e.get("tool") or "?"
         old = e.get("old") or ""
         new = e.get("new") or ""
-        rows.append((ts, thread_id, account, model, file, tool,
-                     e.get("added", 0), e.get("removed", 0),
-                     _unified(file, old, new)))
+        rows.append(
+            (
+                ts,
+                thread_id,
+                account,
+                model,
+                file,
+                tool,
+                e.get("added", 0),
+                e.get("removed", 0),
+                _unified(file, old, new),
+            )
+        )
 
     # --- БД ---
     try:
@@ -107,7 +122,9 @@ def record_edits(thread_id, account, model, edits) -> None:
             c.executemany(
                 "INSERT INTO file_changes "
                 "(ts, thread_id, account, model, file, tool, added, removed, diff) "
-                "VALUES (?,?,?,?,?,?,?,?,?)", rows)
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                rows,
+            )
             c.commit()
         finally:
             c.close()
@@ -121,7 +138,7 @@ def record_edits(thread_id, account, model, edits) -> None:
         log_dir.mkdir(parents=True, exist_ok=True)
         md = log_dir / f"{dt:%Y-%m-%d}.md"
         with md.open("a", encoding="utf-8") as f:
-            for (_, tid, acc, mdl, file, tool, added, removed, diff) in rows:
+            for _, tid, acc, mdl, file, tool, added, removed, diff in rows:
                 f.write(f"\n## {dt:%H:%M:%S} · тред {tid} · {acc} · {mdl}\n")
                 f.write(f"**{tool}** `{file}`  (+{added}/−{removed})\n\n")
                 f.write("```diff\n" + diff + "\n```\n")

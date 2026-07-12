@@ -1,6 +1,6 @@
 """Сборка всех роутеров."""
 
-from . import admin_claim, accounts, models, projects, system, stats, deploy, diff, team, messages
+from . import accounts, admin_claim, deploy, diff, messages, models, projects, stats, system, team
 
 ALL_ROUTERS = [
     admin_claim.router,

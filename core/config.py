@@ -40,8 +40,16 @@ def _load_env_file(path: Path):
 
 
 def init_dirs():
-    for d in (RUNTIME_DIR, DOWNLOADS_DIR, LOGS_DIR, BACKUPS_DIR, STATE_DIR,
-              CLI_HOMES_DIR, WORKSPACE_DIR, DEFAULT_PROJECT_DIR):
+    for d in (
+        RUNTIME_DIR,
+        DOWNLOADS_DIR,
+        LOGS_DIR,
+        BACKUPS_DIR,
+        STATE_DIR,
+        CLI_HOMES_DIR,
+        WORKSPACE_DIR,
+        DEFAULT_PROJECT_DIR,
+    ):
         d.mkdir(parents=True, exist_ok=True)
 
 
@@ -98,6 +106,7 @@ def remove_env_admin(uid: int):
 _load_env_file(ENV_PATH)
 
 TELEGRAM_TOKEN: str = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+
 
 def _parse_admin_ids(raw: str) -> list[int]:
     """Список Telegram-ID из строки через запятую (PASTE_HERE/мусор отбрасываем)."""
@@ -159,7 +168,12 @@ RU_SYSTEM_INSTRUCTION = (
 
 def env_state() -> dict:
     """Статус заполненности .env — для UI."""
-    out = {"exists": ENV_PATH.exists(), "token_set": False, "admin_set": False, "claim_pending": False}
+    out = {
+        "exists": ENV_PATH.exists(),
+        "token_set": False,
+        "admin_set": False,
+        "claim_pending": False,
+    }
     if not out["exists"]:
         return out
     for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
@@ -167,7 +181,8 @@ def env_state() -> dict:
         if not s or s.startswith("#") or "=" not in s:
             continue
         k, _, v = s.partition("=")
-        k = k.strip(); v = v.strip()
+        k = k.strip()
+        v = v.strip()
         if k == "TELEGRAM_BOT_TOKEN":
             out["token_set"] = bool(v) and v != "PASTE_HERE"
         elif k in ("ADMIN_IDS", "ADMIN_TELEGRAM_ID"):

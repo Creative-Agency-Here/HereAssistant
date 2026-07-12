@@ -11,7 +11,6 @@ import asyncio
 import json
 import logging
 import os
-import sys
 import time
 
 from aiogram import BaseMiddleware, Bot, Dispatcher
@@ -22,7 +21,6 @@ from handlers import ALL_ROUTERS
 from handlers.deploy import post_restart_report, startup_notification
 from utils.memory_link import ensure_memory_links
 from utils.single_instance import ensure_single_instance
-
 
 RESTART_REQUEST_FILE = config.RESTART_REQUEST_FILE
 
@@ -55,6 +53,7 @@ async def restart_watcher(bot: Bot):
       RESTART_FLUSH_SEC      — пауза после отправки уведомления, чтобы Telegram точно его получил
     """
     from handlers.messages import is_busy
+
     log = logging.getLogger("bridge.restart")
 
     QUIET_SEC = float(os.environ.get("RESTART_QUIET_SEC", "5.0"))
@@ -89,8 +88,7 @@ async def restart_watcher(bot: Bot):
                 elif time.time() - quiet_since >= QUIET_SEC:
                     break  # бот тих уже QUIET_SEC подряд
             if time.time() - wait_started > MAX_WAIT_SEC:
-                log.warning("restart: max wait %.0fs exceeded, restarting anyway",
-                            MAX_WAIT_SEC)
+                log.warning("restart: max wait %.0fs exceeded, restarting anyway", MAX_WAIT_SEC)
                 break
             await asyncio.sleep(POLL_SEC)
 
@@ -102,7 +100,8 @@ async def restart_watcher(bot: Bot):
         try:
             if chat_id:
                 await bot.send_message(
-                    chat_id, f"🔄 Перезапускаю — {reason}",
+                    chat_id,
+                    f"🔄 Перезапускаю — {reason}",
                     message_thread_id=thread_id or None,
                 )
         except Exception as e:
@@ -162,7 +161,7 @@ COMMANDS = [
 
 async def main():
     log = logging_setup.setup()
-    ensure_single_instance()   # выйдет с понятным сообщением, если уже запущен
+    ensure_single_instance()  # выйдет с понятным сообщением, если уже запущен
     db.init()
 
     # Объединить auto-memory всех CLI-аккаунтов в HereAssistant\memory через junction
@@ -193,7 +192,8 @@ async def main():
     try:
         if config.WEBAPP_URL:
             _menu_url = config.WEBAPP_URL + (
-                f"/?key={config.WEBAPP_ACCESS_KEY}" if config.WEBAPP_ACCESS_KEY else "")
+                f"/?key={config.WEBAPP_ACCESS_KEY}" if config.WEBAPP_ACCESS_KEY else ""
+            )
             await bot.set_chat_menu_button(
                 menu_button=MenuButtonWebApp(
                     text="Ассистент",

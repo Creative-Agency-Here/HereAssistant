@@ -18,6 +18,11 @@ downloads/
 __pycache__/
 *.pyc
 .pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 .venv/
 venv/
 
@@ -32,6 +37,7 @@ node_modules/
 webapp/front/.nuxt/
 webapp/front/.output/
 webapp/front/dist/
+webapp/front/dist
 
 # локальная авто-память и настройки IDE/агента (личное, не код)
 memory/

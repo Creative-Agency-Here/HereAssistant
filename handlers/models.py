@@ -1,11 +1,11 @@
 """/model — смена модели текущего аккаунта."""
 
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
-from aiogram.types import (Message, CallbackQuery,
-                            InlineKeyboardButton, InlineKeyboardMarkup)
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from core import access, config, events
+from core import access, events
+
 from . import repo
 from .common import is_allowed
 
@@ -36,12 +36,16 @@ def _models_keyboard(provider: str, current: str | None) -> InlineKeyboardMarkup
 async def cmd_model(message: Message, command: CommandObject):
     if not is_allowed(message):
         return
-    conv = repo.get_or_create_conv(message.chat.id, message.message_thread_id or 0,
-                                    message.from_user.id)
+    conv = repo.get_or_create_conv(
+        message.chat.id, message.message_thread_id or 0, message.from_user.id
+    )
     if not conv["account_id"]:
         await message.answer("Сначала выбери аккаунт: /accounts")
         return
-    acc = repo.get_account(conv["account_id"])
+    acc = repo.get_account(conv["account_id"], message.from_user.id)
+    if acc is None:
+        await message.answer(f"{repo.ACCOUNT_NOT_AVAILABLE}: аккаунт недоступен.")
+        return
     if not command.args:
         # показать кнопки
         await message.answer(
@@ -52,8 +56,14 @@ async def cmd_model(message: Message, command: CommandObject):
         return
     new_model = command.args.strip()
     repo.update_conv(conv["id"], model=new_model, provider_session_id=None)
-    events.log("switch_model", user_id=message.from_user.id, chat_id=message.chat.id,
-               account_label=acc["label"], provider=acc["provider"], model=new_model)
+    events.log(
+        "switch_model",
+        user_id=message.from_user.id,
+        chat_id=message.chat.id,
+        account_label=acc["label"],
+        provider=acc["provider"],
+        model=new_model,
+    )
     await message.answer(f"Модель: {new_model}. Сессия сброшена.")
 
 
@@ -63,16 +73,24 @@ async def cb_model_set(query: CallbackQuery):
         await query.answer("Доступ запрещён", show_alert=True)
         return
     model = query.data.split(":", 2)[-1]
-    conv = repo.get_or_create_conv(query.message.chat.id,
-                                    query.message.message_thread_id or 0,
-                                    query.from_user.id)
+    conv = repo.get_or_create_conv(
+        query.message.chat.id, query.message.message_thread_id or 0, query.from_user.id
+    )
     if not conv["account_id"]:
         await query.answer("Сначала выбери аккаунт")
         return
-    acc = repo.get_account(conv["account_id"])
+    acc = repo.get_account(conv["account_id"], query.from_user.id)
+    if acc is None:
+        await query.answer(f"{repo.ACCOUNT_NOT_AVAILABLE}: аккаунт недоступен", show_alert=True)
+        return
     repo.update_conv(conv["id"], model=model, provider_session_id=None)
-    events.log("switch_model", user_id=query.from_user.id,
-               account_label=acc["label"], provider=acc["provider"], model=model)
+    events.log(
+        "switch_model",
+        user_id=query.from_user.id,
+        account_label=acc["label"],
+        provider=acc["provider"],
+        model=model,
+    )
     await query.message.edit_text(f"→ Модель: {model}. Сессия сброшена.")
     await query.answer()
 

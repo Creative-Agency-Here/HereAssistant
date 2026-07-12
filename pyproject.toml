@@ -1,0 +1,102 @@
+[project]
+name = "hereassistant"
+version = "0.4.0"
+description = "Privacy-first Telegram gateway to CLI coding agents"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "MIT"
+dependencies = [
+    "aiogram>=3.13,<4",
+    "aiohttp>=3.9,<4",
+    "faster-whisper>=1.2",
+    "pillow>=10.0",
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = [
+    "packaging>=24,<27",
+    "pyright>=1.1.400,<2",
+    "pytest>=8.3,<10",
+    "pytest-asyncio>=0.25,<2",
+    "pytest-cov>=6,<8",
+    "ruff>=0.11,<1",
+    "tomli>=2,<3",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers"
+asyncio_mode = "auto"
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["core", "handlers", "providers", "utils", "webapp/api"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pyright]
+include = [
+    "chat_renderer.py",
+    "chat_identity.py",
+    "chat_commands.py",
+    "chat_sessions.py",
+    "manage_env.py",
+    "manage_header.py",
+    "manage_audit.py",
+    "manage_accounts.py",
+    "manage_actions.py",
+    "manage_config.py",
+    "manage_process.py",
+    "manage_ui.py",
+    "manage_views.py",
+    "core/access.py",
+    "core/db.py",
+    "core/project_config.py",
+    "core/models.py",
+    "handlers/common.py",
+    "handlers/message_attachments.py",
+    "handlers/message_buffer.py",
+    "handlers/message_formatting.py",
+    "handlers/message_final.py",
+    "handlers/message_final_delivery.py",
+    "handlers/message_live.py",
+    "handlers/message_progress.py",
+    "handlers/message_progress_delivery.py",
+    "handlers/message_rich_final.py",
+    "handlers/message_state.py",
+    "providers/base.py",
+    "providers/claude_code.py",
+    "providers/codex.py",
+    "providers/gemini.py",
+    "providers/models.py",
+    "providers/parsers",
+    "providers/process.py",
+    "utils/markdown.py",
+    "utils/rich.py",
+    "webapp/api/auth.py",
+    "webapp/api/models.py",
+    "webapp/api/server.py",
+    "tests",
+]
+exclude = ["**/__pycache__", ".runtime", ".venv", "workspace"]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+reportMissingTypeStubs = false

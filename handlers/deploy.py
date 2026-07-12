@@ -3,16 +3,14 @@
 import datetime
 import json
 import logging
-import os
-import sys
 import time
-from pathlib import Path
 
 from aiogram import Bot, Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
 from core import config, db, events, version
+
 from .common import is_admin
 
 router = Router()
@@ -43,7 +41,11 @@ async def cmd_deploy(message: Message):
         return
 
     v_before = version.bot_version()
-    old_text = config.BOT_FILE.read_text(encoding="utf-8", errors="replace") if config.BOT_FILE.exists() else ""
+    old_text = (
+        config.BOT_FILE.read_text(encoding="utf-8", errors="replace")
+        if config.BOT_FILE.exists()
+        else ""
+    )
 
     # резервная копия
     backup_path = version.backup_current_bot()
@@ -60,9 +62,12 @@ async def cmd_deploy(message: Message):
     config.RESTART_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     config.RESTART_STATE_FILE.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
 
-    events.log("deploy_initiated",
-               user_id=message.from_user.id, chat_id=message.chat.id,
-               payload={"version_before": v_before["short"]})
+    events.log(
+        "deploy_initiated",
+        user_id=message.from_user.id,
+        chat_id=message.chat.id,
+        payload={"version_before": v_before["short"]},
+    )
 
     await message.answer(
         f"🔄 Перезапуск запрошен — выполню, как только закончу текущие задачи "
@@ -76,11 +81,14 @@ async def cmd_deploy(message: Message):
     # пришлёт сигнал «🔄 Перезапускаю» и только потом выполнит рестарт.
     config.RESTART_REQUEST_FILE.parent.mkdir(parents=True, exist_ok=True)
     config.RESTART_REQUEST_FILE.write_text(
-        json.dumps({
-            "chat_id": message.chat.id,
-            "thread_id": message.message_thread_id or 0,
-            "reason": "обновление кода (/deploy)",
-        }, ensure_ascii=False),
+        json.dumps(
+            {
+                "chat_id": message.chat.id,
+                "thread_id": message.message_thread_id or 0,
+                "reason": "обновление кода (/deploy)",
+            },
+            ensure_ascii=False,
+        ),
         encoding="utf-8",
     )
     log.info("restart requested via /deploy (watcher выполнит после тишины)")
@@ -131,18 +139,23 @@ async def post_restart_report(bot: Bot) -> bool:
         chat_id = state.get("chat_id")
         thread_id = state.get("thread_id") or None
         if chat_id:
-            await bot.send_message(chat_id, "\n".join(msg_lines),
-                                   message_thread_id=thread_id if thread_id else None)
+            await bot.send_message(
+                chat_id, "\n".join(msg_lines), message_thread_id=thread_id if thread_id else None
+            )
     except Exception as e:
         log.warning("Не смог отправить post-restart report: %s", e)
 
-    events.log("deploy_completed",
-               chat_id=state.get("chat_id"),
-               duration_ms=int(duration * 1000),
-               payload={"version_before": version.short(old_hash),
-                        "version_after": v_after["short"],
-                        "restart_n_today": restart_n,
-                        "changes": [c["file"] for c in changes]})
+    events.log(
+        "deploy_completed",
+        chat_id=state.get("chat_id"),
+        duration_ms=int(duration * 1000),
+        payload={
+            "version_before": version.short(old_hash),
+            "version_after": v_after["short"],
+            "restart_n_today": restart_n,
+            "changes": [c["file"] for c in changes],
+        },
+    )
 
     config.RESTART_STATE_FILE.unlink(missing_ok=True)
     return True
@@ -159,8 +172,7 @@ async def startup_notification(bot: Bot):
         # последний активный диалог из БД
         with db.conn() as c:
             row = c.execute(
-                "SELECT chat_id, thread_id FROM conversations "
-                "ORDER BY updated_at DESC LIMIT 1"
+                "SELECT chat_id, thread_id FROM conversations ORDER BY updated_at DESC LIMIT 1"
             ).fetchone()
         if not row:
             return
@@ -172,7 +184,6 @@ async def startup_notification(bot: Bot):
             f"✓ Бот запущен — {v['short']} ({v['files']} файлов)\n"
             f"Время старта: {datetime.datetime.now().strftime('%H:%M:%S')}"
         )
-        await bot.send_message(chat_id, text,
-                               message_thread_id=thread_id if thread_id else None)
+        await bot.send_message(chat_id, text, message_thread_id=thread_id if thread_id else None)
     except Exception as e:
         log.warning("startup notification failed: %s", e)

@@ -7,6 +7,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
 from core import events
+
 from .common import is_allowed
 
 router = Router()
@@ -21,8 +22,9 @@ def _format_stats(title: str, data: dict) -> str:
             t_out = row["t_out"] or 0
             avg_ms = int(row["avg_ms"] or 0)
             label = f"{row['account_label']} · {row['model'] or row['provider']}"
-            lines.append(f"  {label}: {row['msgs']} сообщ., "
-                         f"{t_in}/{t_out} токенов in/out, ~{avg_ms} мс ср.")
+            lines.append(
+                f"  {label}: {row['msgs']} сообщ., {t_in}/{t_out} токенов in/out, ~{avg_ms} мс ср."
+            )
     lines.append(f"\nОшибок: {data['errors']}")
     return "\n".join(lines)
 

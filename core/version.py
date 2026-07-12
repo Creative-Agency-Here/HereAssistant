@@ -10,7 +10,6 @@ from pathlib import Path
 
 from . import config
 
-
 SNAPSHOT_FILE = None  # инициализируется ниже после import config
 
 
@@ -37,8 +36,15 @@ def bot_version() -> dict:
 
 
 # Папки, которые включаем в project-hash. Исключаем .runtime, __pycache__, workspace, backups.
-_PROJECT_GLOBS = ["bot.py", "manage.py", "core/**/*.py", "handlers/**/*.py",
-                  "providers/**/*.py", "utils/**/*.py", "restart_bot.py"]
+_PROJECT_GLOBS = [
+    "bot.py",
+    "manage.py",
+    "core/**/*.py",
+    "handlers/**/*.py",
+    "providers/**/*.py",
+    "utils/**/*.py",
+    "restart_bot.py",
+]
 
 
 def project_files() -> list[Path]:
@@ -73,8 +79,7 @@ def project_version() -> dict:
         mtime_str = datetime.datetime.fromtimestamp(latest_mtime).strftime("%Y-%m-%d %H:%M")
     else:
         mtime_str = "—"
-    return {"hash": digest, "short": short(digest), "mtime": mtime_str,
-            "files": len(files)}
+    return {"hash": digest, "short": short(digest), "mtime": mtime_str, "files": len(files)}
 
 
 def _snapshot_path() -> Path:
@@ -148,15 +153,31 @@ def project_changes(old_snap: dict | None) -> list[dict]:
         old = old_files.get(key)
         new = new_files.get(key)
         if old and not new:
-            changes.append({"file": key, "kind": "removed", "added": 0, "removed": len((old.get("text") or "").splitlines())})
+            changes.append(
+                {
+                    "file": key,
+                    "kind": "removed",
+                    "added": 0,
+                    "removed": len((old.get("text") or "").splitlines()),
+                }
+            )
             continue
         if new and not old:
-            changes.append({"file": key, "kind": "added", "added": len((new.get("text") or "").splitlines()), "removed": 0})
+            changes.append(
+                {
+                    "file": key,
+                    "kind": "added",
+                    "added": len((new.get("text") or "").splitlines()),
+                    "removed": 0,
+                }
+            )
             continue
         if (old or {}).get("hash") == (new or {}).get("hash"):
             continue
         d = diff_stats((old or {}).get("text", ""), (new or {}).get("text", ""))
-        changes.append({"file": key, "kind": "modified", "added": d["added"], "removed": d["removed"]})
+        changes.append(
+            {"file": key, "kind": "modified", "added": d["added"], "removed": d["removed"]}
+        )
     return changes
 
 
@@ -170,9 +191,10 @@ def backup_current_bot() -> Path | None:
     config.BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
     shutil.copy2(config.BOT_FILE, target)
     # ротация
-    backups = sorted(config.BACKUPS_DIR.glob("bot-*.py"),
-                     key=lambda p: p.stat().st_mtime, reverse=True)
-    for old in backups[config.BACKUP_RETENTION_COUNT:]:
+    backups = sorted(
+        config.BACKUPS_DIR.glob("bot-*.py"), key=lambda p: p.stat().st_mtime, reverse=True
+    )
+    for old in backups[config.BACKUP_RETENTION_COUNT :]:
         try:
             old.unlink()
         except Exception:

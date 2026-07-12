@@ -11,6 +11,7 @@ import hmac
 import logging
 import os
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 # чтобы импортировался core при запуске из любого места
@@ -20,19 +21,26 @@ from aiohttp import web
 
 from core import config
 from webapp.api.auth import validate_init_data
-from webapp.api.routes import now as route_now
-from webapp.api.routes import history as route_history
-from webapp.api.routes import ws as route_ws
 from webapp.api.routes import changes as route_changes
+from webapp.api.routes import history as route_history
+from webapp.api.routes import now as route_now
 from webapp.api.routes import status as route_status
 from webapp.api.routes import tasks as route_tasks
+from webapp.api.routes import ws as route_ws
 
 log = logging.getLogger("webapp.api")
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s %(levelname)-7s %(name)s %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s %(message)s")
 
-# В dev-режиме можно пропустить initData (false по умолчанию — строго проверяем).
-DEV_SKIP_AUTH = os.environ.get("WEBAPP_DEV_SKIP_AUTH", "0") in ("1", "true", "yes")
+
+def _dev_skip_auth(env: Mapping[str, str]) -> bool:
+    """Skip-auth требует двух явных флагов и не включается в production случайно."""
+    environment = env.get("HEREASSISTANT_ENV", "production").strip().lower()
+    requested = env.get("WEBAPP_DEV_SKIP_AUTH", "0").strip().lower()
+    return environment == "development" and requested in ("1", "true", "yes")
+
+
+# Одного WEBAPP_DEV_SKIP_AUTH недостаточно: нужен явный development-контур.
+DEV_SKIP_AUTH = _dev_skip_auth(os.environ)
 WEBAPP_PORT = int(os.environ.get("WEBAPP_PORT", "8200"))
 WEBAPP_HOST = os.environ.get("WEBAPP_HOST", "127.0.0.1")
 WEBAPP_DOMAIN = os.environ.get("WEBAPP_DOMAIN", "").strip()
@@ -57,8 +65,7 @@ async def auth_middleware(request: web.Request, handler):
         return await handler(request)
 
     if DEV_SKIP_AUTH:
-        request["user"] = {"id": config.ADMIN_ID or 0, "first_name": "dev",
-                            "username": "dev"}
+        request["user"] = {"id": config.ADMIN_ID or 0, "first_name": "dev", "username": "dev"}
         return await handler(request)
 
     init_data = request.headers.get("Authorization", "")
@@ -136,8 +143,9 @@ def create_app() -> web.Application:
 
 def main():
     config.init_dirs()
-    log.info("Web API starting on %s:%s (dev_skip_auth=%s)",
-             WEBAPP_HOST, WEBAPP_PORT, DEV_SKIP_AUTH)
+    log.info(
+        "Web API starting on %s:%s (dev_skip_auth=%s)", WEBAPP_HOST, WEBAPP_PORT, DEV_SKIP_AUTH
+    )
     web.run_app(create_app(), host=WEBAPP_HOST, port=WEBAPP_PORT, print=None)
 
 

@@ -12,14 +12,20 @@ def setup() -> logging.Logger:
     log_file = config.LOGS_DIR / "bot.log"
 
     handler = logging.handlers.TimedRotatingFileHandler(
-        log_file, when="midnight", interval=1,
-        backupCount=config.LOG_RETENTION_DAYS, encoding="utf-8", utc=False,
+        log_file,
+        when="midnight",
+        interval=1,
+        backupCount=config.LOG_RETENTION_DAYS,
+        encoding="utf-8",
+        utc=False,
     )
     handler.suffix = "%Y-%m-%d"
-    handler.setFormatter(logging.Formatter(
-        "%(asctime)s %(levelname)-7s %(name)-10s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    ))
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)-7s %(name)-10s %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
 
     stream = logging.StreamHandler(sys.stdout)
     stream.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))

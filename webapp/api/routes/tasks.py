@@ -14,6 +14,7 @@ import time
 from aiohttp import web
 
 from core import db, project_config
+from webapp.api.models import parse_task_create, parse_task_patch
 
 
 def _crm_visible_project_ids() -> set[str]:
@@ -23,8 +24,10 @@ def _crm_visible_project_ids() -> set[str]:
     """
     ids: set[str] = set()
     with db.conn() as c:
-        cwds = [r["cwd"] for r in c.execute(
-            "SELECT DISTINCT cwd FROM conversations WHERE cwd IS NOT NULL")]
+        cwds = [
+            r["cwd"]
+            for r in c.execute("SELECT DISTINCT cwd FROM conversations WHERE cwd IS NOT NULL")
+        ]
     for cwd in cwds:
         policy = project_config.policy_for(cwd)
         if project_config.is_crm_visible(policy) and policy.crm_project_id:
@@ -44,29 +47,33 @@ def _task_row(r) -> dict:
 async def create(request: web.Request) -> web.Response:
     try:
         body = await request.json()
-    except Exception:
+    except (json.JSONDecodeError, UnicodeDecodeError):
         return web.json_response({"error": "invalid json"}, status=400)
 
-    crm_project_id = str(body.get("crm_project_id") or "").strip()
-    title = str(body.get("title") or "").strip()
-    if not crm_project_id or not title:
-        return web.json_response(
-            {"error": "crm_project_id and title are required"}, status=400)
+    payload = parse_task_create(body)
+    if payload is None:
+        return web.json_response({"error": "crm_project_id and title are required"}, status=400)
+    crm_project_id = payload["crm_project_id"]
 
     # Задачи можно создавать только для проектов, явно открытых в CRM.
     if crm_project_id not in _crm_visible_project_ids():
-        return web.json_response(
-            {"error": "project is not CRM-visible"}, status=403)
+        return web.json_response({"error": "project is not CRM-visible"}, status=403)
 
     now = int(time.time())
-    status = str(body.get("status") or "new").strip()[:32]
-    meta = body.get("meta")
+    status = payload["status"]
+    meta = payload["meta"]
     with db.conn() as c:
         cur = c.execute(
             """INSERT INTO tasks (crm_project_id, title, status, meta, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            (crm_project_id, title[:500], status,
-             json.dumps(meta, ensure_ascii=False) if meta else None, now, now),
+            (
+                crm_project_id,
+                payload["title"],
+                status,
+                json.dumps(meta, ensure_ascii=False) if meta else None,
+                now,
+                now,
+            ),
         )
         row = c.execute("SELECT * FROM tasks WHERE id=?", (cur.lastrowid,)).fetchone()
     return web.json_response(_task_row(row), status=201)
@@ -83,11 +90,13 @@ async def list_(request: web.Request) -> web.Response:
     targets = [project] if project else sorted(visible)
     placeholders = ",".join("?" for _ in targets)
     with db.conn() as c:
-        rows = list(c.execute(
-            f"""SELECT * FROM tasks WHERE crm_project_id IN ({placeholders})
+        rows = list(
+            c.execute(
+                f"""SELECT * FROM tasks WHERE crm_project_id IN ({placeholders})
                 ORDER BY updated_at DESC LIMIT 200""",
-            targets,
-        ))
+                targets,
+            )
+        )
     return web.json_response([_task_row(r) for r in rows])
 
 
@@ -119,19 +128,16 @@ async def patch(request: web.Request) -> web.Response:
         return web.json_response({"error": "not found"}, status=404)
     try:
         body = await request.json()
-    except Exception:
+    except (json.JSONDecodeError, UnicodeDecodeError):
         return web.json_response({"error": "invalid json"}, status=400)
 
     # Обновлять можно только статус/заголовок/мету — не проект.
-    fields: dict = {}
-    if body.get("status"):
-        fields["status"] = str(body["status"]).strip()[:32]
-    if body.get("title"):
-        fields["title"] = str(body["title"]).strip()[:500]
-    if "meta" in body:
-        fields["meta"] = json.dumps(body["meta"], ensure_ascii=False) if body["meta"] else None
-    if not fields:
+    payload = parse_task_patch(body)
+    if payload is None:
         return web.json_response({"error": "nothing to update"}, status=400)
+    fields: dict[str, object] = dict(payload)
+    if "meta" in fields:
+        fields["meta"] = json.dumps(fields["meta"], ensure_ascii=False) if fields["meta"] else None
 
     cols = ", ".join(f"{k}=?" for k in fields)
     with db.conn() as c:

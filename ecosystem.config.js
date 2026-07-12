@@ -63,6 +63,7 @@ module.exports = {
       env_development: {
         PYTHONUNBUFFERED: '1',
         PYTHONIOENCODING: 'utf-8',
+        HEREASSISTANT_ENV: 'development',
         WEBAPP_HOST: '127.0.0.1',
         WEBAPP_PORT: '8200',
         WEBAPP_DEV_SKIP_AUTH: '1',

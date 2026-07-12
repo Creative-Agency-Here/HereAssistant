@@ -10,7 +10,6 @@ import io
 import logging
 import re
 from pathlib import Path
-from typing import Iterable
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -95,8 +94,10 @@ def extract_markdown_tables(text: str) -> list[tuple[int, int, list[list[str]]]]
 _FONT_CANDIDATES = [
     ("C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/segoeuib.ttf"),
     ("C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/arialbd.ttf"),
-    ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+    (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ),
 ]
 
 
@@ -149,9 +150,7 @@ def _wrap_cell(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> li
     return out or [""]
 
 
-def render_table_png(rows: list[list[str]],
-                     max_col_width: int = 420,
-                     font_size: int = 18) -> bytes:
+def render_table_png(rows: list[list[str]], max_col_width: int = 420, font_size: int = 18) -> bytes:
     """Нарисовать markdown-таблицу как PNG. rows[0] — заголовок."""
     if not rows or not rows[0]:
         raise ValueError("empty table")
@@ -246,9 +245,10 @@ def render_table_png(rows: list[list[str]],
 
 # ---------- ВЫСОКОУРОВНЕВЫЙ ХЕЛПЕР ----------
 
-def replace_tables_with_placeholders(text: str,
-                                     placeholder: str = "📊 _таблица отправлена картинкой_"
-                                     ) -> tuple[str, list[bytes]]:
+
+def replace_tables_with_placeholders(
+    text: str, placeholder: str = "📊 _таблица отправлена картинкой_"
+) -> tuple[str, list[bytes]]:
     """Найти таблицы, заменить каждую на короткий placeholder, вернуть (новый_текст, [png, ...])."""
     tables = extract_markdown_tables(text)
     if not tables:

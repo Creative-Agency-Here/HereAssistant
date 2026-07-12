@@ -2,12 +2,12 @@
 
 import logging
 
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
-from aiogram.types import (Message, CallbackQuery,
-                            InlineKeyboardButton, InlineKeyboardMarkup)
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from core import access, events
+
 from . import repo
 from .common import is_allowed
 
@@ -15,14 +15,12 @@ router = Router()
 log = logging.getLogger("bridge.accounts")
 
 
-def _accounts_keyboard(current_account_id: int | None) -> InlineKeyboardMarkup:
+def _accounts_keyboard(user_id: int, current_account_id: int | None) -> InlineKeyboardMarkup:
     buttons = []
-    for acc in repo.list_accounts():
+    for acc in repo.list_accounts(user_id):
         mark = "✓ " if acc["id"] == current_account_id else "  "
         label = f"{mark}{acc['label']} ({acc['provider']})"
-        buttons.append([InlineKeyboardButton(
-            text=label, callback_data=f"acc:use:{acc['id']}"
-        )])
+        buttons.append([InlineKeyboardButton(text=label, callback_data=f"acc:use:{acc['id']}")])
     buttons.append([InlineKeyboardButton(text="✗ Отмена", callback_data="acc:cancel")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -31,7 +29,7 @@ def _accounts_keyboard(current_account_id: int | None) -> InlineKeyboardMarkup:
 async def cmd_accounts(message: Message):
     if not is_allowed(message):
         return
-    accs = repo.list_accounts()
+    accs = repo.list_accounts(message.from_user.id)
     if not accs:
         await message.answer(
             "Аккаунты не настроены. Запусти на сервере:\n"
@@ -40,8 +38,9 @@ async def cmd_accounts(message: Message):
         )
         return
 
-    conv = repo.get_or_create_conv(message.chat.id, message.message_thread_id or 0,
-                                    message.from_user.id)
+    conv = repo.get_or_create_conv(
+        message.chat.id, message.message_thread_id or 0, message.from_user.id
+    )
     lines = ["Зарегистрированные аккаунты:"]
     for acc in accs:
         mark = "✓" if acc["id"] == conv["account_id"] else " "
@@ -49,7 +48,10 @@ async def cmd_accounts(message: Message):
         note = f" — {acc['notes']}" if acc["notes"] else ""
         lines.append(f"  {mark} {acc['label']} ({acc['provider']}){model}{note}")
     lines.append("\nНажми, чтобы переключиться:")
-    await message.answer("\n".join(lines), reply_markup=_accounts_keyboard(conv["account_id"]))
+    await message.answer(
+        "\n".join(lines),
+        reply_markup=_accounts_keyboard(message.from_user.id, conv["account_id"]),
+    )
 
 
 @router.message(Command("account"))
@@ -59,26 +61,37 @@ async def cmd_account(message: Message, command: CommandObject):
     args = (command.args or "").split()
     if not args:
         # без аргументов — показываем кнопки
-        conv = repo.get_or_create_conv(message.chat.id, message.message_thread_id or 0,
-                                        message.from_user.id)
-        await message.answer("Выбери аккаунт:",
-                             reply_markup=_accounts_keyboard(conv["account_id"]))
+        conv = repo.get_or_create_conv(
+            message.chat.id, message.message_thread_id or 0, message.from_user.id
+        )
+        await message.answer(
+            "Выбери аккаунт:",
+            reply_markup=_accounts_keyboard(message.from_user.id, conv["account_id"]),
+        )
         return
     if args[0] != "use" or len(args) < 2:
         await message.answer("Использование: /account use <label>  или просто /account")
         return
     label = args[1]
-    acc = repo.get_account_by_label(label)
+    acc = repo.get_account_by_label(label, message.from_user.id)
     if not acc:
         await message.answer(f"Не нашёл активный аккаунт '{label}'.")
         return
-    conv = repo.get_or_create_conv(message.chat.id, message.message_thread_id or 0,
-                                    message.from_user.id)
-    repo.update_conv(conv["id"], account_id=acc["id"],
-                     model=acc["default_model"], provider_session_id=None)
-    events.log("switch_account", user_id=message.from_user.id, chat_id=message.chat.id,
-               thread_id=message.message_thread_id or 0,
-               account_label=acc["label"], provider=acc["provider"], model=acc["default_model"])
+    conv = repo.get_or_create_conv(
+        message.chat.id, message.message_thread_id or 0, message.from_user.id
+    )
+    repo.update_conv(
+        conv["id"], account_id=acc["id"], model=acc["default_model"], provider_session_id=None
+    )
+    events.log(
+        "switch_account",
+        user_id=message.from_user.id,
+        chat_id=message.chat.id,
+        thread_id=message.message_thread_id or 0,
+        account_label=acc["label"],
+        provider=acc["provider"],
+        model=acc["default_model"],
+    )
     await message.answer(
         f"→ {acc['label']} ({acc['provider']}, model={acc['default_model']}). Сессия сброшена."
     )
@@ -90,17 +103,24 @@ async def cb_account_use(query: CallbackQuery):
         await query.answer("Доступ запрещён", show_alert=True)
         return
     acc_id = int(query.data.split(":")[-1])
-    acc = repo.get_account(acc_id)
+    acc = repo.get_account(acc_id, query.from_user.id)
     if not acc:
         await query.answer("Аккаунт не найден")
         return
-    conv = repo.get_or_create_conv(query.message.chat.id,
-                                    query.message.message_thread_id or 0,
-                                    query.from_user.id)
-    repo.update_conv(conv["id"], account_id=acc["id"],
-                     model=acc["default_model"], provider_session_id=None)
-    events.log("switch_account", user_id=query.from_user.id, chat_id=query.message.chat.id,
-               account_label=acc["label"], provider=acc["provider"], model=acc["default_model"])
+    conv = repo.get_or_create_conv(
+        query.message.chat.id, query.message.message_thread_id or 0, query.from_user.id
+    )
+    repo.update_conv(
+        conv["id"], account_id=acc["id"], model=acc["default_model"], provider_session_id=None
+    )
+    events.log(
+        "switch_account",
+        user_id=query.from_user.id,
+        chat_id=query.message.chat.id,
+        account_label=acc["label"],
+        provider=acc["provider"],
+        model=acc["default_model"],
+    )
     await query.message.edit_text(
         f"→ Переключился на {acc['label']} ({acc['provider']}, model={acc['default_model']})."
     )
@@ -111,4 +131,3 @@ async def cb_account_use(query: CallbackQuery):
 async def cb_account_cancel(query: CallbackQuery):
     await query.message.edit_text("Отменено.")
     await query.answer()
-

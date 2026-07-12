@@ -21,7 +21,7 @@ TAR = ROOT / ".runtime" / "assistant-dist.tar.gz"
 HOST = "185.246.220.120"
 USER = "root"
 REMOTE = "/var/www/assistant.hereagency.ru"
-API_BASE = "https://api-assistant.hereagency.ru"   # API ассистента на DE-1
+API_BASE = "https://api-assistant.hereagency.ru"  # API ассистента на DE-1
 
 
 def run(cmd, **kw):
@@ -53,7 +53,7 @@ def deploy():
     run(["ssh", f"{USER}@{HOST}", remote])
     if TAR.exists():
         TAR.unlink()
-    print("\n✨ Готово:", f"https://{ 'assistant.hereagency.ru' }")
+    print("\n✨ Готово:", f"https://{'assistant.hereagency.ru'}")
 
 
 def main():

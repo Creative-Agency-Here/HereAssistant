@@ -68,8 +68,7 @@ def main():
         f.write(NGINX_CONFIG)
     try:
         subprocess.run(
-            ["scp", "nginx_temp.conf",
-             f"{USER}@{HOST}:/etc/nginx/sites-available/{DOMAIN}"],
+            ["scp", "nginx_temp.conf", f"{USER}@{HOST}:/etc/nginx/sites-available/{DOMAIN}"],
             check=True,
         )
         print("   ✅ Конфиг загружен.")
@@ -88,9 +87,7 @@ def main():
 
     print("\n🔒 5. SSL (certbot --nginx)")
     print("   ⚠️ DNS A-запись assistant.hereagency.ru должна указывать на этот сервер!")
-    remote_exec(
-        f"certbot --nginx -d {DOMAIN} --non-interactive --agree-tos -m {EMAIL} --redirect"
-    )
+    remote_exec(f"certbot --nginx -d {DOMAIN} --non-interactive --agree-tos -m {EMAIL} --redirect")
 
     print("\n✨ Готово. Серт установлен. Теперь заливай фронт в", ROOT_PATH)
 

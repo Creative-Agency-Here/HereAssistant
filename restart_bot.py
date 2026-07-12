@@ -13,7 +13,6 @@
 Бот не убивается — он сам делает os.execv когда становится свободен.
 """
 
-import hashlib
 import json
 import sqlite3
 import sys
@@ -53,8 +52,7 @@ def get_last_chat(env: dict) -> tuple[int, int]:
             conn = sqlite3.connect(str(DB_PATH))
             conn.row_factory = sqlite3.Row
             row = conn.execute(
-                "SELECT chat_id, thread_id FROM conversations "
-                "ORDER BY updated_at DESC LIMIT 1"
+                "SELECT chat_id, thread_id FROM conversations ORDER BY updated_at DESC LIMIT 1"
             ).fetchone()
             conn.close()
             if row:
@@ -89,7 +87,6 @@ def main():
     reason = " ".join(args).strip() or "обновление кода/конфига"
 
     env = read_env()
-    token = env.get("TELEGRAM_BOT_TOKEN", "")
     chat_id, thread_id = get_last_chat(env)
 
     print(f"schedule restart chat={chat_id} thread={thread_id} reason={reason!r}")

@@ -32,7 +32,7 @@ SYNC_DATA_TYPES = ("prompts", "messages", "diffs", "commits", "deploys", "artifa
 
 try:  # PyYAML опционален по духу default deny: нет парсера — всё private
     import yaml  # type: ignore
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     yaml = None
 
 
@@ -89,9 +89,7 @@ def _parse(raw: dict) -> ProjectPolicy:
     crm_task_id = raw.get("crm_task_id") or None
     # CRM включается только полным набором условий (ТЗ §7).
     sync_enabled = (
-        mode == "crm"
-        and _as_bool(sync.get("enabled"))
-        and bool(crm_project_id or crm_task_id)
+        mode == "crm" and _as_bool(sync.get("enabled")) and bool(crm_project_id or crm_task_id)
     )
 
     return ProjectPolicy(
@@ -100,9 +98,7 @@ def _parse(raw: dict) -> ProjectPolicy:
         crm_project_id=str(crm_project_id) if crm_project_id else None,
         crm_task_id=str(crm_task_id) if crm_task_id else None,
         sync_enabled=sync_enabled,
-        sync_flags={
-            f"send_{t}": _as_bool(sync.get(f"send_{t}")) for t in SYNC_DATA_TYPES
-        },
+        sync_flags={f"send_{t}": _as_bool(sync.get(f"send_{t}")) for t in SYNC_DATA_TYPES},
         save_history=_as_bool(storage.get("save_history")),
         save_messages=_as_bool(storage.get("save_messages")),
         save_file_changes=_as_bool(storage.get("save_file_changes")),
@@ -142,7 +138,7 @@ def policy_for(cwd: str | Path | None) -> ProjectPolicy:
         if not isinstance(raw, dict):
             raise ValueError("project.yml: ожидался mapping")
         policy = _parse(raw)
-    except Exception as e:
+    except (OSError, UnicodeError, ValueError, TypeError, yaml.YAMLError) as e:
         # Не логируем содержимое файла — только факт и класс ошибки.
         log.warning("project.yml не прочитан (%s) — режим private", type(e).__name__)
         policy = PRIVATE
@@ -152,6 +148,7 @@ def policy_for(cwd: str | Path | None) -> ProjectPolicy:
 
 
 # ---------- хелперы-гейты (единственная точка принятия решения) ----------
+
 
 def can_store_history(policy: ProjectPolicy) -> bool:
     """Можно ли вообще вести историю (метаданные диалога)."""

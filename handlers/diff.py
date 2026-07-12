@@ -10,6 +10,7 @@ from aiogram.types import Message
 
 from core import db
 from utils.markdown import html_escape, split_for_telegram
+
 from .common import is_allowed
 
 router = Router()
@@ -36,14 +37,16 @@ def _format_diff(edit: dict) -> str:
         body = "\n".join("+ " + line for line in body_lines)
         return f"{header}\n<pre>{html_escape(body)}</pre>"
 
-    diff_lines = list(difflib.unified_diff(
-        old.splitlines(),
-        new.splitlines(),
-        lineterm="",
-        n=2,  # контекст 2 строки
-    ))
+    diff_lines = list(
+        difflib.unified_diff(
+            old.splitlines(),
+            new.splitlines(),
+            lineterm="",
+            n=2,  # контекст 2 строки
+        )
+    )
     # выкидываем заголовки --- / +++ (мы и так показали имя)
-    diff_lines = [l for l in diff_lines if not l.startswith(("---", "+++"))]
+    diff_lines = [line for line in diff_lines if not line.startswith(("---", "+++"))]
     if not diff_lines:
         return f"{header}\n<i>(текст совпал, изменений нет)</i>"
     if len(diff_lines) > MAX_DIFF_LINES_PER_FILE:
@@ -64,9 +67,9 @@ async def cmd_diff(message: Message):
     with db.conn() as c:
         row = c.execute(
             """SELECT payload FROM events
-               WHERE event_type='message_out' AND chat_id=? AND thread_id=?
+               WHERE event_type='message_out' AND user_id=? AND chat_id=? AND thread_id=?
                ORDER BY id DESC LIMIT 1""",
-            (chat_id, thread_id),
+            (message.from_user.id, chat_id, thread_id),
         ).fetchone()
 
     if not row or not row["payload"]:
@@ -93,8 +96,10 @@ async def cmd_diff(message: Message):
         blocks.append(_format_diff(edit))
 
     files_word = "файл" if len(edits) == 1 else ("файла" if 2 <= len(edits) <= 4 else "файлов")
-    summary = (f"Правки последнего ответа: {len(edits)} {files_word}, "
-               f"+{total_added} −{total_removed} строк")
+    summary = (
+        f"Правки последнего ответа: {len(edits)} {files_word}, "
+        f"+{total_added} −{total_removed} строк"
+    )
     text = summary + "\n\n" + "\n\n".join(blocks)
 
     for chunk in split_for_telegram(text, limit=MAX_MESSAGE_CHARS):

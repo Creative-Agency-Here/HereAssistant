@@ -31,10 +31,14 @@ async def _get_model():
         if _model is not None:
             return _model
         from faster_whisper import WhisperModel
+
         log.info("loading whisper model=%s device=%s compute=%s", MODEL_SIZE, DEVICE, COMPUTE_TYPE)
         # первая загрузка скачает модель с HuggingFace (~250MB для small)
         _model = await asyncio.to_thread(
-            WhisperModel, MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE,
+            WhisperModel,
+            MODEL_SIZE,
+            device=DEVICE,
+            compute_type=COMPUTE_TYPE,
         )
         log.info("whisper model ready")
         return _model
@@ -47,9 +51,9 @@ async def transcribe(path: Path, language: Optional[str] = None) -> str:
     def _do():
         segments, _info = model.transcribe(
             str(path),
-            language=language,            # None = автодетект
+            language=language,  # None = автодетект
             beam_size=5,
-            vad_filter=True,              # вырезает паузы — точнее на войсах
+            vad_filter=True,  # вырезает паузы — точнее на войсах
             condition_on_previous_text=False,
         )
         return " ".join(seg.text.strip() for seg in segments).strip()
