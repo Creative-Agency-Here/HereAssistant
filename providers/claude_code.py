@@ -13,7 +13,7 @@ from providers.models import ProgressCallback
 from providers.parsers.claude import ClaudeStreamParser
 from providers.process import finish_process, resolve_cli_argv, write_stdin
 
-from .base import NO_WINDOW, CLIProvider, log
+from .base import CLIProvider, log
 
 ALLOWED_PERMISSION_MODES = frozenset({"acceptEdits", "default"})
 
@@ -215,15 +215,11 @@ class ClaudeCodeProvider(CLIProvider):
         argv = resolve_cli_argv(list(argv))
         log.info("exec %s (stream)", argv[0])
 
-        proc = await asyncio.create_subprocess_exec(
-            *argv,
-            cwd=cwd,
-            env=self.env(),
+        proc = await self._spawn(
+            argv,
+            cwd,
             stdin=asyncio.subprocess.PIPE if stdin_data is not None else None,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
             limit=32 * 1024 * 1024,
-            creationflags=NO_WINDOW,
         )
         await write_stdin(proc, stdin_data)
 

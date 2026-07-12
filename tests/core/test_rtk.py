@@ -112,3 +112,55 @@ def test_user_savings_uses_only_enabled_owned_accounts(
     assert result["output_tokens"] == 20
     assert result["saved_tokens"] == 80
     assert result["savings_pct"] == 80.0
+
+
+def test_user_savings_reads_sanitized_runner_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = tmp_path / ".runtime"
+    for name, value in {
+        "RUNTIME_DIR": runtime,
+        "DOWNLOADS_DIR": runtime / "downloads",
+        "LOGS_DIR": runtime / "logs",
+        "BACKUPS_DIR": runtime / "backups",
+        "STATE_DIR": runtime / "state",
+        "CLI_HOMES_DIR": runtime / "cli_homes",
+        "WORKSPACE_DIR": tmp_path / "workspace",
+        "DEFAULT_PROJECT_DIR": tmp_path / "workspace" / "default",
+        "DB_PATH": tmp_path / "bridge.sqlite3",
+        "OS_RUNNER_METRICS_DIR": tmp_path / "metrics",
+    }.items():
+        monkeypatch.setattr(config, name, value)
+    monkeypatch.setattr(config, "ADMIN_IDS", [])
+    monkeypatch.setattr(config, "ADMIN_ID", None)
+    monkeypatch.setattr(config, "OS_RUNNERS_ENABLED", True)
+    monkeypatch.setattr(rtk.shutil, "which", lambda _name: "/usr/local/bin/rtk")
+    db.init()
+    with db.conn() as connection:
+        connection.execute(
+            """INSERT INTO accounts
+               (provider,label,cli_home_path,enabled,owner_user_id,shared)
+               VALUES ('claude_code','owned','/private/unreadable',1,100,0)"""
+        )
+    snapshot = config.OS_RUNNER_METRICS_DIR / "100" / "claude_code.json"
+    snapshot.parent.mkdir(parents=True)
+    snapshot.write_text(
+        json.dumps(
+            {
+                "commands": 3,
+                "input_tokens": 100,
+                "output_tokens": 40,
+                "saved_tokens": 60,
+                "today_commands": 2,
+                "today_saved_tokens": 30,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = rtk.user_savings(100)
+
+    assert result["commands"] == 3
+    assert result["saved_tokens"] == 60
+    assert result["savings_pct"] == 60.0
+    assert result["today_commands"] == 2

@@ -10,6 +10,7 @@ from typing import Optional
 
 from core import config, rtk
 from providers.models import ProgressCallback, ProviderMeta
+from providers.os_runner import ProcessBoundary
 
 log = logging.getLogger("bridge.provider")
 
@@ -24,14 +25,49 @@ class CLIProvider:
     def __init__(self, account: sqlite3.Row, user_id: int | None = None):
         self.account = account
         self.user_id = user_id
+        self.boundary = ProcessBoundary(account, user_id)
         self.cli_home = Path(account["cli_home_path"])
-        self.cli_home.mkdir(parents=True, exist_ok=True)
+        if not self.boundary.enabled:
+            self.cli_home.mkdir(parents=True, exist_ok=True)
 
     def env(self) -> dict[str, str]:
         return {**os.environ, **rtk.runtime_env(self.cli_home)}
 
     def cleanup_runtime(self) -> None:
-        rtk.sanitize_runtime(self.cli_home)
+        if not self.boundary.enabled:
+            rtk.sanitize_runtime(self.cli_home)
+
+    async def _spawn(
+        self,
+        argv: list[str],
+        cwd: str,
+        *,
+        stdin: int | None,
+        limit: int | None = None,
+    ) -> asyncio.subprocess.Process:
+        provider = self.provider_name or str(self.account["provider"])
+        prepared = self.boundary.prepare(argv, cwd, provider)
+        environment = prepared.env if self.boundary.enabled else self.env()
+        if limit is None:
+            return await asyncio.create_subprocess_exec(
+                *prepared.argv,
+                cwd=prepared.cwd,
+                env=environment,
+                stdin=stdin,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                creationflags=NO_WINDOW,
+            )
+        return await asyncio.create_subprocess_exec(
+            *prepared.argv,
+            cwd=prepared.cwd,
+            env=environment,
+            stdin=stdin,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            creationflags=NO_WINDOW,
+            limit=limit,
+        )
 
     async def run(
         self,
@@ -69,14 +105,10 @@ class CLIProvider:
             len(stdin_data or ""),
         )
 
-        proc = await asyncio.create_subprocess_exec(
-            *argv,
-            cwd=cwd,
-            env=self.env(),
+        proc = await self._spawn(
+            argv,
+            cwd,
             stdin=asyncio.subprocess.PIPE if stdin_data is not None else None,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            creationflags=NO_WINDOW,
         )
         try:
             stdout, stderr = await asyncio.wait_for(

@@ -14,7 +14,7 @@ from providers.models import ProgressCallback
 from providers.parsers.gemini import GeminiStreamParser
 from providers.process import finish_process, resolve_cli_argv, write_stdin
 
-from .base import NO_WINDOW, CLIProvider
+from .base import CLIProvider
 
 log = logging.getLogger("bridge.provider.gemini")
 
@@ -208,15 +208,11 @@ class GeminiProvider(CLIProvider):
     ):
         argv = resolve_cli_argv(list(argv), allow_powershell=True)
         log.info("exec %s (stream)", argv[0])
-        proc = await asyncio.create_subprocess_exec(
-            *argv,
-            cwd=cwd,
-            env=self.env(),
+        proc = await self._spawn(
+            argv,
+            cwd,
             stdin=asyncio.subprocess.PIPE if stdin_data is not None else None,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
             limit=32 * 1024 * 1024,
-            creationflags=NO_WINDOW,
         )
         await write_stdin(proc, stdin_data)
 

@@ -1,6 +1,7 @@
 """Конфиг: загрузка .env, пути, константы."""
 
 import os
+import re
 import secrets
 from pathlib import Path
 from typing import Optional
@@ -133,6 +134,39 @@ if not ADMIN_IDS and not CLAIM_CODE:
 
 DEFAULT_CWD: str = os.environ.get("DEFAULT_CWD", "").strip() or str(DEFAULT_PROJECT_DIR)
 CLI_TIMEOUT: int = int(os.environ.get("CLI_TIMEOUT_SEC", "1800"))
+
+
+def _parse_os_runner_map(raw: str) -> dict[int, str]:
+    """Parse `telegram_id:unix-user` pairs; malformed security config fails startup."""
+    result: dict[int, str] = {}
+    for entry in filter(None, (part.strip() for part in raw.split(","))):
+        telegram_id, separator, unix_user = entry.partition(":")
+        if (
+            not separator
+            or not telegram_id.isdigit()
+            or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", unix_user)
+            or unix_user == "root"
+        ):
+            raise ValueError(f"Некорректный OS_RUNNER_MAP entry: {entry!r}")
+        numeric_id = int(telegram_id)
+        if numeric_id in result:
+            raise ValueError(f"Повторный Telegram ID в OS_RUNNER_MAP: {numeric_id}")
+        result[numeric_id] = unix_user
+    return result
+
+
+OS_RUNNERS_ENABLED: bool = os.environ.get("OS_RUNNERS_ENABLED", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+OS_RUNNER_MAP: dict[int, str] = _parse_os_runner_map(os.environ.get("OS_RUNNER_MAP", ""))
+OS_RUNNER_EXECUTABLE: str = os.environ.get(
+    "OS_RUNNER_EXECUTABLE", "/usr/local/libexec/hereassistant-runner"
+).strip()
+OS_RUNNER_METRICS_DIR: Path = Path(
+    os.environ.get("OS_RUNNER_METRICS_DIR", "/var/lib/hereassistant/runner-metrics")
+)
 GIT_ALLOWED_HOSTS: tuple[str, ...] = tuple(
     host.strip().lower()
     for host in os.environ.get("GIT_ALLOWED_HOSTS", "github.com,gitlab.com").split(",")

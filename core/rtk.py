@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypedDict
 
-from . import db
+from . import config, db
 
 CLAUDE_HOOK_COMMAND = "rtk hook claude"
 SAFE_CLAUDE_RULES = (
@@ -156,27 +156,53 @@ def _aggregate(database: Path, since: str | None = None) -> tuple[int, int, int,
     return tuple(int(value or 0) for value in row)  # type: ignore[return-value]
 
 
+def _runner_aggregate(user_id: int, provider: str) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    path = config.OS_RUNNER_METRICS_DIR / str(user_id) / f"{provider}.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        total = tuple(
+            int(payload.get(key, 0))
+            for key in ("commands", "input_tokens", "output_tokens", "saved_tokens")
+        )
+        daily = (
+            int(payload.get("today_commands", 0)),
+            0,
+            0,
+            int(payload.get("today_saved_tokens", 0)),
+        )
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return (0, 0, 0, 0), (0, 0, 0, 0)
+    if any(value < 0 for value in (*total, *daily)):
+        return (0, 0, 0, 0), (0, 0, 0, 0)
+    return total, daily
+
+
 def user_savings(user_id: int) -> Savings:
     """Суммирует только enabled-аккаунты владельца; shared нельзя атрибутировать."""
     with db.conn() as connection:
-        homes = [
-            Path(row["cli_home_path"])
+        accounts = [
+            (str(row["provider"]), Path(row["cli_home_path"]))
             for row in connection.execute(
-                """SELECT cli_home_path FROM accounts
+                """SELECT provider,cli_home_path FROM accounts
                    WHERE enabled=1 AND owner_user_id=? ORDER BY id""",
                 (user_id,),
             )
         ]
-    today = datetime.now(UTC).date().isoformat()
-    total = [_aggregate(runtime_dir(home) / "history.db") for home in homes]
-    daily = [_aggregate(runtime_dir(home) / "history.db", today) for home in homes]
+    if config.OS_RUNNERS_ENABLED:
+        snapshots = [_runner_aggregate(user_id, provider) for provider in dict(accounts)]
+        total = [snapshot[0] for snapshot in snapshots]
+        daily = [snapshot[1] for snapshot in snapshots]
+    else:
+        today = datetime.now(UTC).date().isoformat()
+        total = [_aggregate(runtime_dir(home) / "history.db") for _, home in accounts]
+        daily = [_aggregate(runtime_dir(home) / "history.db", today) for _, home in accounts]
     commands = sum(row[0] for row in total)
     input_tokens = sum(row[1] for row in total)
     output_tokens = sum(row[2] for row in total)
     saved_tokens = sum(row[3] for row in total)
     return Savings(
         available=shutil.which("rtk") is not None,
-        accounts=len(homes),
+        accounts=len(accounts),
         commands=commands,
         input_tokens=input_tokens,
         output_tokens=output_tokens,

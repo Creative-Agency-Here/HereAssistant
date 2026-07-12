@@ -473,3 +473,17 @@ providers/
   `uv lock --check`, exception ratchet и repository hygiene — зелёные.
 - Остающийся архитектурный предел: CLI разных людей пока запускаются под одним
   Unix UID. До приватных клиентских репозиториев нужны отдельные OS runner users.
+
+### 2026-07-12 — OS runner foundation
+
+- Добавлен выключенный по умолчанию fail-closed boundary для provider subprocess:
+  Telegram user, private account owner, Unix runner, CLI home, provider executable
+  и resolved project root сверяются до запуска.
+- Claude, Codex, Gemini и общий CLI runtime переведены на единый spawn boundary;
+  текущий production-контур без `OS_RUNNERS_ENABLED=1` сохраняет прежнее поведение.
+- Root-installed wrapper получает минимальное окружение без Telegram/WebApp/API
+  secrets, очищает RTK command history внутри runner и экспортирует только агрегаты.
+- Добавлены installer skeleton, root-owned config format, sudoers/runbook и rollback
+  в `docs/os-runners.md`; 382 теста и полный локальный quality gate зелёные.
+- Production activation остаётся заблокирован до user-scoped Git broker и
+  безопасного attachment staging: включать runners раньше нельзя.
