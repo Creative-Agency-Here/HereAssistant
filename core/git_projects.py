@@ -51,6 +51,7 @@ async def run_git(
         raise GitProjectError("OS runner Git требует user_id")
     directory = str(cwd or config.user_workspace(user_id or 0))
     prepared = GitBoundary(user_id or 0).prepare(["git", *args], directory)
+    prepared.env["GIT_CEILING_DIRECTORIES"] = str(Path(directory).parent)
     process = await asyncio.create_subprocess_exec(
         *prepared.argv,
         cwd=prepared.cwd,

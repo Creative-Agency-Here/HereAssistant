@@ -344,6 +344,7 @@ def main() -> int:
                 "LOGNAME": config.unix_user,
                 "PATH": config.path,
                 "LANG": os.environ.get("LANG", "C.UTF-8"),
+                "GIT_CEILING_DIRECTORIES": str(cwd.parent),
             },
         )
     assert args.provider and cli_home is not None
