@@ -1,6 +1,10 @@
 # Account and project isolation audit
 
-Status: implemented locally, not deployed. Production credentials and runtime processes were not changed.
+Status: deployed to production in Hardening 0.4.0 on 2026-07-12.
+
+Application-level user, account, project, conversation, memory and WebApp
+isolation is active. OS-level process isolation remains pending because all
+provider processes currently run under Unix user `here`.
 
 ## Scope and findings
 
