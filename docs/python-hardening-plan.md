@@ -535,8 +535,9 @@ providers/
   загружается через `LoadCredentialEncrypted` только в память.
 - OAuth-driven atomic rotation/reload encrypted bundle и production canary остаются
   следующим подэтапом P1. Текущий production не изменён.
-- Во время threat review выявлен дополнительный blocker: hooks принудительно
-  отключены через `core.hooksPath=/dev/null`, но до реального credential нужны
-  allowlist-аудит repository-controlled `.git/config`/filters и negative canary.
-- Полный quality gate: 417 тестов, Pyright, Ruff/format, compileall, lock,
+- Repository-controlled Git execution закрыт дополнительным gate: local config
+  keys allowlisted, hooks/system/global config и unsafe protocols отключены; при
+  включённом helper control files обязаны иметь Linux immutable flag, что закрывает
+  замену после аудита. До реального credential всё ещё нужен negative canary.
+- Полный quality gate: 426 тестов, Pyright, Ruff/format, compileall, lock,
   exception ratchet и repository hygiene — зелёные; installer проходит `bash -n`.

@@ -8,6 +8,12 @@ fi
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 install -d -o root -g root -m 0755 /usr/local/libexec /etc/hereassistant/runners
+install -d -o root -g root -m 0755 /usr/local/libexec/runner
+install -o root -g root -m 0644 \
+  "$repo_root/runner/__init__.py" \
+  "$repo_root/runner/entrypoint.py" \
+  "$repo_root/runner/git_credential_proxy.py" \
+  /usr/local/libexec/runner/
 install -o root -g root -m 0755 \
   "$repo_root/runner/entrypoint.py" \
   /usr/local/libexec/hereassistant-runner

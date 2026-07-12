@@ -177,10 +177,12 @@ override `ExecStart` for another installation root.
 
 The current bundle is loaded once at service start. OAuth-driven atomic rotation
 and controlled reload are intentionally pending; do not place a real credential
-in the bundle until that flow, repository-controlled `.git/config`/filter audit
-and a canary are complete. Hooks are forcibly disabled with
-`core.hooksPath=/dev/null`, but that alone is not the final untrusted-repository
-execution boundary.
+in the bundle until that flow and a canary are complete. The wrapper allowlists
+local Git config keys, disables hooks/system/global config and unsafe protocols,
+and requires Linux immutable flags on `.git/config`, `config.worktree`, `.git`
+pointer and `commondir` whenever a credential helper is configured. Provisioning
+must apply `chattr +i` to existing control files after final remote/branch setup;
+a missing flag fails closed before Git receives access to the vault socket.
 
 ## Sudo boundary
 

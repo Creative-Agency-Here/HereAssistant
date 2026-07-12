@@ -1,13 +1,16 @@
 import sqlite3
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+import runner.entrypoint as runner_entrypoint
 from runner.entrypoint import (
     RunnerConfig,
     RunnerDenied,
     RunnerProfile,
+    audit_git_configuration,
     git_environment,
     provider_environment,
     sanitize_rtk,
@@ -257,12 +260,15 @@ def test_git_environment_resets_inherited_helpers_and_contains_no_app_secrets(
         configured, configured.project_roots[0], ["git", "push", "origin", "HEAD"]
     )
 
-    assert environment["GIT_CONFIG_COUNT"] == "4"
+    assert environment["GIT_CONFIG_COUNT"] == "7"
     assert environment["GIT_CONFIG_KEY_0"] == "credential.helper"
     assert environment["GIT_CONFIG_VALUE_0"] == ""
     assert environment["GIT_CONFIG_VALUE_1"] == "/dev/null"
-    assert environment["GIT_CONFIG_VALUE_2"] == str(helper)
-    assert environment["GIT_CONFIG_VALUE_3"] == "true"
+    assert environment["GIT_CONFIG_VALUE_2"] == "never"
+    assert environment["GIT_CONFIG_VALUE_3"] == "always"
+    assert environment["GIT_CONFIG_VALUE_4"] == "always"
+    assert environment["GIT_CONFIG_VALUE_5"] == str(helper)
+    assert environment["GIT_CONFIG_VALUE_6"] == "true"
     assert environment["HEREASSISTANT_GIT_VAULT_SOCKET"] == str(vault_socket)
     assert environment["GIT_TERMINAL_PROMPT"] == "0"
     assert environment["HEREASSISTANT_GIT_ACCESS"] == "write"
@@ -278,8 +284,98 @@ def test_git_environment_without_vault_is_public_only(
         ["git", "pull", "--ff-only"],
     )
 
-    assert environment["GIT_CONFIG_COUNT"] == "2"
+    assert environment["GIT_CONFIG_COUNT"] == "5"
     assert environment["GIT_CONFIG_VALUE_0"] == ""
     assert environment["GIT_CONFIG_VALUE_1"] == "/dev/null"
     assert "HEREASSISTANT_GIT_VAULT_SOCKET" not in environment
     assert environment["HEREASSISTANT_GIT_ACCESS"] == "read"
+
+
+def init_git_repository(config: RunnerConfig) -> Path:
+    root = config.project_roots[0]
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(
+        ["git", "config", "--local", "remote.origin.url", "https://github.com/example/repo.git"],
+        cwd=root,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "--local", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"],
+        cwd=root,
+        check=True,
+    )
+    return root
+
+
+def test_git_config_audit_accepts_minimal_safe_repository(
+    git_runner_config: RunnerConfig,
+) -> None:
+    root = init_git_repository(git_runner_config)
+
+    audit_git_configuration(git_runner_config, root, ["git", "status", "--short", "--branch"])
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("filter.evil.process", "sh -c arbitrary"),
+        ("include.path", "/tmp/foreign-config"),
+        ("core.sshCommand", "sh -c arbitrary"),
+        ("http.proxy", "https://proxy.example"),
+        ("credential.helper", "store"),
+    ],
+)
+def test_git_config_audit_rejects_executable_and_credential_keys(
+    git_runner_config: RunnerConfig, key: str, value: str
+) -> None:
+    root = init_git_repository(git_runner_config)
+    subprocess.run(["git", "config", "--local", key, value], cwd=root, check=True)
+
+    with pytest.raises(RunnerDenied, match="config key запрещён"):
+        audit_git_configuration(git_runner_config, root, ["git", "pull", "--ff-only"])
+
+
+def test_git_config_audit_rejects_remote_outside_allowlist(
+    git_runner_config: RunnerConfig,
+) -> None:
+    root = init_git_repository(git_runner_config)
+    subprocess.run(
+        ["git", "config", "--local", "remote.origin.url", "https://evil.example/repo.git"],
+        cwd=root,
+        check=True,
+    )
+
+    with pytest.raises(RunnerDenied, match="remote host запрещён"):
+        audit_git_configuration(git_runner_config, root, ["git", "push", "origin", "HEAD"])
+
+
+def test_git_config_audit_rejects_gitdir_outside_project_roots(
+    git_runner_config: RunnerConfig, tmp_path: Path
+) -> None:
+    root = git_runner_config.project_roots[0]
+    outside = tmp_path / "outside.git"
+    subprocess.run(
+        ["git", "init", "-q", "--separate-git-dir", str(outside), str(root)],
+        check=True,
+    )
+
+    with pytest.raises(RunnerDenied, match="metadata выходит"):
+        audit_git_configuration(git_runner_config, root, ["git", "status", "--short", "--branch"])
+
+
+def test_credentialed_git_requires_immutable_control_files(
+    git_runner_config: RunnerConfig, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = init_git_repository(git_runner_config)
+    configured = replace(
+        git_runner_config,
+        git_credential_helper=tmp_path / "helper",
+        git_vault_socket=tmp_path / "vault.sock",
+    )
+    monkeypatch.setattr(runner_entrypoint, "_is_immutable_file", lambda _path: False)
+
+    with pytest.raises(RunnerDenied, match="immutable metadata"):
+        audit_git_configuration(configured, root, ["git", "push", "origin", "HEAD"])
+
+    monkeypatch.setattr(runner_entrypoint, "_is_immutable_file", lambda _path: True)
+    audit_git_configuration(configured, root, ["git", "push", "origin", "HEAD"])

@@ -9,8 +9,10 @@ profile and cwd using root-owned `/etc/hereassistant/runners/<unix-user>.json`.
 from __future__ import annotations
 
 import argparse
+import array
 import json
 import os
+import re
 import shutil
 import signal
 import sqlite3
@@ -28,12 +30,42 @@ try:
 except ImportError:  # Windows imports the module for CI, but cannot execute it.
     pwd = None  # type: ignore[assignment]
 
+try:
+    import fcntl
+except ImportError:  # Windows не поддерживает Linux immutable ioctl.
+    fcntl = None  # type: ignore[assignment]
+
 CONFIG_DIR = Path("/etc/hereassistant/runners")
 PROVIDER_COMMANDS = {
     "claude_code": "claude",
     "codex": "codex",
     "gemini": "gemini",
 }
+SSH_REMOTE = re.compile(r"^git@(?P<host>[A-Za-z0-9.-]+):(?P<path>[^\s]+)$")
+SAFE_CONFIG_KEYS = {
+    "core.repositoryformatversion",
+    "core.filemode",
+    "core.bare",
+    "core.logallrefupdates",
+    "core.ignorecase",
+    "core.precomposeunicode",
+    "core.worktree",
+    "core.autocrlf",
+    "core.eol",
+    "core.safecrlf",
+    "core.symlinks",
+    "user.name",
+    "user.email",
+    "extensions.worktreeconfig",
+    "extensions.objectformat",
+    "extensions.refstorage",
+    "lfs.repositoryformatversion",
+}
+SAFE_DYNAMIC_CONFIG_KEY = re.compile(
+    r"^(?:remote\.[^.]+\.(?:url|fetch)|branch\.[^.]+\.(?:remote|merge))$"
+)
+FS_IOC_GETFLAGS = 0x80086601
+FS_IMMUTABLE_FL = 0x00000010
 
 
 class RunnerDenied(RuntimeError):
@@ -63,6 +95,158 @@ class RunnerConfig:
 
 def _inside(path: Path, root: Path) -> bool:
     return path == root or path.is_relative_to(root)
+
+
+def _inside_project_roots(config: RunnerConfig, path: Path) -> bool:
+    return any(_inside(path, root) for root in config.project_roots)
+
+
+def _is_immutable_file(path: Path) -> bool:
+    if not sys.platform.startswith("linux") or fcntl is None:
+        return False
+    descriptor = -1
+    try:
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        flags = array.array("I", [0])
+        fcntl.ioctl(descriptor, FS_IOC_GETFLAGS, flags, True)
+        return bool(flags[0] & FS_IMMUTABLE_FL)
+    except OSError:
+        return False
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _require_credential_metadata_lock(config: RunnerConfig, path: Path) -> None:
+    if config.git_credential_helper is not None and not _is_immutable_file(path):
+        raise RunnerDenied(f"Credentialed Git требует immutable metadata: {path.name}")
+
+
+def _git_directories(config: RunnerConfig, cwd: Path) -> tuple[Path, Path]:
+    matching_roots = [root for root in config.project_roots if _inside(cwd, root)]
+    if not matching_roots:
+        raise RunnerDenied("Git cwd вне project_roots")
+    project_root = max(matching_roots, key=lambda item: len(item.parts))
+    dotgit: Path | None = None
+    for candidate in (cwd, *cwd.parents):
+        if not _inside(candidate, project_root):
+            break
+        current = candidate / ".git"
+        if current.exists():
+            dotgit = current
+            break
+        if candidate == project_root:
+            break
+    if dotgit is None:
+        raise RunnerDenied("Git metadata отсутствует в project root")
+    try:
+        if dotgit.is_dir():
+            git_dir = dotgit.resolve(strict=True)
+        elif dotgit.is_file() and dotgit.stat().st_size <= 4096:
+            _require_credential_metadata_lock(config, dotgit)
+            marker = dotgit.read_text(encoding="utf-8").strip()
+            prefix = "gitdir:"
+            if not marker.lower().startswith(prefix):
+                raise RunnerDenied("Git metadata file повреждён")
+            target = Path(marker[len(prefix) :].strip())
+            git_dir = (target if target.is_absolute() else dotgit.parent / target).resolve(
+                strict=True
+            )
+        else:
+            raise RunnerDenied("Git metadata type запрещён")
+        common_marker = git_dir / "commondir"
+        if common_marker.is_file() and common_marker.stat().st_size <= 4096:
+            _require_credential_metadata_lock(config, common_marker)
+            target = Path(common_marker.read_text(encoding="utf-8").strip())
+            common_dir = (target if target.is_absolute() else git_dir / target).resolve(strict=True)
+        else:
+            common_dir = git_dir
+    except (OSError, UnicodeError) as error:
+        raise RunnerDenied("Git metadata невалидны") from error
+    if not _inside_project_roots(config, git_dir) or not _inside_project_roots(config, common_dir):
+        raise RunnerDenied("Git metadata выходит за project_roots")
+    return git_dir, common_dir
+
+
+def _config_entries(config: RunnerConfig, path: Path) -> list[tuple[str, str]]:
+    resolved = path.resolve(strict=True)
+    if not _inside_project_roots(config, resolved) or resolved.stat().st_size > 1_048_576:
+        raise RunnerDenied("Git config path/size запрещён")
+    executable = shutil.which("git", path=config.path)
+    if not executable:
+        raise RunnerDenied("Git executable отсутствует")
+    try:
+        process = subprocess.run(
+            [executable, "config", "--file", str(resolved), "--no-includes", "--null", "--list"],
+            check=False,
+            capture_output=True,
+            timeout=5,
+            env={
+                "HOME": str(config.home),
+                "PATH": config.path,
+                "LANG": os.environ.get("LANG", "C.UTF-8"),
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_CONFIG_GLOBAL": "/dev/null",
+            },
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RunnerDenied("Git config audit не выполнен") from error
+    if process.returncode:
+        raise RunnerDenied("Git config невалиден")
+    result: list[tuple[str, str]] = []
+    for item in process.stdout.split(b"\0"):
+        if not item:
+            continue
+        key, separator, value = item.partition(b"\n")
+        if not separator:
+            raise RunnerDenied("Git config entry невалиден")
+        try:
+            result.append((key.decode(errors="strict").lower(), value.decode(errors="strict")))
+        except UnicodeError as error:
+            raise RunnerDenied("Git config encoding невалидна") from error
+    return result
+
+
+def _validate_remote_url(config: RunnerConfig, value: str) -> None:
+    ssh_match = SSH_REMOTE.fullmatch(value)
+    if ssh_match:
+        host = ssh_match.group("host").lower()
+    else:
+        parsed = urlsplit(value)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            raise RunnerDenied("Git remote URL запрещён")
+        host = parsed.hostname.lower()
+    if host not in config.git_allowed_hosts:
+        raise RunnerDenied("Git remote host запрещён")
+
+
+def audit_git_configuration(config: RunnerConfig, cwd: Path, command: list[str]) -> None:
+    if len(command) >= 2 and command[1] == "clone":
+        return
+    git_dir, common_dir = _git_directories(config, cwd)
+    config_paths = [common_dir / "config"]
+    worktree_config = git_dir / "config.worktree"
+    if worktree_config.exists():
+        config_paths.append(worktree_config)
+    for config_path in config_paths:
+        _require_credential_metadata_lock(config, config_path)
+        for key, value in _config_entries(config, config_path):
+            if key not in SAFE_CONFIG_KEYS and not SAFE_DYNAMIC_CONFIG_KEY.fullmatch(key):
+                raise RunnerDenied(f"Git config key запрещён: {key}")
+            if key.startswith("remote.") and key.endswith(".url"):
+                _validate_remote_url(config, value)
+            elif key == "core.bare" and value.strip().lower() not in ("false", "no", "0"):
+                raise RunnerDenied("Bare repository запрещён")
+            elif key == "core.worktree":
+                worktree = Path(value)
+                try:
+                    resolved = (
+                        worktree if worktree.is_absolute() else common_dir / worktree
+                    ).resolve(strict=True)
+                except OSError as error:
+                    raise RunnerDenied("Git worktree невалиден") from error
+                if not _inside_project_roots(config, resolved):
+                    raise RunnerDenied("Git worktree выходит за project_roots")
 
 
 def load_config(unix_user: str, *, config_dir: Path = CONFIG_DIR) -> RunnerConfig:
@@ -270,24 +454,33 @@ def git_environment(config: RunnerConfig, cwd: Path, command: list[str]) -> dict
         "SSH_ASKPASS": "/bin/false",
         "GIT_PAGER": "cat",
         "GIT_EDITOR": "/bin/false",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_ATTR_NOSYSTEM": "1",
         "GIT_CONFIG_KEY_0": "credential.helper",
         "GIT_CONFIG_VALUE_0": "",
         "GIT_CONFIG_KEY_1": "core.hooksPath",
         "GIT_CONFIG_VALUE_1": "/dev/null",
+        "GIT_CONFIG_KEY_2": "protocol.allow",
+        "GIT_CONFIG_VALUE_2": "never",
+        "GIT_CONFIG_KEY_3": "protocol.https.allow",
+        "GIT_CONFIG_VALUE_3": "always",
+        "GIT_CONFIG_KEY_4": "protocol.ssh.allow",
+        "GIT_CONFIG_VALUE_4": "always",
         "HEREASSISTANT_GIT_ACCESS": "write" if command[1:2] == ["push"] else "read",
     }
     if config.git_credential_helper is None:
-        environment["GIT_CONFIG_COUNT"] = "2"
+        environment["GIT_CONFIG_COUNT"] = "5"
         return environment
     if config.git_vault_socket is None:
         raise RunnerDenied("Git credential helper требует vault socket")
     environment.update(
         {
-            "GIT_CONFIG_COUNT": "4",
-            "GIT_CONFIG_KEY_2": "credential.helper",
-            "GIT_CONFIG_VALUE_2": str(config.git_credential_helper),
-            "GIT_CONFIG_KEY_3": "credential.useHttpPath",
-            "GIT_CONFIG_VALUE_3": "true",
+            "GIT_CONFIG_COUNT": "7",
+            "GIT_CONFIG_KEY_5": "credential.helper",
+            "GIT_CONFIG_VALUE_5": str(config.git_credential_helper),
+            "GIT_CONFIG_KEY_6": "credential.useHttpPath",
+            "GIT_CONFIG_VALUE_6": "true",
             "HEREASSISTANT_GIT_VAULT_SOCKET": str(config.git_vault_socket),
         }
     )
@@ -417,6 +610,7 @@ def main() -> int:
         config = load_config(unix_user)
         if args.git:
             cwd = validate_git_request(config, user_id=args.user_id, cwd=args.cwd, command=command)
+            audit_git_configuration(config, cwd, command)
             cli_home = None
         else:
             if not args.provider or not args.cli_home or not args.account:
