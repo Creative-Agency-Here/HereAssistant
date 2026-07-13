@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from aiohttp import web
@@ -11,6 +12,7 @@ from webapp.api.gitea_oauth import GiteaOAuthClientError, exchange_code
 from webapp.api.models import git_connection_to_dto, parse_git_connection_start
 
 MAX_JSON_BYTES = 16_384
+log = logging.getLogger(__name__)
 
 
 def _user_id(request: web.Request) -> int:
@@ -95,6 +97,7 @@ async def callback_handler(request: web.Request) -> web.StreamResponse:
     claim: git_oauth.OAuthClaim | None = None
     vault_written = False
     connection_activated = False
+    stage = "claim"
     try:
         claim = git_oauth.claim_gitea_callback(state, config.GIT_OAUTH_STATE_SECRET)
         if request.query.get("error") or claim.provider != "gitea":
@@ -102,6 +105,7 @@ async def callback_handler(request: web.Request) -> web.StreamResponse:
         client_id = config.GITEA_OAUTH_APPS.get(claim.host)
         if not client_id or claim.host not in config.GIT_ALLOWED_HOSTS:
             raise git_oauth.GitOAuthError("Gitea OAuth app не настроен")
+        stage = "exchange"
         identity = await exchange_code(
             claim.host,
             client_id,
@@ -109,6 +113,7 @@ async def callback_handler(request: web.Request) -> web.StreamResponse:
             code,
             claim.verifier,
         )
+        stage = "vault"
         await git_vault_client.update_credential(
             claim.user_id,
             claim.connection_id,
@@ -117,6 +122,7 @@ async def callback_handler(request: web.Request) -> web.StreamResponse:
             refresh_token=identity.refresh_token,
         )
         vault_written = True
+        stage = "activation"
         activated = git_connections.activate_connection(
             claim.user_id,
             claim.connection_id,
@@ -130,6 +136,7 @@ async def callback_handler(request: web.Request) -> web.StreamResponse:
         if activated is None:
             raise git_oauth.GitOAuthError("Git connection недоступен")
         connection_activated = True
+        stage = "repository_sync"
         git_connections.sync_repository_catalog(
             claim.user_id, claim.connection_id, identity.repositories
         )
@@ -138,11 +145,14 @@ async def callback_handler(request: web.Request) -> web.StreamResponse:
         git_connections.GitConnectionError,
         git_oauth.GitOAuthError,
         git_vault_client.GitVaultClientError,
-    ):
+    ) as error:
+        log.warning("Gitea OAuth callback отклонён: stage=%s error=%s", stage, type(error).__name__)
         if claim is not None:
             git_oauth.mark_callback_failed(claim.session_id)
             if connection_activated:
                 git_connections.revoke_connection(claim.user_id, claim.connection_id)
+            else:
+                git_connections.mark_connection_failed(claim.user_id, claim.connection_id)
             if vault_written:
                 try:
                     await git_vault_client.update_credential(claim.user_id, claim.connection_id)

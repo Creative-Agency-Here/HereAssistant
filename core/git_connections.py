@@ -189,6 +189,19 @@ def revoke_connection(user_id: int, connection_id: int) -> bool:
         return bool(cursor.rowcount)
 
 
+def mark_connection_failed(user_id: int, connection_id: int) -> bool:
+    """Помечает неуспешный OAuth без сохранения provider error или credentials."""
+    now = int(time.time())
+    with db.conn() as connection:
+        cursor = connection.execute(
+            """UPDATE git_connections
+               SET status='error',vault_ref=NULL,updated_at=?
+               WHERE id=? AND user_id=? AND status!='active'""",
+            (now, connection_id, user_id),
+        )
+        return bool(cursor.rowcount)
+
+
 def grant_repository(
     user_id: int,
     connection_id: int,

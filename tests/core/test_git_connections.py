@@ -147,6 +147,19 @@ def test_connection_rejects_unapproved_host_and_raw_secret_reference(connection_
         )
 
 
+def test_failed_oauth_marks_only_pending_owner_connection_error(connection_db: Path) -> None:
+    alice = git_connections.create_pending_connection(100, "gitea", "git.example.com")
+    bob = git_connections.create_pending_connection(200, "gitea", "git.example.com")
+
+    assert git_connections.mark_connection_failed(100, int(alice["id"]))
+    assert not git_connections.mark_connection_failed(100, int(bob["id"]))
+
+    current_alice = git_connections.get_connection(100, int(alice["id"]))
+    current_bob = git_connections.get_connection(200, int(bob["id"]))
+    assert current_alice is not None and current_alice["status"] == "error"
+    assert current_bob is not None and current_bob["status"] == "pending"
+
+
 def test_repository_catalog_defaults_disabled_and_preserves_explicit_selection(
     connection_db: Path,
 ) -> None:

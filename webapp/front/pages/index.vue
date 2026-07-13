@@ -5,8 +5,8 @@
       <h1 class="text-2xl font-semibold mt-1">Текущая задача</h1>
     </header>
 
-    <div v-if="pending" class="card text-text-soft">Загрузка…</div>
-    <div v-else-if="error" class="card text-err">
+    <div v-if="pending && !data" class="card text-text-soft">Загрузка…</div>
+    <div v-else-if="error && !data" class="card text-err">
       Ошибка: {{ error.message || 'не удалось получить статус' }}
     </div>
 
@@ -95,7 +95,7 @@ const { logLines, connected } = useLiveLog()
 const logEl = ref<HTMLElement | null>(null)
 
 // автообновление статуса каждые 2 секунды (ws тоже шлёт, но fetch гарантирует upd)
-let timer: any = null
+let timer: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
   timer = setInterval(() => refresh(), 2000)
 })

@@ -161,3 +161,41 @@ async def test_start_fails_closed_for_unconfigured_host(
             assert connection.execute("SELECT COUNT(*) FROM git_connections").fetchone()[0] == 0
     finally:
         await client.close()
+
+
+async def test_failed_exchange_marks_connection_error_without_logging_oauth_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    configure(tmp_path, monkeypatch)
+
+    async def exchange(
+        _host: str, _client_id: str, _redirect_uri: str, _code: str, _verifier: str
+    ) -> GiteaIdentity:
+        raise routes.GiteaOAuthClientError("provider detail with one-time-code")
+
+    monkeypatch.setattr(routes, "exchange_code", exchange)
+    client = TestClient(TestServer(server.create_app()))
+    await client.start_server()
+    try:
+        started = await client.post(
+            "/api/git/connections/start",
+            json={"provider": "gitea", "host": "git.example.com"},
+        )
+        payload = await started.json()
+        state = parse_qs(urlsplit(payload["authorization_url"]).query)["state"][0]
+
+        callback = await client.get(
+            "/api/git/oauth/callback/gitea",
+            params={"state": state, "code": "one-time-code"},
+            allow_redirects=False,
+        )
+
+        assert callback.status == 302
+        assert callback.headers["Location"] == "https://assistant.example/app?git=error"
+        current = git_connections.get_connection(100, int(payload["connection_id"]))
+        assert current is not None and current["status"] == "error"
+        assert "stage=exchange" in caplog.text
+        assert "GiteaOAuthClientError" in caplog.text
+        assert "one-time-code" not in caplog.text
+    finally:
+        await client.close()
