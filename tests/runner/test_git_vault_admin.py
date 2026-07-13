@@ -2,15 +2,18 @@ import json
 import sqlite3
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+import runner.git_vault_admin as git_vault_admin
 from runner.git_vault_admin import (
     GitVaultAdminError,
     StoredCredential,
     _reload_service,
     connection_refresh_target,
     connection_vault_ref,
+    credential_lock,
     parse_secret_request,
     refresh_bundle,
     rotate_bundle,
@@ -238,3 +241,26 @@ def test_vault_service_start_policy(
     assert commands == [
         ["systemctl", *expected_action, "hereassistant-git-vault@ha-user-git.service"]
     ]
+
+
+def test_credential_lock_serializes_bundle_mutations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    locks: list[int] = []
+    monkeypatch.setattr(git_vault_admin, "ENCRYPTED_DIRECTORY", tmp_path)
+    monkeypatch.setattr(
+        git_vault_admin.os,
+        "fstat",
+        lambda _descriptor: SimpleNamespace(st_uid=0, st_mode=0o100600),
+    )
+    assert git_vault_admin.fcntl is not None
+    monkeypatch.setattr(
+        git_vault_admin.fcntl,
+        "flock",
+        lambda _descriptor, operation: locks.append(operation),
+    )
+
+    with credential_lock("ha-user-git"):
+        assert (tmp_path / ".ha-user-git.lock").exists()
+
+    assert locks == [git_vault_admin.fcntl.LOCK_EX]

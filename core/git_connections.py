@@ -21,6 +21,7 @@ HOST_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]{1,5})?$")
 VAULT_REF_PATTERN = re.compile(r"^[a-z][a-z0-9+.-]*://[A-Za-z0-9._/-]+$")
 PROVIDERS = frozenset({"gitea", "github"})
 PERMISSIONS = frozenset({"read", "write", "admin"})
+AUTO_REFRESH_SKEW_SECONDS = 300
 
 
 class GitConnectionError(RuntimeError):
@@ -415,6 +416,37 @@ def mark_connection_refreshed(user_id: int, connection_id: int, expires_at: int)
         return cursor.rowcount == 1
 
 
+def _repository_key(value: str) -> tuple[str, str]:
+    parsed = urlsplit(value)
+    path = parsed.path.rstrip("/")
+    if path.endswith(".git"):
+        path = path[:-4]
+    return (parsed.netloc.lower(), path)
+
+
+def repository_refresh_target(user_id: int, clone_url: str) -> int | None:
+    """Возвращает owner-scoped connection, если access token пора обновить."""
+    refresh_before = int(time.time()) + AUTO_REFRESH_SKEW_SECONDS
+    with db.conn() as connection:
+        rows = connection.execute(
+            """SELECT c.id,c.status,c.expires_at,g.clone_url,g.enabled
+               FROM git_repository_grants g
+               JOIN git_connections c ON c.id=g.connection_id
+               WHERE c.user_id=? AND c.provider='gitea'
+                 AND c.status IN ('active','expired') AND c.vault_ref IS NOT NULL""",
+            (user_id,),
+        ).fetchall()
+    target = _repository_key(clone_url)
+    for row in rows:
+        if target != _repository_key(str(row["clone_url"])) or not row["enabled"]:
+            continue
+        expires_at = int(row["expires_at"]) if row["expires_at"] is not None else None
+        if row["status"] == "expired" or (expires_at is not None and expires_at <= refresh_before):
+            return int(row["id"])
+        return None
+    return None
+
+
 def repository_grant_state(user_id: int, clone_url: str, *, write: bool) -> str:
     """Возвращает allowed/disabled/insufficient/unknown без раскрытия чужих grants."""
     now = int(time.time())
@@ -428,16 +460,9 @@ def repository_grant_state(user_id: int, clone_url: str, *, write: bool) -> str:
             (user_id, now),
         ).fetchall()
 
-    def key(value: str) -> tuple[str, str]:
-        parsed = urlsplit(value)
-        path = parsed.path.rstrip("/")
-        if path.endswith(".git"):
-            path = path[:-4]
-        return (parsed.netloc.lower(), path)
-
-    target = key(clone_url)
+    target = _repository_key(clone_url)
     for row in rows:
-        if target != key(str(row["clone_url"])):
+        if target != _repository_key(str(row["clone_url"])):
             continue
         if not row["enabled"]:
             return "disabled"

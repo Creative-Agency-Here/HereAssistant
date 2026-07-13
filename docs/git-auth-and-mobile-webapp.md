@@ -178,6 +178,8 @@ the backend can actually perform that action safely.
 - [x] Deny expired OAuth credentials independently in metadata and vault queries.
 - [x] Rotate Gitea refresh/access tokens inside the root vault and return only
   non-secret expiry metadata to core.
+- [x] Refresh expiring Gitea credentials automatically before an authorized Git
+  operation; reconnect only when refresh is unavailable or revoked.
 - [x] Add a read-only host canary and negative cross-user tests.
 - [ ] Run the live credential canary before production activation.
 

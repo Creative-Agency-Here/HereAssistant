@@ -266,6 +266,8 @@ sidebar. Existing `/history`, `/edits`, `/stats` сохраняются как r
 - [x] Запретить expired OAuth credentials независимо в metadata и vault query.
 - [x] Ротировать Gitea refresh/access tokens внутри root vault, возвращая core
   только несекретный `expires_at`.
+- [x] Автоматически обновлять истекающий Gitea credential перед разрешённой
+  Git-операцией; повторный OAuth нужен только при revoke/нерабочем refresh token.
 - [x] Добавить read-only host canary и cross-user negative tests.
 - [ ] Запустить live credential canary перед production activation.
 

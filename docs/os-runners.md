@@ -71,9 +71,10 @@ GIT_OAUTH_STATE_SECRET=GENERATE_A_DEDICATED_RANDOM_48_BYTE_VALUE
 
 The state value is stored only as an HMAC; the S256 verifier is deterministically
 derived from the state plus the dedicated secret and is never stored in SQLite.
-Callbacks are single-use and expire after ten minutes. Automatic refresh-token
-rotation is not implemented yet: an expired connection must be reconnected before
-private Git operations resume.
+Callbacks are single-use and expire after ten minutes. When Gitea returns a refresh
+token, HereAssistant rotates access and refresh tokens inside the root-owned vault
+automatically before an authorized Git operation. A new OAuth login is required
+only after provider-side revoke or an unusable refresh token.
 
 Create a metrics-only group. It grants `here` access only to aggregate JSON, not
 to CLI credentials or RTK command history.

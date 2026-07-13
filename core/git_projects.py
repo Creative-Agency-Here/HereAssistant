@@ -121,13 +121,32 @@ def validate_name(value: str, field: str = "name") -> str:
     return value
 
 
-def require_repository_grant(
+async def ensure_repository_connection_fresh(user_id: int, url: str) -> None:
+    """Прозрачно ротирует истекающий Gitea token внутри owner-scoped vault."""
+    from . import git_connections, git_vault_client
+
+    connection_id = git_connections.repository_refresh_target(user_id, url)
+    if connection_id is None:
+        return
+    try:
+        expires_at = await git_vault_client.refresh_credential(user_id, connection_id)
+        refreshed = git_connections.mark_connection_refreshed(user_id, connection_id, expires_at)
+    except (git_connections.GitConnectionError, git_vault_client.GitVaultClientError) as error:
+        raise GitAuthRequiredError(
+            "Git OAuth истёк, автоматическое обновление не удалось; переподключи Git"
+        ) from error
+    if not refreshed:
+        raise GitAuthRequiredError("Git connection недоступен после автообновления")
+
+
+async def require_repository_grant(
     user_id: int, url: str, *, write: bool, allow_unknown_public: bool
 ) -> None:
     if not config.OS_RUNNERS_ENABLED or not url.startswith("https://"):
         return
     from . import git_connections
 
+    await ensure_repository_connection_fresh(user_id, url)
     state = git_connections.repository_grant_state(user_id, url, write=write)
     if state == "allowed" or (state == "unknown" and allow_unknown_public):
         return
@@ -166,7 +185,7 @@ async def run_git(
 async def clone_project(user_id: int, name: str, url: str) -> sqlite3.Row:
     name = validate_name(name)
     url = validate_repository_url(url)
-    require_repository_grant(user_id, url, write=False, allow_unknown_public=True)
+    await require_repository_grant(user_id, url, write=False, allow_unknown_public=True)
     workspace = config.user_workspace(user_id).resolve()
     workspace.mkdir(parents=True, exist_ok=True)
     destination = workspace / name
@@ -211,7 +230,7 @@ async def pull(user_id: int, root: str | Path) -> str:
     directory = Path(root)
     if config.OS_RUNNERS_ENABLED:
         remote_url = await run_git("remote", "get-url", "origin", user_id=user_id, cwd=directory)
-        require_repository_grant(user_id, remote_url, write=False, allow_unknown_public=True)
+        await require_repository_grant(user_id, remote_url, write=False, allow_unknown_public=True)
     return await run_git("pull", "--ff-only", user_id=user_id, cwd=directory, timeout=600)
 
 
@@ -226,7 +245,9 @@ async def push(user_id: int, root: str | Path) -> str:
     if config.OS_RUNNERS_ENABLED:
         for remote in targets:
             remote_url = await run_git("remote", "get-url", remote, user_id=user_id, cwd=directory)
-            require_repository_grant(user_id, remote_url, write=True, allow_unknown_public=False)
+            await require_repository_grant(
+                user_id, remote_url, write=True, allow_unknown_public=False
+            )
     for remote in targets:
         try:
             await run_git(

@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -25,6 +26,11 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from runner.entrypoint import load_config
 from runner.git_vault_service import VaultCredential
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - root helper запускается только на Linux.
+    fcntl = None  # type: ignore[assignment]
 
 ENCRYPTED_DIRECTORY = Path("/etc/hereassistant/git-credentials")
 CREDENTIAL_NAME = "git-credentials.json"
@@ -38,6 +44,24 @@ class GitVaultAdminError(RuntimeError):
 
 
 CredentialCommand = Callable[[list[str], bytes | None], bytes]
+
+
+@contextmanager
+def credential_lock(unix_user: str):
+    """Сериализует put/revoke/refresh между bot и API процессами."""
+    if fcntl is None:
+        raise GitVaultAdminError("credential locking unavailable")
+    lock_path = ENCRYPTED_DIRECTORY / f".{unix_user}.lock"
+    flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(lock_path, flags, 0o600)
+    try:
+        current = os.fstat(descriptor)
+        if current.st_uid != 0 or current.st_mode & 0o077:
+            raise GitVaultAdminError("credential lock permissions invalid")
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(descriptor)
 
 
 @dataclass(frozen=True)
@@ -379,20 +403,21 @@ def main() -> int:
         )
         encrypted_path = ENCRYPTED_DIRECTORY / f"{arguments.unix_user}.json.cred"
         _validate_storage(ENCRYPTED_DIRECTORY, encrypted_path)
-        if arguments.operation == "refresh":
-            if payload.strip():
-                raise GitVaultAdminError("refresh request must be empty")
-            _provider, host = connection_refresh_target(
-                config.git_database, config.user_id, arguments.connection_id
-            )
-            client_id = config.gitea_oauth_apps.get(host)
-            if not client_id:
-                raise GitVaultAdminError("refresh app unavailable")
-            expires_at = refresh_bundle(encrypted_path, vault_ref, host, client_id)
-            print(json.dumps({"expires_at": expires_at}, separators=(",", ":")))
-        else:
-            credential = parse_secret_request(arguments.operation, payload)
-            rotate_bundle(encrypted_path, vault_ref, credential)
+        with credential_lock(arguments.unix_user):
+            if arguments.operation == "refresh":
+                if payload.strip():
+                    raise GitVaultAdminError("refresh request must be empty")
+                _provider, host = connection_refresh_target(
+                    config.git_database, config.user_id, arguments.connection_id
+                )
+                client_id = config.gitea_oauth_apps.get(host)
+                if not client_id:
+                    raise GitVaultAdminError("refresh app unavailable")
+                expires_at = refresh_bundle(encrypted_path, vault_ref, host, client_id)
+                print(json.dumps({"expires_at": expires_at}, separators=(",", ":")))
+            else:
+                credential = parse_secret_request(arguments.operation, payload)
+                rotate_bundle(encrypted_path, vault_ref, credential)
         _reload_service(arguments.unix_user, ensure_started=arguments.operation == "put")
     except (GitVaultAdminError, OSError):
         print("git vault admin denied", file=sys.stderr)

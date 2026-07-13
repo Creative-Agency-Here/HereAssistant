@@ -272,3 +272,40 @@ def test_expired_connection_is_marked_before_listing(connection_db: Path) -> Non
     )
 
     assert git_connections.list_connections(100)[0]["status"] == "expired"
+
+
+def test_enabled_repository_requests_refresh_before_expiry(
+    connection_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = 1_000_000
+    monkeypatch.setattr(git_connections.time, "time", lambda: now)
+    current = git_connections.create_pending_connection(100, "gitea", "git.example.com")
+    git_connections.activate_connection(
+        100,
+        current["id"],
+        external_user_id="42",
+        external_login="alice",
+        avatar_url=None,
+        vault_ref=f"vault://git/100/{current['id']}/primary",
+        scopes=["write:repository"],
+        expires_at=now + 60,
+    )
+    git_connections.grant_repository(
+        100,
+        current["id"],
+        external_repository_id="repo-1",
+        owner_name="alice",
+        repository_name="project",
+        clone_url="https://git.example.com/alice/project.git",
+        default_branch="main",
+        permission="write",
+    )
+
+    assert (
+        git_connections.repository_refresh_target(100, "https://GIT.EXAMPLE.COM/alice/project")
+        == current["id"]
+    )
+    assert (
+        git_connections.repository_refresh_target(200, "https://git.example.com/alice/project.git")
+        is None
+    )

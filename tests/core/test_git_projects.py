@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from core import config, db, git_connections, git_projects, projects
+from core import config, db, git_connections, git_projects, git_vault_client, projects
 
 
 @pytest.fixture
@@ -97,10 +97,12 @@ def test_git_failure_payload_redacts_credentials() -> None:
     assert "[redacted]" in str(error)
 
 
-def test_hardened_write_requires_explicit_repository_grant(
+@pytest.mark.asyncio
+async def test_hardened_write_requires_explicit_repository_grant(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(config, "OS_RUNNERS_ENABLED", True)
+    monkeypatch.setattr(git_connections, "repository_refresh_target", lambda *_args: None)
     monkeypatch.setattr(
         git_connections,
         "repository_grant_state",
@@ -108,18 +110,74 @@ def test_hardened_write_requires_explicit_repository_grant(
     )
 
     with pytest.raises(git_projects.GitAuthRequiredError, match="Выбери репозиторий"):
-        git_projects.require_repository_grant(
+        await git_projects.require_repository_grant(
             100,
             "https://git.example.com/alice/project.git",
             write=True,
             allow_unknown_public=False,
         )
-    git_projects.require_repository_grant(
+    await git_projects.require_repository_grant(
         100,
         "https://git.example.com/public/project.git",
         write=False,
         allow_unknown_public=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_expired_repository_connection_is_refreshed_transparently(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "OS_RUNNERS_ENABLED", True)
+    refresh_target_calls = 0
+
+    def refresh_target(_user_id: int, _url: str) -> int | None:
+        nonlocal refresh_target_calls
+        refresh_target_calls += 1
+        return 7 if refresh_target_calls == 1 else None
+
+    monkeypatch.setattr(git_connections, "repository_refresh_target", refresh_target)
+    monkeypatch.setattr(
+        git_connections, "repository_grant_state", lambda *_args, **_kwargs: "allowed"
+    )
+    refreshed: list[tuple[int, int]] = []
+
+    async def refresh(user_id: int, connection_id: int) -> int:
+        refreshed.append((user_id, connection_id))
+        return 2_000_000_000
+
+    monkeypatch.setattr(git_vault_client, "refresh_credential", refresh)
+    monkeypatch.setattr(git_connections, "mark_connection_refreshed", lambda *_args: True)
+
+    await git_projects.require_repository_grant(
+        100,
+        "https://git.example.com/alice/project.git",
+        write=True,
+        allow_unknown_public=False,
+    )
+
+    assert refreshed == [(100, 7)]
+
+
+@pytest.mark.asyncio
+async def test_failed_automatic_refresh_requires_reconnect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "OS_RUNNERS_ENABLED", True)
+    monkeypatch.setattr(git_connections, "repository_refresh_target", lambda *_args: 7)
+
+    async def fail(_user_id: int, _connection_id: int) -> int:
+        raise git_vault_client.GitVaultClientError("refresh failed")
+
+    monkeypatch.setattr(git_vault_client, "refresh_credential", fail)
+
+    with pytest.raises(git_projects.GitAuthRequiredError, match="переподключи Git"):
+        await git_projects.require_repository_grant(
+            100,
+            "https://git.example.com/alice/project.git",
+            write=True,
+            allow_unknown_public=False,
+        )
 
 
 @pytest.mark.asyncio
