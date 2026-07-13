@@ -29,8 +29,8 @@
       </nav>
       <div class="sidebar-footer">
         <span class="status-orb bg-accent" />
-        <span>Self-hosted</span>
-        <span class="ml-auto text-text-dim">privacy first</span>
+        <span>Свой сервер</span>
+        <span class="ml-auto text-right leading-tight text-text-dim">Приватность<br>прежде всего</span>
       </div>
     </aside>
 
