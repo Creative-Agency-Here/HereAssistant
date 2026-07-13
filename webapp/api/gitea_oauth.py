@@ -78,20 +78,28 @@ def _repository(value: object) -> RepositoryMetadata:
 
 
 async def _json_response(response, stage: str) -> object:
-    payload = await response.content.read(MAX_RESPONSE_BYTES + 1)
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await response.content.read(min(65_536, MAX_RESPONSE_BYTES + 1 - total))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+        if total > MAX_RESPONSE_BYTES:
+            raise GiteaOAuthClientError(
+                "Gitea response слишком большой",
+                stage=stage,
+                status=int(response.status),
+                reason="response_too_large",
+            )
+    payload = b"".join(chunks)
     if response.status < 200 or response.status >= 300:
         raise GiteaOAuthClientError(
             "Gitea response отклонён",
             stage=stage,
             status=int(response.status),
             reason="http_status",
-        )
-    if len(payload) > MAX_RESPONSE_BYTES:
-        raise GiteaOAuthClientError(
-            "Gitea response слишком большой",
-            stage=stage,
-            status=int(response.status),
-            reason="response_too_large",
         )
     try:
         value = json.loads(payload)

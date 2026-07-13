@@ -34,8 +34,12 @@ def test_repository_metadata_rejects_incomplete_payload() -> None:
 @pytest.mark.asyncio
 async def test_repository_page_is_bounded_and_reports_oversize_without_body() -> None:
     class Content:
-        async def read(self, _limit: int) -> bytes:
-            return b"x" * (MAX_RESPONSE_BYTES + 1)
+        remaining = MAX_RESPONSE_BYTES + 1
+
+        async def read(self, limit: int) -> bytes:
+            size = min(limit, self.remaining)
+            self.remaining -= size
+            return b"x" * size
 
     class Response:
         status = 200
@@ -47,3 +51,18 @@ async def test_repository_page_is_bounded_and_reports_oversize_without_body() ->
     assert captured.value.stage == "repositories"
     assert captured.value.status == 200
     assert captured.value.reason == "response_too_large"
+
+
+@pytest.mark.asyncio
+async def test_json_response_joins_fragmented_network_chunks() -> None:
+    class Content:
+        chunks = [b'[{"id":', b"77}]", b""]
+
+        async def read(self, _limit: int) -> bytes:
+            return self.chunks.pop(0)
+
+    class Response:
+        status = 200
+        content = Content()
+
+    assert await _json_response(Response(), "repositories") == [{"id": 77}]
