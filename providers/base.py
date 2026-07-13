@@ -4,11 +4,11 @@ import asyncio
 import logging
 import os
 import shutil
-import sqlite3
 from pathlib import Path
 from typing import Optional
 
 from core import config, rtk
+from core.models import AccountLike
 from providers.models import ProgressCallback, ProviderMeta
 from providers.os_runner import ProcessBoundary
 
@@ -22,7 +22,7 @@ NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 class CLIProvider:
     provider_name: str = ""
 
-    def __init__(self, account: sqlite3.Row, user_id: int | None = None):
+    def __init__(self, account: AccountLike, user_id: int | None = None):
         self.account = account
         self.user_id = user_id
         self.boundary = ProcessBoundary(account, user_id)

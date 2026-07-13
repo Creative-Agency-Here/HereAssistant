@@ -53,14 +53,16 @@ from core import config, db
 # на старом Python она падала на аннотациях, роняя запуск чата из меню.
 
 
-def _db_accounts():
+def _db_accounts(user_id: int):
     with db.conn() as c:
-        return list(c.execute("SELECT * FROM accounts WHERE enabled=1 ORDER BY id"))
-
-
-def _db_account_by_label(label: str):
-    with db.conn() as c:
-        return c.execute("SELECT * FROM accounts WHERE label=? AND enabled=1", (label,)).fetchone()
+        return list(
+            c.execute(
+                """SELECT * FROM accounts
+                   WHERE enabled=1 AND (owner_user_id=? OR shared=1)
+                   ORDER BY (owner_user_id=?) DESC, id""",
+                (user_id, user_id),
+            )
+        )
 
 
 def _db_users():
@@ -95,8 +97,8 @@ def _logo() -> None:
 
 
 # ---------- выбор аккаунта ----------
-def _pick_account(preselect: str | None):
-    accounts = [a for a in _db_accounts() if a["enabled"]]
+def _pick_account(preselect: str | None, user_id: int):
+    accounts = _db_accounts(user_id)
     if not accounts:
         print(f"{R}Нет подключённых аккаунтов.{X} Добавь через: python manage.py")
         sys.exit(1)
@@ -211,7 +213,7 @@ def _farewell():
 # ---------- REPL ----------
 async def _repl(sess: Session):
     commands = CommandRouter(
-        account_by_label=_db_account_by_label,
+        accounts=_db_accounts,
         users=_db_users,
         default_cwd=config.user_default_cwd,
         resumable=_list_resumable,
@@ -253,7 +255,7 @@ def _run():
     argv = sys.argv[1:]
     _logo()
     user_id, user_name = _pick_user(_arg_after(argv, "-u"))
-    account = _pick_account(_arg_after(argv, "-a"))
+    account = _pick_account(_arg_after(argv, "-a"), user_id)
     sess = Session(account, user_id, user_name)
     asyncio.run(_repl(sess))
 

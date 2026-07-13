@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import Any, Protocol, TypedDict
+
+
+class AccountLike(Protocol):
+    def __getitem__(self, key: str) -> Any: ...
 
 
 class AccountRow(TypedDict):

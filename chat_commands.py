@@ -13,7 +13,7 @@ from chat_identity import UserRecord, find_user, user_display
 from chat_renderer import B, C, D, G, R, W, X
 from chat_sessions import AccountRecord, ResumableSession, Session
 
-AccountLookup = Callable[[str], AccountRecord | None]
+AccountsLookup = Callable[[int], Sequence[AccountRecord]]
 UsersLookup = Callable[[], Sequence[UserRecord]]
 WorkspaceLookup = Callable[[int], str]
 ResumeLookup = Callable[[Session], list[ResumableSession]]
@@ -23,7 +23,7 @@ class CommandRouter:
     def __init__(
         self,
         *,
-        account_by_label: AccountLookup,
+        accounts: AccountsLookup,
         users: UsersLookup,
         default_cwd: WorkspaceLookup,
         resumable: ResumeLookup,
@@ -31,7 +31,7 @@ class CommandRouter:
         read: Callable[[str], str] = input,
         system: Callable[[str], int] = os.system,
     ) -> None:
-        self.account_by_label = account_by_label
+        self.accounts = accounts
         self.users = users
         self.default_cwd = default_cwd
         self.resumable = resumable
@@ -159,8 +159,11 @@ class CommandRouter:
                 f"  аккаунт: {session.label} {D}({session.provider}){X}  {D}(/account <label>){X}"
             )
             return
-        account = self.account_by_label(argument)
-        if account and account["enabled"]:
+        account = next(
+            (item for item in self.accounts(session.user_id) if item["label"] == argument),
+            None,
+        )
+        if account:
             session.account = account
             session.model = account["default_model"]
             session.session_id = None
@@ -191,8 +194,15 @@ class CommandRouter:
         if user is None:
             self._print(f"{R}пользователь '{argument}' не найден{X}")
             return
-        session.user_id = int(user["telegram_id"])
+        user_id = int(user["telegram_id"])
+        accounts = self.accounts(user_id)
+        if not accounts:
+            self._print(f"{R}У пользователя {user_display(user)} нет доступных аккаунтов.{X}")
+            return
+        session.user_id = user_id
         session.user_name = user_display(user)
+        session.account = accounts[0]
+        session.model = session.account["default_model"]
         session.cwd = self.default_cwd(session.user_id)
         session.session_id = None
         self._print(f"{G}▸ теперь работает {session.user_name} (workspace и сессия — его){X}")

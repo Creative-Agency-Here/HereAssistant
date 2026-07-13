@@ -5,13 +5,12 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, NamedTuple, Protocol
+from typing import Any, NamedTuple
 
 from core import config
+from core.models import AccountLike
 
-
-class AccountRecord(Protocol):
-    def __getitem__(self, key: str) -> Any: ...
+AccountRecord = AccountLike
 
 
 class ResumableSession(NamedTuple):

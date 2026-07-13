@@ -49,8 +49,9 @@ def setup(
         ],
     )
     secondary = account(label="secondary", provider="gemini", model="model-b")
+    bob = account(label="bob-main", model="model-b")
     router = CommandRouter(
-        account_by_label=lambda label: secondary if label == "secondary" else None,
+        accounts=lambda user_id: [account(), secondary] if user_id == 1 else [bob],
         users=lambda: users,
         default_cwd=lambda user_id: f"/workspace/{user_id}",
         resumable=lambda _session: resumable or [],
@@ -90,8 +91,22 @@ def test_user_change_resets_identity_workspace_and_session(monkeypatch: pytest.M
 
     assert session.user_id == 2
     assert session.user_name == "@bob"
+    assert session.label == "bob-main"
+    assert session.model == "model-b"
     assert session.cwd == "/workspace/2"
     assert session.session_id is None
+
+
+def test_user_change_is_rejected_without_accessible_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, router, output, _ = setup(monkeypatch)
+    router.accounts = lambda _user_id: []
+
+    router.handle(session, "/user @bob")
+
+    assert session.user_id == 1
+    assert "нет доступных аккаунтов" in output.getvalue()
 
 
 def test_cwd_accepts_directory_and_rejects_missing_path(
