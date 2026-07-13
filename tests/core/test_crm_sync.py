@@ -77,6 +77,12 @@ def test_session_identity_is_stable_per_origin_and_conversation(monkeypatch) -> 
     assert first["eventId"] != second["eventId"]
 
 
+def test_endpoint_preserves_versioned_api_prefix(monkeypatch) -> None:
+    monkeypatch.setattr(config, "HERECRM_SYNC_URL", "https://api.example.com/api/v1")
+    monkeypatch.setattr(config, "HERECRM_SYNC_TOKEN", "has_test")
+    assert crm_sync._endpoint() == "https://api.example.com/api/v1/hereassistant-sync/events"
+
+
 def test_enqueue_persists_only_opted_in_payload(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "test.sqlite3")
     monkeypatch.setattr(config, "ADMIN_IDS", [])
