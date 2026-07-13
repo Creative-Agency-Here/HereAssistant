@@ -154,7 +154,13 @@ def get_connection(user_id: int, connection_id: int) -> sqlite3.Row | None:
 
 
 def list_connections(user_id: int) -> list[sqlite3.Row]:
+    now = int(time.time())
     with db.conn() as connection:
+        connection.execute(
+            """UPDATE git_connections SET status='expired',updated_at=?
+               WHERE user_id=? AND status='active' AND expires_at IS NOT NULL AND expires_at<=?""",
+            (now, user_id, now),
+        )
         return list(
             connection.execute(
                 """SELECT id,user_id,provider,host,external_user_id,external_login,

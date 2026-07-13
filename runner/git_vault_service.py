@@ -123,7 +123,8 @@ def resolve_credential(
             """SELECT c.vault_ref,g.permission,g.clone_url
                FROM git_repository_grants g
                JOIN git_connections c ON c.id=g.connection_id
-               WHERE c.user_id=? AND c.status='active' AND g.enabled=1""",
+               WHERE c.user_id=? AND c.status='active' AND g.enabled=1
+                 AND (c.expires_at IS NULL OR c.expires_at>CAST(strftime('%s','now') AS INTEGER))""",
             (user_id,),
         ).fetchall()
     except sqlite3.Error as error:

@@ -175,6 +175,7 @@ the backend can actually perform that action safely.
   rotation and service reload.
 - [ ] Prove tokens cannot leak through argv, env, stdout, logs, process listing,
   RTK history, remote URLs, or the coding agent's filesystem.
+- [x] Deny expired OAuth credentials independently in metadata and vault queries.
 - [ ] Add canary and negative cross-user tests.
 
 ### P2 — Gitea OAuth and WebApp settings

@@ -263,6 +263,7 @@ sidebar. Existing `/history`, `/edits`, `/stats` сохраняются как r
   bundle и reload service.
 - [ ] Проверить, что code runner не читает vault/HOME и не получает token через
   argv, env, stdout, logs, process list или Git remote.
+- [x] Запретить expired OAuth credentials независимо в metadata и vault query.
 - [ ] Добавить canary и cross-user negative tests.
 
 ### P2. Gitea OAuth + WebApp settings

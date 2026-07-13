@@ -180,3 +180,19 @@ def test_repository_catalog_defaults_disabled_and_preserves_explicit_selection(
     rows = git_connections.list_repository_grants(100)
     assert next(row for row in rows if row["external_repository_id"] == "1")["enabled"] == 1
     assert next(row for row in rows if row["external_repository_id"] == "2")["enabled"] == 0
+
+
+def test_expired_connection_is_marked_before_listing(connection_db: Path) -> None:
+    current = git_connections.create_pending_connection(100, "gitea", "git.example.com")
+    git_connections.activate_connection(
+        100,
+        current["id"],
+        external_user_id="42",
+        external_login="alice",
+        avatar_url=None,
+        vault_ref=f"vault://git/100/{current['id']}/primary",
+        scopes=["write:repository"],
+        expires_at=1,
+    )
+
+    assert git_connections.list_connections(100)[0]["status"] == "expired"
