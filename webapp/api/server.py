@@ -18,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from aiohttp import web
+from aiohttp.abc import AbstractAccessLogger
 
 from core import config
 from webapp.api.auth import validate_init_data
@@ -32,6 +33,22 @@ from webapp.api.routes import ws as route_ws
 
 log = logging.getLogger("webapp.api")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s %(message)s")
+
+
+class RedactedAccessLogger(AbstractAccessLogger):
+    """Access log без query string, где могут быть OAuth code/state и WebApp key."""
+
+    def log(self, request: web.Request, response: web.StreamResponse, time: float) -> None:
+        body_length = response.body_length if response.body_length is not None else 0
+        self.logger.info(
+            '%s "%s %s" %s %s %.3fs',
+            request.remote or "-",
+            request.method,
+            request.path,
+            response.status,
+            body_length,
+            time,
+        )
 
 
 def _dev_skip_auth(env: Mapping[str, str]) -> bool:
@@ -179,7 +196,13 @@ def main():
     log.info(
         "Web API starting on %s:%s (dev_skip_auth=%s)", WEBAPP_HOST, WEBAPP_PORT, DEV_SKIP_AUTH
     )
-    web.run_app(create_app(), host=WEBAPP_HOST, port=WEBAPP_PORT, print=None)
+    web.run_app(
+        create_app(),
+        host=WEBAPP_HOST,
+        port=WEBAPP_PORT,
+        print=None,
+        access_log_class=RedactedAccessLogger,
+    )
 
 
 if __name__ == "__main__":

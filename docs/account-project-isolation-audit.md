@@ -3,8 +3,9 @@
 Status: deployed to production in Hardening 0.4.0 on 2026-07-12.
 
 Application-level user, account, project, conversation, memory and WebApp
-isolation is active. OS-level process isolation remains pending because all
-provider processes currently run under Unix user `here`.
+isolation is active. Provider and authenticated Git processes now use distinct
+per-user Unix runners. HereAssistant Core remains a trusted shared control plane
+and the host root remains outside this boundary.
 
 ## Scope and findings
 
@@ -68,12 +69,14 @@ Telegram repository operations use the same boundary: clone URLs must use HTTPS 
 
 - A legacy unassigned account stops working until ownership or explicit sharing is configured.
 - Existing arbitrary `/cwd` values are not trusted after migration.
-- All CLI processes still run as Unix user `here`. Application checks do not protect against a compromised provider process.
-- `chmod 700` cannot separate processes running with the same Unix UID.
-- Before private client repositories are added, execution should move to restricted per-user runners such as `ha-user-a` and `ha-user-b`.
-- A fail-closed provider runner boundary is implemented behind `OS_RUNNERS_ENABLED`,
-  but production activation remains blocked until Git operations and attachment
-  staging cross the same boundary; see `docs/os-runners.md`.
+- Provider CLIs and authenticated Git now cross fail-closed per-user Unix runner
+  boundaries; Git uses a separate UID from the coding agent.
+- The shared Core still selects prompts, schedules both users and owns application
+  SQLite. Runner isolation therefore limits a compromised coding agent, but does
+  not make a compromised Core harmless.
+- `chmod 700` cannot protect a runner's credentials from another process running
+  under that same runner UID. Provider credential isolation from the provider's own
+  tool subprocesses requires an additional broker or VM boundary.
 - WebSocket task status and `file_changes` are filtered by authenticated Telegram user. Raw global `bot.log` is available only to the primary administrator; other approved users receive an empty log feed.
 
 ## Verification and RTK prerequisites
@@ -86,4 +89,6 @@ The release criterion is:
 scripts/quality_gate.sh
 ```
 
-RTK must remain absent until every production account has an owner or deliberate shared flag, trusted projects are registered, the migration is backed up and rehearsed, and a dedicated Claude canary profile exists.
+RTK was enabled only after account ownership, trusted projects and per-user runner
+boundaries were activated. It remains per-profile, telemetry-disabled and exports
+only aggregate savings to Core; command history stays inside the runner profile.

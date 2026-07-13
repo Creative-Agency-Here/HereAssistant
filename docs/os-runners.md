@@ -324,8 +324,9 @@ production rollout.
 - The public GitHub remote is the branch pull upstream. Push to the private Gitea
   remote remains unavailable. New source code additionally requires a distinct
   Git broker UID and vault socket; no legacy core credential is copied.
-- `ha-pavel` was not created: his Telegram ID and provider credentials are not
-  available yet.
+- Pavel's provider and Git runner identities are provisioned but remain fail-closed
+  until his own provider login and Git OAuth authorization are completed. No Ilya
+  credential or project grant is copied into them.
 
 ## Canary and rollback
 
