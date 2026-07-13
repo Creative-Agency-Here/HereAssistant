@@ -34,8 +34,9 @@ filesystem access required by its own role.
 - SSH changes are validated with `sshd -t` and a second independent session before
   the first session is closed.
 - Firewall changes keep a timed or console-accessible rollback path.
-- Existing public proxy ports are not closed until their owner and consumers are
-  identified.
+- Required public proxy ports remain available. Their authentication and abuse
+  controls are hardened without changing client connectivity; source restrictions
+  are introduced only after their compatibility is confirmed.
 - Runner egress starts in observation mode; provider and Git flows are tested before
   enforcement.
 - No plaintext provider, OAuth or Telegram credential is printed, copied into the
@@ -69,8 +70,10 @@ rollback dry-run pass.
   agent and tunnel forwarding are disabled; TCP forwarding awaits an operator
   usage decision.
 - [x] Set conservative authentication/session limits.
-- [ ] Identify consumers of public HTTP/SOCKS proxy listeners.
-- [ ] Restrict required proxies to trusted sources; stop and firewall unused ones.
+- [x] Identify whether public HTTP/SOCKS proxy listeners are required.
+- [ ] Keep required proxies authenticated and protected against malformed/brute-
+  force traffic. Add a source allowlist or VPN only when it does not break the
+  operator's remote workflow.
 - [ ] Re-scan IPv4 and IPv6 listeners externally and locally.
 
 **Gate:** bot, API, WebApp, Git OAuth callback and both named administrative access
@@ -150,7 +153,8 @@ green.
 
 ## Acceptance criteria
 
-- Public SSH and proxy exposure is explicitly justified and source-restricted.
+- Public SSH and proxy exposure is explicitly justified, authenticated and monitored;
+  source restriction is applied where it is compatible with the operator workflow.
 - Password and direct root SSH access are disabled after recovery access is proven.
 - Brute-force protection and security auditing are active.
 - Core services use distinct identities, minimal credentials and hardened units.
@@ -203,8 +207,8 @@ green.
 - [x] Confirmed that SSH brute-force protection is not installed on the host.
 - [x] Confirmed that neither Tailscale nor an active Cloudflare SSH service currently
   provides a recovery path on this host.
-- [x] Confirmed that both public proxy services require a usage decision before
-  firewall restriction; the SOCKS service has substantial recent journal activity.
+- [x] Confirmed that both public proxy services are required by the operator and must
+  remain available; protection must not depend on shutting their listeners down.
 
 ### 2026-07-13 — first production hardening checkpoint
 
@@ -256,10 +260,11 @@ green.
 
 ### Open decisions after the first checkpoint
 
-- [ ] Decide whether the public SOCKS listener can be disabled. The audit found no
-  successful pass in the sampled day, but more than ten thousand blocked attempts.
-- [ ] Define trusted source ranges or an access gateway for the actively used HTTP
-  proxy before restricting it.
+- [x] Keep both public proxy services available. Squid is actively used; Dante is
+  also an operator dependency even though the sampled journal window mostly
+  contained malformed internet scans.
+- [ ] Define trusted source ranges or an access gateway only if they cover the
+  operator's real SSH/HTTP/SOCKS workflows without lockout.
 - [ ] Choose the named administrator elevation model before disabling direct root
   SSH: hardware-backed key plus sudo authentication is preferred over unrestricted
   passwordless sudo.
@@ -285,6 +290,23 @@ green.
 - [x] Confirmed bot/API online, Git vault active, brute-force protection active,
   auditd active with zero lost events, SQLite quick check `ok`, clean production
   checkout and a passing root-owned rollback check.
+
+### 2026-07-13 — required proxy protection checkpoint
+
+- [x] Preserved Squid on port 3128 and Dante on port 1080; neither listener nor
+  service was stopped, firewalled or moved.
+- [x] Did not use Squid HTTP 407 responses as a ban signal because an initial 407 can
+  be part of a normal authenticated-proxy handshake.
+- [x] Added a dedicated Dante fail2ban filter for malformed protocol negotiation:
+  unsupported SOCKS version and absence of an acceptable authentication method.
+  EOF, timeout, ordinary disconnect and valid authenticated traffic do not match.
+- [x] Tested the filter against the previous 24-hour journal before activation: it
+  matched only 21 explicitly malformed handshakes out of 10,168 Dante records.
+- [x] Activated the `hereassistant-danted` jail with five matches per ten minutes and
+  a one-hour ban. Both proxy services remained active and both ports kept listening.
+- [x] Kept SSH key access and TCP forwarding enabled. Direct root-key access will not
+  be removed without an independently verified administrative path and an explicit
+  operator migration decision.
 
 Further entries must record only non-secret evidence: timestamp, changed files or
 units, validation result, rollback result and remaining risk.
