@@ -22,6 +22,35 @@ log = logging.getLogger(__name__)
 
 router = Router()
 
+_GIT_PROVIDER_LABELS = {
+    "gitea": "Gitea",
+    "github": "GitHub",
+    "gitlab": "GitLab",
+}
+_GIT_STATUS_LABELS = {
+    "active": "подключён",
+    "pending": "ожидает",
+    "expired": "нужно обновить доступ",
+    "revoked": "отключён",
+    "error": "ошибка",
+}
+
+
+def _safe_git_label(value: object, fallback: str = "—") -> str:
+    """Однострочное безопасное представление внешнего Git metadata для Telegram."""
+    label = " ".join(str(value or "").split()).strip()
+    return label[:80] or fallback
+
+
+def _git_connection_line(connection: object) -> str:
+    provider = _safe_git_label(connection["provider"], "Git")  # type: ignore[index]
+    provider = _GIT_PROVIDER_LABELS.get(provider.lower(), provider)
+    host = _safe_git_label(connection["host"])  # type: ignore[index]
+    login = _safe_git_label(connection["external_login"])  # type: ignore[index]
+    status = _safe_git_label(connection["status"])  # type: ignore[index]
+    status = _GIT_STATUS_LABELS.get(status, status)
+    return f"• {provider} · {host} · {login} — {status}"
+
 
 @router.message(Command("web"))
 async def cmd_web(message: Message):
@@ -54,6 +83,9 @@ async def cmd_git(message: Message):
     connections = git_connections.list_connections(message.from_user.id)
     active = sum(row["status"] == "active" for row in connections)
     expired = sum(row["status"] == "expired" for row in connections)
+    connection_lines = "\n".join(_git_connection_line(row) for row in connections[:10])
+    if len(connections) > 10:
+        connection_lines += f"\n…и ещё {len(connections) - 10}"
     web_url = config.webapp_url("/settings")
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -69,6 +101,7 @@ async def cmd_git(message: Message):
         "Git-аккаунты\n"
         f"Подключено: {active}"
         + (f" · требуют обновления: {expired}" if expired else "")
+        + (f"\n\n{connection_lines}" if connection_lines else "")
         + "\n\nЛогин и пароль вводятся только на стороне Git provider-а — не отправляйте PAT в чат.",
         reply_markup=keyboard,
     )

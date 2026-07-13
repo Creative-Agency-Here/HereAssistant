@@ -4,7 +4,8 @@
       <div class="text-text-soft text-xs uppercase tracking-wider">Настройки</div>
       <h1 class="text-2xl font-semibold mt-1">Git-аккаунты</h1>
       <p class="text-sm text-text-soft mt-2 max-w-2xl">
-        Подключите свою учётную запись. HereAssistant не использует общий токен владельца,
+        Подключите свою учётную запись Gitea, GitHub или другого доступного Git-сервиса.
+        HereAssistant не использует общий токен владельца,
         а агент не видит ваши Git credentials.
       </p>
     </header>
@@ -36,13 +37,17 @@
             </div>
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2 flex-wrap">
-                <span class="font-medium">{{ connection.external_login || connection.host }}</span>
-                <span class="chip">{{ connection.provider }}</span>
+                <span class="font-medium">{{ providerLabel(connection.provider) }}</span>
+                <span v-if="connection.external_login" class="text-sm text-text-soft">
+                  {{ connection.external_login }}
+                </span>
                 <span class="text-xs" :class="statusClass(connection.status)">
                   ● {{ statusLabel(connection.status) }}
                 </span>
               </div>
-              <div class="text-sm text-text-soft mt-1 break-all">{{ connection.host }}</div>
+              <div class="text-sm text-text-soft mt-1 break-all">
+                Сервер: {{ connection.host }}
+              </div>
               <div v-if="connection.expires_at" class="text-xs text-text-dim mt-1">
                 Доступ до {{ formatDate(connection.expires_at) }}
               </div>
@@ -234,6 +239,9 @@ async function setRepository(connectionId: number, repository: GitRepository) {
 
 function statusLabel(status: string) {
   return ({ active: 'подключён', pending: 'ожидает', expired: 'истёк', revoked: 'отключён', error: 'ошибка' } as Record<string, string>)[status] || status
+}
+function providerLabel(provider: string) {
+  return ({ gitea: 'Gitea', github: 'GitHub', gitlab: 'GitLab' } as Record<string, string>)[provider.toLowerCase()] || provider
 }
 function statusClass(status: string) {
   return status === 'active' ? 'text-ok' : status === 'pending' ? 'text-warn' : 'text-err'
