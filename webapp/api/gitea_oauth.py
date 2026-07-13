@@ -15,7 +15,10 @@ MAX_RESPONSE_BYTES = 262_144
 
 
 class GiteaOAuthClientError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, stage: str = "unknown", status: int | None = None):
+        super().__init__(message)
+        self.stage = stage
+        self.status = status
 
 
 @dataclass(frozen=True)
@@ -64,14 +67,18 @@ def _repository(value: object) -> RepositoryMetadata:
     )
 
 
-async def _json_response(response) -> object:
+async def _json_response(response, stage: str) -> object:
     payload = await response.content.read(MAX_RESPONSE_BYTES + 1)
     if response.status < 200 or response.status >= 300 or len(payload) > MAX_RESPONSE_BYTES:
-        raise GiteaOAuthClientError("Gitea response отклонён")
+        raise GiteaOAuthClientError(
+            "Gitea response отклонён", stage=stage, status=int(response.status)
+        )
     try:
         value = json.loads(payload)
     except (UnicodeError, ValueError) as error:
-        raise GiteaOAuthClientError("Gitea response невалиден") from error
+        raise GiteaOAuthClientError(
+            "Gitea response невалиден", stage=stage, status=int(response.status)
+        ) from error
     return value
 
 
@@ -97,9 +104,10 @@ async def exchange_code(
                     "redirect_uri": redirect_uri,
                     "code_verifier": verifier,
                 },
+                headers={"Accept": "application/json"},
                 allow_redirects=False,
             ) as response:
-                token_payload = await _json_response(response)
+                token_payload = await _json_response(response, "token_exchange")
             if not isinstance(token_payload, dict):
                 raise GiteaOAuthClientError("Gitea token response невалиден")
             access_token = token_payload.get("access_token")
@@ -110,7 +118,7 @@ async def exchange_code(
                 headers={"Authorization": f"Bearer {access_token}"},
                 allow_redirects=False,
             ) as response:
-                user_payload = await _json_response(response)
+                user_payload = await _json_response(response, "user_info")
             if not isinstance(user_payload, dict):
                 raise GiteaOAuthClientError("Gitea user response невалиден")
             repositories: list[RepositoryMetadata] = []
@@ -121,7 +129,7 @@ async def exchange_code(
                     params={"limit": "50", "page": str(page)},
                     allow_redirects=False,
                 ) as response:
-                    repository_payload = await _json_response(response)
+                    repository_payload = await _json_response(response, "repositories")
                 raw_items = repository_payload
                 if isinstance(repository_payload, dict):
                     raw_items = repository_payload.get("data")
@@ -133,7 +141,7 @@ async def exchange_code(
                 if len(raw_items) < 50:
                     break
     except (ClientError, TimeoutError) as error:
-        raise GiteaOAuthClientError("Gitea OAuth недоступен") from error
+        raise GiteaOAuthClientError("Gitea OAuth недоступен", stage="network") from error
     external_id = user_payload.get("id")
     login = user_payload.get("login") or user_payload.get("username")
     if external_id is None or not isinstance(login, str) or not login or len(login) > 255:

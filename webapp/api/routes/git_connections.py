@@ -29,7 +29,8 @@ def _callback_uri() -> str:
 def _result_uri(result: str) -> str:
     parsed = urlsplit(config.WEBAPP_URL)
     query = urlencode({"git": result})
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path or "/", query, ""))
+    base_path = (parsed.path or "/").rstrip("/")
+    return urlunsplit((parsed.scheme, parsed.netloc, f"{base_path}/settings", query, ""))
 
 
 async def list_handler(request: web.Request) -> web.Response:
@@ -146,7 +147,15 @@ async def callback_handler(request: web.Request) -> web.StreamResponse:
         git_oauth.GitOAuthError,
         git_vault_client.GitVaultClientError,
     ) as error:
-        log.warning("Gitea OAuth callback отклонён: stage=%s error=%s", stage, type(error).__name__)
+        provider_stage = getattr(error, "stage", "none")
+        provider_status = getattr(error, "status", None)
+        log.warning(
+            "Gitea OAuth callback отклонён: stage=%s provider_stage=%s status=%s error=%s",
+            stage,
+            provider_stage,
+            provider_status if provider_status is not None else "none",
+            type(error).__name__,
+        )
         if claim is not None:
             git_oauth.mark_callback_failed(claim.session_id)
             if connection_activated:

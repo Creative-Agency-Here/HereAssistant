@@ -94,7 +94,9 @@ async def test_gitea_connection_flow_is_owner_scoped_and_token_free_in_database(
             allow_redirects=False,
         )
         assert callback.status == 302
-        assert callback.headers["Location"] == "https://assistant.example/app?git=connected"
+        assert (
+            callback.headers["Location"] == "https://assistant.example/app/settings?git=connected"
+        )
         assert vault_calls == [
             (100, started_payload["connection_id"], "alice", "runtime-oauth-token")
         ]
@@ -134,7 +136,7 @@ async def test_gitea_connection_flow_is_owner_scoped_and_token_free_in_database(
             params={"state": state, "code": "one-time-code"},
             allow_redirects=False,
         )
-        assert replay.headers["Location"] == "https://assistant.example/app?git=error"
+        assert replay.headers["Location"] == "https://assistant.example/app/settings?git=error"
         assert len(vault_calls) == 1
 
         revoked = await client.delete(f"/api/git/connections/{started_payload['connection_id']}")
@@ -171,7 +173,9 @@ async def test_failed_exchange_marks_connection_error_without_logging_oauth_code
     async def exchange(
         _host: str, _client_id: str, _redirect_uri: str, _code: str, _verifier: str
     ) -> GiteaIdentity:
-        raise routes.GiteaOAuthClientError("provider detail with one-time-code")
+        raise routes.GiteaOAuthClientError(
+            "provider detail with one-time-code", stage="token_exchange", status=401
+        )
 
     monkeypatch.setattr(routes, "exchange_code", exchange)
     client = TestClient(TestServer(server.create_app()))
@@ -191,10 +195,12 @@ async def test_failed_exchange_marks_connection_error_without_logging_oauth_code
         )
 
         assert callback.status == 302
-        assert callback.headers["Location"] == "https://assistant.example/app?git=error"
+        assert callback.headers["Location"] == "https://assistant.example/app/settings?git=error"
         current = git_connections.get_connection(100, int(payload["connection_id"]))
         assert current is not None and current["status"] == "error"
         assert "stage=exchange" in caplog.text
+        assert "provider_stage=token_exchange" in caplog.text
+        assert "status=401" in caplog.text
         assert "GiteaOAuthClientError" in caplog.text
         assert "one-time-code" not in caplog.text
     finally:
