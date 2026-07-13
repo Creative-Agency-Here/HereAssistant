@@ -5,7 +5,7 @@
         <div class="brand-mark brand-mark-logo"><GitHereGitMark /></div>
         <div class="min-w-0">
           <div class="brand-name">HereAssistant</div>
-          <div class="brand-caption">AI workspace</div>
+          <div class="brand-caption">ИИ-пространство</div>
         </div>
       </div>
 
