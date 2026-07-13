@@ -540,19 +540,20 @@ providers/
   приходит через argv.
 - При ошибке encrypt прежний ciphertext остаётся неизменным; revoke удаляет только
   opaque ref выбранного connection. Токен не попадает в argv/env/stdout/logs или
-  plaintext-файл. OAuth callback и production canary остаются следующим подэтапом
-  P1; текущий production не изменён.
+  plaintext-файл. OAuth callback реализован; live production canary не запускался,
+  текущий production не изменён.
 - Repository-controlled Git execution закрыт дополнительным gate: local config
   keys allowlisted, hooks/system/global config и unsafe protocols отключены; при
   включённом helper control files обязаны иметь Linux immutable flag, что закрывает
-  замену после аудита. До реального credential всё ещё нужен negative canary.
+  замену после аудита. Добавлен read-only canary checker; live credential probe
+  остаётся обязательным перед production activation.
 - Полный quality gate: 445 тестов, Pyright, Ruff/format, compileall, lock,
   exception ratchet и repository hygiene — зелёные; installer проходит `bash -n`.
 - Gitea public-client OAuth2 + PKCE подключён к WebApp API: exact-host app config,
   HMAC-only single-use state, S256 verifier без хранения plaintext, bounded HTTPS
   exchange без redirects, owner-scoped list/revoke и прямой stdin transfer в Git
   vault. Replay/cross-user/token-in-DB negative tests добавлены; production не
-  менялся. Автоматический refresh-token flow остаётся отдельным P2 hardening.
+  менялся. Refresh-token flow теперь выполняется внутри root vault boundary.
 - В WebApp активирован раздел `Настройки → Git`: список owner-scoped connections,
   переход на Gitea consent, callback result, reconnect/revoke и список настроенных
   exact hosts. OAuth callback синхронизирует metadata доступных Gitea repositories
@@ -565,3 +566,6 @@ providers/
   сохраняется только в encrypted bundle, exact host/client ID закреплены root
   config, OAuth redirect запрещён, access/refresh token ротируются атомарно, а
   core получает только `expires_at`. WebApp даёт refresh с reconnect fallback.
+- `scripts/check_git_broker_canary.sh` проверяет systemd 250+, root ownership/modes,
+  dedicated broker config, SQLite integrity/schema, unit и опционально encrypted
+  bundle без печати секрета. Checker read-only и не запускает service.

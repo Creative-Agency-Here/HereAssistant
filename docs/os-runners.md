@@ -284,6 +284,30 @@ The mode fails closed:
 Profiles are routed by the exact database `account.label`, so one user may have
 multiple isolated accounts of the same provider without sharing metrics or homes.
 
+## Read-only canary
+
+Before starting a broker, run the repository-provided checker. It validates the
+installed root boundary, systemd version/unit, root config, dedicated broker mode,
+SQLite integrity/schema and reports current service state. It never starts or
+restarts a service:
+
+```bash
+cd /opt/hereassistant
+sudo scripts/check_git_broker_canary.sh ha-ilya-git
+```
+
+After provisioning a synthetic or real encrypted bundle, add
+`--require-credential`. The checker decrypts it only into a pipe, validates that
+it is JSON and discards the output; it never prints credential fields:
+
+```bash
+sudo scripts/check_git_broker_canary.sh --require-credential ha-ilya-git
+```
+
+Only after both checks pass should an operator explicitly start the unit and run
+the clone/pull/dry-run-push probes. This script is diagnostic and performs no
+production rollout.
+
 ## First production activation (2026-07-12)
 
 - A dedicated `ha-ilya` Unix user owns the migrated Claude profile and workspace.

@@ -8,6 +8,7 @@ uv run --frozen ruff format --check .
 uv run --frozen pyright
 uv run --frozen pytest -q -p no:cacheprovider
 uv run --frozen python -m compileall -q bot.py manage.py chat.py core handlers providers runner utils webapp/api
+while IFS= read -r -d '' script; do bash -n "$script"; done < <(find scripts -type f -name '*.sh' -print0)
 uv lock --check
 uv run --frozen python scripts/check_exception_ratchet.py
 uv run --frozen python scripts/check_repository_hygiene.py
