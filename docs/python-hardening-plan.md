@@ -496,8 +496,9 @@ providers/
 - Первый production runner активирован для Ильи: real Claude profile, project
   workspace, attachment staging, Git broker и RTK aggregates работают под
   отдельным Unix UID; bot/API и SQLite прошли smoke/integrity checks.
-- Паша остаётся неактивированным до получения Telegram ID и собственных CLI
-  credentials. Private Gitea push из runner также ждёт отдельный user token.
+- Второй пользователь остаётся неактивированным до получения Telegram ID и
+  собственных CLI credentials. Private Gitea push также требует отдельный
+  owner-scoped OAuth login, без fallback на credential первого пользователя.
 
 ### 2026-07-12 — следующий этап: Git identity и mobile workspace
 
@@ -577,3 +578,23 @@ providers/
   выбранный repository блокируется; write требует enabled `write/admin` grant;
   unknown public read остаётся совместимым. Dual push на GitHub требует отдельной
   GitHub identity — fallback на общий credential владельца отсутствует.
+
+### 2026-07-13 — production OS isolation rollout
+
+- Для двух Telegram-пользователей включены разные provider и Git runner UID;
+  обычные SSH users входят только в персональную project-group. User workspace
+  имеют `2770`, CLI homes — `0700`, attachment staging — отдельную группу.
+- У каждого владельца созданы private Claude/Codex account mappings без `shared`.
+  Интерактивные SSH-команды ограничены только `auth login/status`; произвольный
+  shell, чужой run-as, чужой Telegram ID, CLI home и cwd отклоняются fail-closed.
+- Gitea OAuth остаётся owner-scoped: первый encrypted vault активен, второй vault
+  создастся и автоматически включится только после OAuth login самого владельца.
+  Public client secret отсутствует, raw access/refresh tokens не найдены вне
+  systemd credential boundary.
+- Private Git canary прошёл refresh, clone, status, immutable metadata gate и push
+  только в disposable branch; остальные repository grants остались выключены.
+- Cross-user filesystem/sudo canary и bot/API/WebApp health зелёные; SQLite и
+  rollback backup прошли integrity check. Итоговый quality gate — 465 тестов,
+  Ruff, Pyright, compileall, lock, exception ratchet и repository hygiene.
+- Ожидают действий владельцев: второй пользователь должен отдельно войти в свои
+  Claude/Codex и Gitea accounts. Gemini не активирован, потому что CLI отсутствует.
