@@ -2,7 +2,7 @@
   <div class="app-shell">
     <aside class="app-sidebar">
       <div class="brand-block">
-        <div class="brand-mark">H</div>
+        <div class="brand-mark brand-mark-logo"><GitHereGitMark /></div>
         <div class="min-w-0">
           <div class="brand-name">HereAssistant</div>
           <div class="brand-caption">AI workspace</div>

@@ -152,7 +152,12 @@ function permissionLabel(permission: string) {
                 <path d="m3 8 3 3 7-7" />
               </svg>
             </span>
-            <span class="repo-mark">{{ repository.owner_name.slice(0, 1).toUpperCase() }}</span>
+            <span class="repo-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 3.5h11.5A2.5 2.5 0 0 1 19 6v14.5H7.5A2.5 2.5 0 0 1 5 18V3.5Z" />
+                <path d="M5 17.8c.6-.5 1.4-.8 2.5-.8H19M9 7.5h6M9 11h4" />
+              </svg>
+            </span>
             <span class="min-w-0 flex-1 text-left">
               <span class="block text-sm font-semibold truncate">
                 {{ repository.owner_name }}/{{ repository.repository_name }}

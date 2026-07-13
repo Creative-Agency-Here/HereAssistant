@@ -1,15 +1,20 @@
 <template>
-  <div class="page-stack">
-    <header class="page-header">
-      <div>
-        <div class="eyebrow">Интеграции</div>
-        <h1 class="page-title">Git-пространство</h1>
+  <div class="page-stack git-page">
+    <header class="git-hero">
+      <div class="git-hero-brand">
+        <div class="git-hero-mark">
+          <GitHereGitMark />
+        </div>
+        <div>
+          <div class="eyebrow">Here Agency Git</div>
+          <h1 class="page-title">Git-пространство</h1>
+        </div>
       </div>
       <div class="header-status">
         <span class="status-orb" :class="data?.connections.some((item) => item.status === 'active') ? 'status-orb-active' : ''" />
         {{ data?.connections.some((item) => item.status === 'active') ? 'Git подключён' : 'Нет подключения' }}
       </div>
-      <p class="page-description">
+      <p class="page-description git-hero-description">
         Подключите свою учётную запись Gitea, GitHub или другого доступного Git-сервиса.
         HereAssistant не использует общий токен владельца,
         а агент не видит ваши Git credentials.
@@ -41,8 +46,9 @@
       <ul v-else class="space-y-3">
         <li v-for="connection in data.connections" :key="connection.id" class="integration-card">
           <div class="integration-summary">
-            <div class="provider-mark">
-              {{ connection.provider === 'gitea' ? 'GT' : 'GH' }}
+            <div class="provider-mark" :class="connection.provider === 'gitea' ? 'provider-mark-gitea' : ''">
+              <GitHereGitMark v-if="connection.provider === 'gitea'" />
+              <span v-else>{{ providerMonogram(connection.provider) }}</span>
             </div>
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2 flex-wrap">
@@ -80,12 +86,15 @@
       </ul>
     </section>
 
-    <section class="integration-card p-5 space-y-4">
-      <div>
-        <h2 class="font-medium">Подключить Gitea</h2>
-        <p class="text-sm text-text-soft mt-1">
-          Вы войдёте на своём Gitea-сервере и подтвердите доступ. Пароль вводится только там.
-        </p>
+    <section class="integration-card git-connect-card p-5 space-y-4">
+      <div class="git-connect-heading">
+        <div class="git-connect-mark"><GitHereGitMark /></div>
+        <div>
+          <h2 class="font-medium">Подключить Gitea</h2>
+          <p class="text-sm text-text-soft mt-1">
+            Вы войдёте на своём Gitea-сервере и подтвердите доступ. Пароль вводится только там.
+          </p>
+        </div>
       </div>
       <div v-if="data?.available.length" class="flex gap-2 flex-wrap">
         <button v-for="item in data.available" :key="item.host" class="btn btn-primary" :disabled="busy" @click="connect(item.host)">
@@ -189,6 +198,9 @@ function statusLabel(status: string) {
 }
 function providerLabel(provider: string) {
   return ({ gitea: 'Gitea', github: 'GitHub', gitlab: 'GitLab' } as Record<string, string>)[provider.toLowerCase()] || provider
+}
+function providerMonogram(provider: string) {
+  return ({ github: 'GH', gitlab: 'GL' } as Record<string, string>)[provider.toLowerCase()] || provider.slice(0, 2).toUpperCase()
 }
 function statusClass(status: string) {
   return status === 'active' ? 'text-ok' : status === 'pending' ? 'text-warn' : 'text-err'

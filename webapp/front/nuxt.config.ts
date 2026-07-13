@@ -1,5 +1,7 @@
 // Nuxt 3 SSG конфиг — статика, без сервера.
 // Дев-режим работает через 'nuxt dev', продакшен билдится 'nuxt generate' в .output/public.
+const baseURL = process.env.NUXT_APP_BASE_URL || '/'
+
 export default defineNuxtConfig({
   compatibilityDate: '2026-05-28',
   ssr: false,             // SPA — Mini App рендерится на клиенте, проще для статического хостинга
@@ -7,9 +9,12 @@ export default defineNuxtConfig({
   modules: ['@nuxtjs/tailwindcss'],
   css: ['~/assets/css/main.css'],
   app: {
-    baseURL: process.env.NUXT_APP_BASE_URL || '/',
+    baseURL,
     head: {
       title: 'HereAssistant',
+      link: [
+        { rel: 'icon', type: 'image/svg+xml', href: `${baseURL}icons/here-mark.svg` },
+      ],
       meta: [
         { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' },
         { name: 'description', content: 'Личный ассистент в Telegram: текущая задача, история диалогов, журнал правок файлов.' },
