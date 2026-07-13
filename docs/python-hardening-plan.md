@@ -546,7 +546,7 @@ providers/
   keys allowlisted, hooks/system/global config и unsafe protocols отключены; при
   включённом helper control files обязаны иметь Linux immutable flag, что закрывает
   замену после аудита. До реального credential всё ещё нужен negative canary.
-- Полный quality gate: 438 тестов, Pyright, Ruff/format, compileall, lock,
+- Полный quality gate: 441 тест, Pyright, Ruff/format, compileall, lock,
   exception ratchet и repository hygiene — зелёные; installer проходит `bash -n`.
 - Gitea public-client OAuth2 + PKCE подключён к WebApp API: exact-host app config,
   HMAC-only single-use state, S256 verifier без хранения plaintext, bounded HTTPS
@@ -555,4 +555,6 @@ providers/
   менялся. Автоматический refresh-token flow остаётся отдельным P2 hardening.
 - В WebApp активирован раздел `Настройки → Git`: список owner-scoped connections,
   переход на Gitea consent, callback result, reconnect/revoke и список настроенных
-  exact hosts. Nuxt production build проходит; repository picker остаётся далее.
+  exact hosts. OAuth callback синхронизирует metadata доступных Gitea repositories
+  как disabled-by-default grants; пользователь явно включает каждый repository в
+  picker, исчезнувшие repositories отключаются. Nuxt production build проходит.

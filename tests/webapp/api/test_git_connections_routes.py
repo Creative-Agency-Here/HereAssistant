@@ -5,6 +5,7 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from core import config, db, git_connections
+from core.git_connections import RepositoryMetadata
 from webapp.api import server
 from webapp.api.gitea_oauth import GiteaIdentity
 from webapp.api.routes import git_connections as routes
@@ -45,6 +46,16 @@ async def test_gitea_connection_flow_is_owner_scoped_and_token_free_in_database(
             access_token="runtime-oauth-token",
             scopes=("read:user", "write:repository"),
             expires_at=None,
+            repositories=(
+                RepositoryMetadata(
+                    external_repository_id="77",
+                    owner_name="alice",
+                    repository_name="project",
+                    clone_url="https://git.example.com/alice/project.git",
+                    default_branch="main",
+                    permission="write",
+                ),
+            ),
         )
 
     async def update(
@@ -87,6 +98,21 @@ async def test_gitea_connection_flow_is_owner_scoped_and_token_free_in_database(
         assert listed_payload["connections"][0]["status"] == "active"
         assert "vault_ref" not in listed_payload["connections"][0]
         assert b"runtime-oauth-token" not in config.DB_PATH.read_bytes()
+
+        repositories = await client.get(
+            f"/api/git/connections/{started_payload['connection_id']}/repositories"
+        )
+        repository_payload = await repositories.json()
+        assert repository_payload["repositories"][0]["enabled"] is False
+        granted = await client.post(
+            f"/api/git/connections/{started_payload['connection_id']}/repositories/77/grant"
+        )
+        assert granted.status == 200
+        assert (await granted.json())["enabled"] is True
+        denied_foreign = await client.post(
+            f"/api/git/connections/{started_payload['connection_id']}/repositories/999/grant"
+        )
+        assert denied_foreign.status == 404
 
         replay = await client.get(
             "/api/git/oauth/callback/gitea",

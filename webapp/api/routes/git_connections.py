@@ -94,6 +94,7 @@ async def callback_handler(request: web.Request) -> web.StreamResponse:
     code = request.query.get("code", "")
     claim: git_oauth.OAuthClaim | None = None
     vault_written = False
+    connection_activated = False
     try:
         claim = git_oauth.claim_gitea_callback(state, config.GIT_OAUTH_STATE_SECRET)
         if request.query.get("error") or claim.provider != "gitea":
@@ -127,6 +128,10 @@ async def callback_handler(request: web.Request) -> web.StreamResponse:
         )
         if activated is None:
             raise git_oauth.GitOAuthError("Git connection недоступен")
+        connection_activated = True
+        git_connections.sync_repository_catalog(
+            claim.user_id, claim.connection_id, identity.repositories
+        )
     except (
         GiteaOAuthClientError,
         git_connections.GitConnectionError,
@@ -135,6 +140,8 @@ async def callback_handler(request: web.Request) -> web.StreamResponse:
     ):
         if claim is not None:
             git_oauth.mark_callback_failed(claim.session_id)
+            if connection_activated:
+                git_connections.revoke_connection(claim.user_id, claim.connection_id)
             if vault_written:
                 try:
                     await git_vault_client.update_credential(claim.user_id, claim.connection_id)
@@ -157,3 +164,49 @@ async def revoke_handler(request: web.Request) -> web.Response:
     except git_vault_client.GitVaultClientError:
         return web.json_response({"error": "credential cleanup pending"}, status=503)
     return web.Response(status=204)
+
+
+async def repositories_handler(request: web.Request) -> web.Response:
+    try:
+        connection_id = int(request.match_info["connection_id"])
+    except (KeyError, ValueError):
+        return web.json_response({"error": "invalid connection"}, status=400)
+    if git_connections.get_connection(_user_id(request), connection_id) is None:
+        return web.json_response({"error": "connection not found"}, status=404)
+    rows = git_connections.list_repository_grants(_user_id(request), connection_id)
+    return web.json_response(
+        {
+            "repositories": [
+                {
+                    "external_repository_id": str(row["external_repository_id"]),
+                    "owner_name": str(row["owner_name"]),
+                    "repository_name": str(row["repository_name"]),
+                    "clone_url": str(row["clone_url"]),
+                    "default_branch": row["default_branch"],
+                    "permission": str(row["permission"]),
+                    "enabled": bool(row["enabled"]),
+                }
+                for row in rows
+            ]
+        }
+    )
+
+
+async def repository_grant_handler(request: web.Request) -> web.Response:
+    try:
+        connection_id = int(request.match_info["connection_id"])
+        repository_id = request.match_info["repository_id"]
+    except (KeyError, ValueError):
+        return web.json_response({"error": "invalid repository"}, status=400)
+    if not repository_id or len(repository_id) > 255:
+        return web.json_response({"error": "invalid repository"}, status=400)
+    enabled = request.method == "POST"
+    try:
+        row = git_connections.set_repository_enabled(
+            _user_id(request), connection_id, repository_id, enabled
+        )
+    except git_connections.GitConnectionError:
+        return web.json_response({"error": "invalid repository"}, status=400)
+    if row is None:
+        return web.json_response({"error": "repository not found"}, status=404)
+    return web.json_response({"enabled": bool(row["enabled"])})

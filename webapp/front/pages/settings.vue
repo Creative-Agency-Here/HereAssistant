@@ -49,12 +49,38 @@
             </div>
           </div>
           <div class="flex gap-2 mt-4 flex-wrap">
+            <button v-if="connection.status === 'active'" class="btn" :disabled="busy" @click="toggleRepositories(connection.id)">
+              {{ openConnection === connection.id ? 'Скрыть репозитории' : 'Выбрать репозитории' }}
+            </button>
             <button v-if="connection.status !== 'active'" class="btn" :disabled="busy" @click="connect(connection.host)">
               Подключить снова
             </button>
             <button class="btn btn-danger" :disabled="busy" @click="revoke(connection)">
               Отключить
             </button>
+          </div>
+          <div v-if="openConnection === connection.id" class="mt-4 border-t border-line pt-4">
+            <div v-if="repositoryLoading" class="text-sm text-text-soft">Загрузка репозиториев…</div>
+            <div v-else-if="!repositories[connection.id]?.length" class="text-sm text-text-dim">
+              Gitea не вернула доступных репозиториев. Переподключите аккаунт для обновления каталога.
+            </div>
+            <ul v-else class="space-y-2">
+              <li v-for="repository in repositories[connection.id]" :key="repository.external_repository_id"
+                  class="bg-bg-soft border border-line rounded-lg p-3 flex items-center gap-3">
+                <div class="min-w-0 flex-1">
+                  <div class="text-sm font-medium truncate">{{ repository.owner_name }}/{{ repository.repository_name }}</div>
+                  <div class="text-xs text-text-dim mt-0.5">
+                    {{ repository.permission }} · {{ repository.default_branch || 'default branch' }}
+                  </div>
+                </div>
+                <button class="btn shrink-0"
+                        :class="repository.enabled ? 'text-ok border-ok/40' : ''"
+                        :disabled="busy"
+                        @click="setRepository(connection.id, repository)">
+                  {{ repository.enabled ? 'Разрешён' : 'Разрешить' }}
+                </button>
+              </li>
+            </ul>
           </div>
         </li>
       </ul>
@@ -98,12 +124,23 @@ interface GitSettings {
   available: { provider: string; host: string }[]
 }
 interface OAuthStart { connection_id: number; authorization_url: string }
+interface GitRepository {
+  external_repository_id: string
+  owner_name: string
+  repository_name: string
+  default_branch: string | null
+  permission: string
+  enabled: boolean
+}
 
 const route = useRoute()
 const router = useRouter()
 const result = computed(() => String(route.query.git || ''))
 const busy = ref(false)
 const actionError = ref('')
+const openConnection = ref<number | null>(null)
+const repositoryLoading = ref(false)
+const repositories = ref<Record<number, GitRepository[]>>({})
 const { data, pending, error, refresh } = await useApi<GitSettings>('/api/git/connections')
 
 onMounted(() => {
@@ -137,6 +174,43 @@ async function revoke(connection: GitConnection) {
   } catch {
     actionError.value = 'Не удалось завершить отключение. Обновите страницу и повторите.'
     await refresh()
+  } finally {
+    busy.value = false
+  }
+}
+
+async function toggleRepositories(connectionId: number) {
+  if (openConnection.value === connectionId) {
+    openConnection.value = null
+    return
+  }
+  openConnection.value = connectionId
+  repositoryLoading.value = true
+  actionError.value = ''
+  try {
+    const response = await apiFetch<{ repositories: GitRepository[] }>(
+      `/api/git/connections/${connectionId}/repositories`,
+    )
+    repositories.value = { ...repositories.value, [connectionId]: response.repositories }
+  } catch {
+    actionError.value = 'Не удалось загрузить список репозиториев.'
+  } finally {
+    repositoryLoading.value = false
+  }
+}
+
+async function setRepository(connectionId: number, repository: GitRepository) {
+  busy.value = true
+  actionError.value = ''
+  const method = repository.enabled ? 'DELETE' : 'POST'
+  try {
+    const response = await apiFetch<{ enabled: boolean }>(
+      `/api/git/connections/${connectionId}/repositories/${encodeURIComponent(repository.external_repository_id)}/grant`,
+      { method },
+    )
+    repository.enabled = response.enabled
+  } catch {
+    actionError.value = 'Не удалось изменить доступ к репозиторию.'
   } finally {
     busy.value = false
   }

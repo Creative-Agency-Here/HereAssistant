@@ -182,7 +182,7 @@ the backend can actually perform that action safely.
 - [x] Add owner-filtered connection schema, repository/service layer, and API.
 - [x] Implement exact-host Authorization Code + PKCE.
 - [x] Add Git account connection/status/revoke cards.
-- [ ] Add the repository picker.
+- [x] Add the repository catalog and explicit grant picker.
 - [ ] Add `/git` as the safe WebApp entry point.
 - [ ] Route clone/pull/push through repository grants and the broker only.
 

@@ -145,3 +145,38 @@ def test_connection_rejects_unapproved_host_and_raw_secret_reference(connection_
             scopes=[],
             expires_at=None,
         )
+
+
+def test_repository_catalog_defaults_disabled_and_preserves_explicit_selection(
+    connection_db: Path,
+) -> None:
+    current = git_connections.create_pending_connection(100, "gitea", "git.example.com")
+    git_connections.activate_connection(
+        100,
+        current["id"],
+        external_user_id="42",
+        external_login="alice",
+        avatar_url=None,
+        vault_ref=f"vault://git/100/{current['id']}/primary",
+        scopes=["write:repository"],
+        expires_at=None,
+    )
+    repositories = [
+        git_connections.RepositoryMetadata(
+            "1", "alice", "one", "https://git.example.com/alice/one.git", "main", "write"
+        ),
+        git_connections.RepositoryMetadata(
+            "2", "alice", "two", "https://git.example.com/alice/two.git", "main", "read"
+        ),
+    ]
+
+    git_connections.sync_repository_catalog(100, current["id"], repositories)
+    assert [row["enabled"] for row in git_connections.list_repository_grants(100)] == [0, 0]
+    selected = git_connections.set_repository_enabled(100, current["id"], "1", True)
+    assert selected is not None and selected["enabled"] == 1
+    assert git_connections.set_repository_enabled(200, current["id"], "1", True) is None
+
+    git_connections.sync_repository_catalog(100, current["id"], repositories[:1])
+    rows = git_connections.list_repository_grants(100)
+    assert next(row for row in rows if row["external_repository_id"] == "1")["enabled"] == 1
+    assert next(row for row in rows if row["external_repository_id"] == "2")["enabled"] == 0
