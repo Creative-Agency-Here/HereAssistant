@@ -5,10 +5,40 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import time
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 LOGIN_STATE_INACCESSIBLE = "inaccessible"
+
+
+@dataclass(frozen=True, slots=True)
+class BotProcessState:
+    running: bool
+    pid: int | None = None
+    uptime_minutes: int | None = None
+
+
+def bot_process_state(lock_file: Path) -> BotProcessState:
+    """Читает single-instance lock без запуска PM2 и изменения состояния."""
+    try:
+        raw = lock_file.read_text(encoding="utf-8").strip()
+        pid_raw, *timestamp_raw = raw.split("|", 1)
+        pid = int(pid_raw)
+        started_at = float(timestamp_raw[0]) if timestamp_raw else 0.0
+        if pid <= 0:
+            return BotProcessState(False)
+        os.kill(pid, 0)
+    except (FileNotFoundError, ProcessLookupError, ValueError):
+        return BotProcessState(False)
+    except PermissionError:
+        # Процесс существует, но текущему Unix-пользователю запрещён signal 0.
+        pass
+    except OSError:
+        return BotProcessState(False)
+    uptime = max(0, int((time.time() - started_at) / 60)) if started_at else None
+    return BotProcessState(True, pid=pid, uptime_minutes=uptime)
 
 
 def has_command(name: str) -> bool:

@@ -51,28 +51,37 @@ def show_accounts(
     if not rows:
         print(f"  {Y}пока нет — добавь через пункт меню 2{X}")
         return rows
-    print(
-        f"  {B}{'#':<3} {'LABEL':<20} {'PROVIDER':<14} {'MODEL':<22} {'LOGIN':<10} {'NOTE':<20}{X}"
-    )
     print(line(width=64))
     for row in rows:
         provider = next(
             (item for item in providers.values() if item["key"] == row["provider"]), None
         )
-        if provider:
+        enabled = bool(row["enabled"])
+        owner = row["owner_user_id"] if "owner_user_id" in row.keys() else None
+        shared = bool(row["shared"]) if "shared" in row.keys() else False
+        owner_text = str(owner) if owner is not None else ("shared" if shared else "не назначен")
+        if not enabled:
+            status = badge("отключён", BLACK, BG_Y)
+            detail = "не участвует в выборе"
+        elif provider:
             logged, hint = login_state(str(provider["key"]), Path(row["cli_home_path"]))
             if hint == LOGIN_STATE_INACCESSIBLE:
-                login = badge("защ", BLACK, BG_Y)
+                status = badge("активен", BLACK, BG_G)
+                detail = "OS runner · вход скрыт изоляцией"
+            elif logged:
+                status = badge("активен", BLACK, BG_G)
+                detail = "вход подтверждён"
             else:
-                login = badge("есть", BLACK, BG_G) if logged else badge("нет ", BLACK, BG_R)
+                status = badge("нет входа", BLACK, BG_R)
+                detail = "нужна авторизация"
         else:
-            login = "?"
+            status = badge("неизвестен", BLACK, BG_R)
+            detail = "неизвестный provider"
         model = str(row["default_model"] or "-")[:22]
         note = str(row["notes"] or "")[:20]
-        print(
-            f"  {row['id']:<3} {row['label']:<20} {row['provider']:<14} "
-            f"{model:<22} {login:<18} {D}{note}{X}"
-        )
+        note_text = f" · {note}" if note else ""
+        print(f"  {B}#{row['id']} {row['label']}{X} · {row['provider']} · владелец {owner_text}")
+        print(f"     {status} {D}{detail} · модель {model}{note_text}{X}")
     return rows
 
 

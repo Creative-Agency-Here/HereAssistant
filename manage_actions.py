@@ -21,10 +21,11 @@ from manage_accounts import (
     sanitize_label,
     update_account_access,
 )
-from manage_config import BASE_DIR, CLI_HOMES_DIR, DB_PATH, ENV_PATH, PROVIDERS
+from manage_config import BASE_DIR, CLI_HOMES_DIR, DB_PATH, ENV_PATH, PROVIDERS, RUNTIME_DIR
 from manage_env import admin_ids, ensure_env, env_state
 from manage_process import (
     LOGIN_STATE_INACCESSIBLE,
+    bot_process_state,
     has_command,
     install_npm_package,
     login_state,
@@ -304,12 +305,20 @@ def edit_env():
 
 
 def start_bot():
+    process = bot_process_state(RUNTIME_DIR / "state" / "bot.lock")
+    if process.running:
+        uptime = (
+            f", работает {process.uptime_minutes} мин" if process.uptime_minutes is not None else ""
+        )
+        print(f"\n{G}✓ Бот уже запущен: PID {process.pid}{uptime}.{X}")
+        print(f"{D}Повторный запуск не требуется.{X}")
+        return
     es = env_state(ENV_PATH)
     if not es["token_set"]:
         print(f"\n{R}✗ TELEGRAM_BOT_TOKEN не заполнен в .env.{X}")
         print(f"{D}Меню → 7 → вписать токен{X}")
         return
-    rows = list_accounts(DB_PATH)
+    rows = [row for row in list_accounts(DB_PATH) if bool(row["enabled"])]
     if not rows:
         print(f"\n{R}✗ Нет ни одного аккаунта. Сначала добавь через пункт 2.{X}")
         return

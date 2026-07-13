@@ -54,6 +54,26 @@ def test_login_state_handles_inaccessible_os_runner_profile(
     )
 
 
+def test_bot_process_state_distinguishes_live_and_stale_locks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lock_file = tmp_path / "bot.lock"
+    lock_file.write_text("123|1000", encoding="utf-8")
+    monkeypatch.setattr(manage_process.os, "kill", lambda _pid, _signal: None)
+    monkeypatch.setattr(manage_process.time, "time", lambda: 2200)
+
+    live = manage_process.bot_process_state(lock_file)
+
+    assert live.running and live.pid == 123 and live.uptime_minutes == 20
+
+    def missing_process(_pid: int, _signal: int) -> None:
+        raise ProcessLookupError
+
+    monkeypatch.setattr(manage_process.os, "kill", missing_process)
+    assert not manage_process.bot_process_state(lock_file).running
+    assert not manage_process.bot_process_state(tmp_path / "missing.lock").running
+
+
 def test_npm_argv_wraps_windows_command_shims_only() -> None:
     assert npm_install_argv("pkg", npm_path="C:/npm.cmd", windows=True) == [
         "cmd",

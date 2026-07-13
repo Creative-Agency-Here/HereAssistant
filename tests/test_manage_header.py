@@ -55,15 +55,15 @@ def test_render_header_handles_unconfigured_empty_install(
     env_path.write_text("TELEGRAM_BOT_TOKEN=PASTE_HERE\n", encoding="utf-8")
     monkeypatch.setattr(manage_header, "logo", lambda: None)
 
-    render_header(base_dir=tmp_path, env_path=env_path, db_path=db_path, providers={})
+    render_header(base_dir=tmp_path, env_path=env_path, db_path=db_path)
 
     rendered = capsys.readouterr().out
     assert "токен не задан" in rendered
     assert "Админ" in rendered and "не задан" in rendered
-    assert "Аккаунт" in rendered and "нет" in rendered
+    assert "Аккаунты" in rendered and "нет" in rendered
 
 
-def test_render_header_marks_inaccessible_os_runner_profile(
+def test_render_header_summarizes_accounts_without_exposing_rows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
     reset_bot_cache()
@@ -78,28 +78,10 @@ def test_render_header_marks_inaccessible_os_runner_profile(
         )
     env_path.write_text("TELEGRAM_BOT_TOKEN=PASTE_HERE\n", encoding="utf-8")
     monkeypatch.setattr(manage_header, "logo", lambda: None)
-    monkeypatch.setattr(
-        manage_header,
-        "login_state",
-        lambda *_args: (False, manage_header.LOGIN_STATE_INACCESSIBLE),
-    )
 
-    render_header(
-        base_dir=tmp_path,
-        env_path=env_path,
-        db_path=db_path,
-        providers={
-            "1": {
-                "key": "claude_code",
-                "title": "Claude",
-                "subtitle": "",
-                "bin": "claude",
-                "npm_pkg": "",
-                "env_var": "CLAUDE_CONFIG_DIR",
-                "default_model": "",
-                "login_hint": "",
-            }
-        },
-    )
+    render_header(base_dir=tmp_path, env_path=env_path, db_path=db_path)
 
-    assert "защищённый профиль" in capsys.readouterr().out
+    rendered = capsys.readouterr().out
+    assert "активно: 1" in rendered
+    assert "подробности [1]" in rendered
+    assert "main" not in rendered

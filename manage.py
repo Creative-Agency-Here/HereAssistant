@@ -25,7 +25,7 @@ from manage_env import ensure_env as ensure_env_file
 from manage_env import env_state as read_env_state
 from manage_env import env_template as build_env_template
 from manage_header import render_header
-from manage_process import has_command, install_npm_package, login_state
+from manage_process import bot_process_state, has_command, install_npm_package, login_state
 from manage_process import run_visible as run_visible_process
 from manage_ui import (
     B,
@@ -114,7 +114,7 @@ def has_cmd(name: str) -> bool:
     return has_command(name)
 
 
-def run_visible(argv: list[str], env_extra: dict = None) -> int:
+def run_visible(argv: list[str], env_extra: dict[str, str] | None = None) -> int:
     return run_visible_process(argv, env_extra)
 
 
@@ -151,20 +151,35 @@ def is_logged_in(provider_key: str, cli_home: Path) -> tuple[bool, str]:
 
 
 def header():
-    render_header(base_dir=BASE_DIR, env_path=ENV_PATH, db_path=DB_PATH, providers=PROVIDERS)
+    render_header(base_dir=BASE_DIR, env_path=ENV_PATH, db_path=DB_PATH)
 
 
 # Главное меню — только частое. Редкое спрятано в «Настройки».
 # (клавиша, иконка+цвет, название, подсказка-тултип)
-MENU_MAIN = [
+MENU_MAIN_BASE = [
     ("1", f"{C}▸{X}", "Аккаунты", "список подключённых CLI-аккаунтов и вход"),
     ("2", f"{G}+{X}", "Добавить аккаунт", "подключить и залогинить Claude / Codex / Gemini"),
     ("3", f"{C}≡{X}", "История · Аудит", "все обращения в Telegram и SSH-заходы по IP"),
     ("4", f"{C}❯{X}", "Чат в терминале", "интерактивный чат с агентом прямо здесь (как claude)"),
-    ("8", f"{G}▶{X}", "Запустить бота", "поднять бота (Ctrl+C — остановить)"),
     ("9", f"{M}⚙{X}", "Настройки", "перелогин, удаление, зависимости, .env"),
     ("0", f"{D}⏻{X}", "Выход", ""),
 ]
+
+
+def main_menu():
+    process = bot_process_state(RUNTIME_DIR / "state" / "bot.lock")
+    if process.running:
+        bot_item = (
+            "8",
+            f"{G}●{X}",
+            "Бот работает",
+            f"PID {process.pid}; показать состояние",
+        )
+    else:
+        bot_item = ("8", f"{G}▶{X}", "Запустить бота", "поднять бота (Ctrl+C — остановить)")
+    return [*MENU_MAIN_BASE[:4], bot_item, *MENU_MAIN_BASE[4:]]
+
+
 MENU_SETTINGS = [
     ("1", f"{Y}↻{X}", "Перелогиниться", "обновить вход существующего аккаунта"),
     ("2", f"{R}×{X}", "Удалить аккаунт", "отключить аккаунт и стереть его вход"),
@@ -224,7 +239,7 @@ def main():
     ensure_env()
     while True:
         header()
-        choice = render_menu(MENU_MAIN)
+        choice = render_menu(main_menu())
         print(choice)
         if choice == "1":
             show_accounts()
@@ -241,7 +256,6 @@ def main():
             subprocess.run([sys.executable, str(BASE_DIR / "chat.py")])
         elif choice == "8":
             start_bot()
-            continue  # после остановки бота — сразу обратно в меню
         elif choice == "9":
             settings_menu()
             continue

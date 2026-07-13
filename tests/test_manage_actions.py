@@ -6,6 +6,7 @@ import pytest
 import manage_actions
 from manage_actions import do_login, start_bot
 from manage_config import PROVIDERS
+from manage_process import BotProcessState
 
 
 def test_codex_login_uses_isolated_home_and_login_subcommand(
@@ -45,6 +46,7 @@ def test_gemini_login_isolates_both_home_variables(
 
 def test_start_bot_refuses_missing_token(monkeypatch: pytest.MonkeyPatch) -> None:
     process = MagicMock()
+    monkeypatch.setattr(manage_actions, "bot_process_state", lambda _path: BotProcessState(False))
     monkeypatch.setattr(
         manage_actions, "env_state", lambda _path: {"token_set": False, "admin_set": False}
     )
@@ -63,8 +65,16 @@ def test_start_bot_runs_with_configured_logged_account(monkeypatch: pytest.Monke
     monkeypatch.setattr(
         manage_actions,
         "list_accounts",
-        lambda _path: [{"provider": "claude_code", "cli_home_path": "/tmp/home", "label": "main"}],
+        lambda _path: [
+            {
+                "provider": "claude_code",
+                "cli_home_path": "/tmp/home",
+                "label": "main",
+                "enabled": 1,
+            }
+        ],
     )
+    monkeypatch.setattr(manage_actions, "bot_process_state", lambda _path: BotProcessState(False))
     monkeypatch.setattr(manage_actions, "is_logged_in", lambda *_args: (True, "marker"))
     monkeypatch.setattr(manage_actions.subprocess, "call", process)
 
@@ -84,8 +94,16 @@ def test_start_bot_accepts_inaccessible_os_runner_profile(
     monkeypatch.setattr(
         manage_actions,
         "list_accounts",
-        lambda _path: [{"provider": "claude_code", "cli_home_path": "/protected", "label": "main"}],
+        lambda _path: [
+            {
+                "provider": "claude_code",
+                "cli_home_path": "/protected",
+                "label": "main",
+                "enabled": 1,
+            }
+        ],
     )
+    monkeypatch.setattr(manage_actions, "bot_process_state", lambda _path: BotProcessState(False))
     monkeypatch.setattr(
         manage_actions,
         "is_logged_in",
@@ -96,3 +114,20 @@ def test_start_bot_accepts_inaccessible_os_runner_profile(
     start_bot()
 
     process.assert_called_once()
+
+
+def test_start_bot_does_not_start_second_live_process(
+    monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    process = MagicMock()
+    monkeypatch.setattr(
+        manage_actions,
+        "bot_process_state",
+        lambda _path: BotProcessState(True, pid=321, uptime_minutes=5),
+    )
+    monkeypatch.setattr(manage_actions.subprocess, "call", process)
+
+    start_bot()
+
+    process.assert_not_called()
+    assert "уже запущен" in capsys.readouterr().out

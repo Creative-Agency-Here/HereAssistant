@@ -9,12 +9,10 @@ import urllib.error
 import urllib.request
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
 
-from manage_accounts import ProviderSpec, list_accounts
-from manage_audit import account_usage, format_tokens
+from manage_accounts import list_accounts
 from manage_env import admin_ids, env_state, env_value
-from manage_process import LOGIN_STATE_INACCESSIBLE, login_state
+from manage_process import bot_process_state
 from manage_ui import B, C, D, G, M, R, X, Y, box_bot, box_mid, box_top, logo
 
 _BOT_CACHE: dict[str, object] = {"done": False, "username": None}
@@ -50,7 +48,6 @@ def render_header(
     base_dir: Path,
     env_path: Path,
     db_path: Path,
-    providers: Mapping[str, ProviderSpec | Mapping[str, Any]],
 ) -> None:
     if os.name == "nt":
         os.system("cls")
@@ -65,10 +62,15 @@ def render_header(
 
     state = env_state(env_path)
     username = bot_username(env_path)
+    process = bot_process_state(base_dir / ".runtime" / "state" / "bot.lock")
+    if process.running:
+        process_text = f"{G}работает{X} {D}(PID {process.pid}){X}"
+    else:
+        process_text = f"{R}остановлен{X}"
     if username:
-        print(box_mid(f"Бот        {G}{username}{X}"))
+        print(box_mid(f"Бот        {G}{username}{X} · {process_text}"))
     elif state["token_set"]:
-        print(box_mid(f"Бот        {G}токен есть{X} {D}(имя не получено — нет сети?){X}"))
+        print(box_mid(f"Бот        {G}токен есть{X} · {process_text}"))
     else:
         print(box_mid(f"Бот        {R}токен не задан{X} {D}— пункт «Настройки → .env»{X}"))
 
@@ -80,39 +82,12 @@ def render_header(
 
     accounts = list_accounts(db_path)
     if not accounts:
-        print(box_mid(f"Аккаунт    {Y}нет{X} {D}— добавь пункт [2]{X}"))
-    for account in accounts:
-        provider = next(
-            (item for item in providers.values() if item["key"] == account["provider"]),
-            None,
-        )
-        name = provider["bin"] if provider else account["provider"]
-        owner = account["owner_user_id"] if "owner_user_id" in account.keys() else None
-        shared = bool(account["shared"]) if "shared" in account.keys() else False
-        if owner:
-            owner_text = f"{D}владелец {owner}{X}"
-        elif shared:
-            owner_text = f"{D}явно общий{X}"
-        else:
-            owner_text = f"{Y}владелец не назначен{X}"
-        logged_in = False
-        login_hint = ""
-        if provider:
-            logged_in, login_hint = login_state(
-                str(provider["key"]), Path(account["cli_home_path"])
-            )
-        if login_hint == LOGIN_STATE_INACCESSIBLE:
-            print(box_mid(f"Аккаунт    {B}{name}{X} · {owner_text} · {Y}защищённый профиль{X}"))
-            continue
-        if not logged_in:
-            print(box_mid(f"Аккаунт    {B}{name}{X} · {owner_text} · {R}нет входа{X}"))
-            continue
-        usage = account_usage(db_path, str(account["label"]))
-        usage_text = f"{D}за 5ч: {usage['msgs']} запр · {format_tokens(usage['tokens'])} ток{X}"
-        if usage["limited"]:
-            reset = f" до {usage['reset']}" if usage["reset"] else ""
-            usage_text = f"{R}лимит подписки{reset}{X}"
-        print(box_mid(f"Аккаунт    {B}{name}{X} · {owner_text} · {G}залогинен{X} · {usage_text}"))
+        print(box_mid(f"Аккаунты   {Y}нет{X} {D}— добавь пункт [2]{X}"))
+    else:
+        active = sum(bool(account["enabled"]) for account in accounts)
+        disabled = len(accounts) - active
+        disabled_text = f" · {D}отключено: {disabled}{X}" if disabled else ""
+        print(box_mid(f"Аккаунты   {G}активно: {active}{X}{disabled_text} · {D}подробности [1]{X}"))
     print(box_bot())
 
 
