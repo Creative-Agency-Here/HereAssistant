@@ -114,6 +114,7 @@ async def callback_handler(request: web.Request) -> web.StreamResponse:
             claim.connection_id,
             username=identity.login,
             password=identity.access_token,
+            refresh_token=identity.refresh_token,
         )
         vault_written = True
         activated = git_connections.activate_connection(
@@ -210,3 +211,23 @@ async def repository_grant_handler(request: web.Request) -> web.Response:
     if row is None:
         return web.json_response({"error": "repository not found"}, status=404)
     return web.json_response({"enabled": bool(row["enabled"])})
+
+
+async def refresh_handler(request: web.Request) -> web.Response:
+    try:
+        connection_id = int(request.match_info["connection_id"])
+    except (KeyError, ValueError):
+        return web.json_response({"error": "invalid connection"}, status=400)
+    user_id = _user_id(request)
+    current = git_connections.get_connection(user_id, connection_id)
+    if current is None:
+        return web.json_response({"error": "connection not found"}, status=404)
+    if current["provider"] != "gitea" or current["status"] not in ("active", "expired"):
+        return web.json_response({"error": "connection not refreshable"}, status=409)
+    try:
+        expires_at = await git_vault_client.refresh_credential(user_id, connection_id)
+        if not git_connections.mark_connection_refreshed(user_id, connection_id, expires_at):
+            raise git_connections.GitConnectionError("Git connection недоступен")
+    except (git_connections.GitConnectionError, git_vault_client.GitVaultClientError):
+        return web.json_response({"error": "refresh unavailable"}, status=503)
+    return web.json_response({"status": "active", "expires_at": expires_at})

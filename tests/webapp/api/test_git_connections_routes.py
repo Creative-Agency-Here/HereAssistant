@@ -44,6 +44,7 @@ async def test_gitea_connection_flow_is_owner_scoped_and_token_free_in_database(
             login="alice",
             avatar_url=None,
             access_token="runtime-oauth-token",
+            refresh_token="runtime-refresh-token",
             scopes=("read:user", "write:repository"),
             expires_at=None,
             repositories=(
@@ -64,11 +65,18 @@ async def test_gitea_connection_flow_is_owner_scoped_and_token_free_in_database(
         *,
         username: str | None = None,
         password: str | None = None,
+        refresh_token: str | None = None,
     ) -> None:
+        assert refresh_token in (None, "runtime-refresh-token")
         vault_calls.append((user_id, connection_id, username, password))
 
     monkeypatch.setattr(routes, "exchange_code", exchange)
     monkeypatch.setattr(routes.git_vault_client, "update_credential", update)
+
+    async def refresh(_user_id: int, _connection_id: int) -> int:
+        return 2_000_000_000
+
+    monkeypatch.setattr(routes.git_vault_client, "refresh_credential", refresh)
     client = TestClient(TestServer(server.create_app()))
     await client.start_server()
     try:
@@ -98,6 +106,7 @@ async def test_gitea_connection_flow_is_owner_scoped_and_token_free_in_database(
         assert listed_payload["connections"][0]["status"] == "active"
         assert "vault_ref" not in listed_payload["connections"][0]
         assert b"runtime-oauth-token" not in config.DB_PATH.read_bytes()
+        assert b"runtime-refresh-token" not in config.DB_PATH.read_bytes()
 
         repositories = await client.get(
             f"/api/git/connections/{started_payload['connection_id']}/repositories"
@@ -113,6 +122,12 @@ async def test_gitea_connection_flow_is_owner_scoped_and_token_free_in_database(
             f"/api/git/connections/{started_payload['connection_id']}/repositories/999/grant"
         )
         assert denied_foreign.status == 404
+
+        refreshed = await client.post(
+            f"/api/git/connections/{started_payload['connection_id']}/refresh"
+        )
+        assert refreshed.status == 200
+        assert (await refreshed.json())["expires_at"] == 2_000_000_000
 
         replay = await client.get(
             "/api/git/oauth/callback/gitea",

@@ -145,6 +145,10 @@ def create_app() -> web.Application:
     app.router.add_delete(
         "/api/git/connections/{connection_id}", route_git_connections.revoke_handler
     )
+    app.router.add_post(
+        "/api/git/connections/{connection_id}/refresh",
+        route_git_connections.refresh_handler,
+    )
     app.router.add_get(
         "/api/git/connections/{connection_id}/repositories",
         route_git_connections.repositories_handler,

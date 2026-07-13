@@ -153,7 +153,8 @@ The Git broker has a separate root-owned config
   "git_allowed_hosts": ["github.com", "git.example.com"],
   "git_credential_helper": "/usr/local/libexec/hereassistant-git-credential",
   "git_vault_socket": "/run/hereassistant/git-vault/ha-ilya/broker.sock",
-  "git_database": "/opt/hereassistant/bridge.sqlite3"
+  "git_database": "/opt/hereassistant/bridge.sqlite3",
+  "gitea_oauth_apps": {"git.example.com": "PUBLIC_CLIENT_ID"}
 }
 ```
 
@@ -217,9 +218,11 @@ does not start it. The database path is taken exclusively from the root-owned
 runner config; it cannot be selected through service or helper argv.
 
 The current bundle is loaded once at service start. Atomic encrypted rotation and
-controlled reload are implemented; the OAuth provider callback and production
-canary remain pending. Do not place a real credential in the bundle until those
-steps pass. The wrapper allowlists
+controlled reload are implemented. A Gitea refresh token, when returned, remains
+inside this bundle. The `refresh` operation pins host/client ID through the
+root-owned runner config, rotates access and refresh tokens internally, and emits
+only non-secret `expires_at` metadata to core. Production canary remains pending;
+do not place a real credential in the bundle until it passes. The wrapper allowlists
 local Git config keys, disables hooks/system/global config and unsafe protocols,
 and requires Linux immutable flags on `.git/config`, `config.worktree`, `.git`
 pointer and `commondir` whenever a credential helper is configured. Provisioning
@@ -241,7 +244,8 @@ the root-owned wrapper before a provider executable is started.
 
 When OAuth callbacks are enabled, add the root admin command separately. Its
 arguments contain only the mapped Git Unix user, numeric connection ID and
-`put|revoke`; credential JSON crosses stdin only:
+`put|revoke|refresh`; credential JSON crosses stdin only, while refresh has empty
+stdin and returns only expiry metadata:
 
 ```sudoers
 Cmnd_Alias HEREASSISTANT_GIT_VAULT_ADMIN = /usr/local/libexec/hereassistant-git-vault-admin *

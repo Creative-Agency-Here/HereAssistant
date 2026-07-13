@@ -546,7 +546,7 @@ providers/
   keys allowlisted, hooks/system/global config и unsafe protocols отключены; при
   включённом helper control files обязаны иметь Linux immutable flag, что закрывает
   замену после аудита. До реального credential всё ещё нужен negative canary.
-- Полный quality gate: 442 теста, Pyright, Ruff/format, compileall, lock,
+- Полный quality gate: 445 тестов, Pyright, Ruff/format, compileall, lock,
   exception ratchet и repository hygiene — зелёные; installer проходит `bash -n`.
 - Gitea public-client OAuth2 + PKCE подключён к WebApp API: exact-host app config,
   HMAC-only single-use state, S256 verifier без хранения plaintext, bounded HTTPS
@@ -560,4 +560,8 @@ providers/
   picker, исчезнувшие repositories отключаются. Nuxt production build проходит.
 - OAuth expiry закрыт fail-closed: WebApp переводит просроченный connection в
   `expired`, а vault SQL независимо от UI не выдаёт credential после `expires_at`.
-  До безопасного refresh-token broker flow пользователь переподключает account.
+  Если provider не выдал refresh token, пользователь переподключает account.
+- Gitea refresh lifecycle реализован внутри root vault helper: refresh token
+  сохраняется только в encrypted bundle, exact host/client ID закреплены root
+  config, OAuth redirect запрещён, access/refresh token ротируются атомарно, а
+  core получает только `expires_at`. WebApp даёт refresh с reconnect fallback.

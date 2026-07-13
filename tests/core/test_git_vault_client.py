@@ -44,11 +44,43 @@ async def test_credential_crosses_only_stdin(
     monkeypatch.setattr(asyncio, "create_subprocess_exec", create_process)
 
     await git_vault_client.update_credential(
-        100, 7, username="oauth-user", password="runtime-secret"
+        100,
+        7,
+        username="oauth-user",
+        password="runtime-secret",
+        refresh_token="refresh-secret",
     )
 
     command = " ".join(captured["command"])  # type: ignore[arg-type]
     assert "oauth-user" not in command
     assert "runtime-secret" not in command
+    assert "refresh-secret" not in command
     assert b"runtime-secret" in captured["payload"]  # type: ignore[operator]
+    assert b"refresh-secret" in captured["payload"]  # type: ignore[operator]
     assert "runtime-secret" not in str(captured["environment"])
+
+
+async def test_refresh_returns_only_safe_expiry_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configure_runner(monkeypatch)
+    captured: dict[str, object] = {}
+
+    class Process:
+        returncode = 0
+
+        async def communicate(self, payload: bytes) -> tuple[bytes, bytes]:
+            captured["payload"] = payload
+            return b'{"expires_at":2000000000}', b""
+
+    async def create_process(*command: str, **_kwargs: object) -> Process:
+        captured["command"] = command
+        return Process()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_process)
+
+    expires_at = await git_vault_client.refresh_credential(100, 7)
+
+    assert expires_at == 2_000_000_000
+    assert captured["payload"] == b""
+    assert captured["command"][-1] == "refresh"  # type: ignore[index]

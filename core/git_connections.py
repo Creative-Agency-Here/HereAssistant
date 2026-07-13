@@ -339,6 +339,19 @@ def set_repository_enabled(
         ).fetchone()
 
 
+def mark_connection_refreshed(user_id: int, connection_id: int, expires_at: int) -> bool:
+    now = int(time.time())
+    if expires_at <= now:
+        raise GitConnectionError("Некорректный OAuth expiry")
+    with db.conn() as connection:
+        cursor = connection.execute(
+            """UPDATE git_connections SET status='active',expires_at=?,updated_at=?
+               WHERE id=? AND user_id=? AND provider='gitea' AND vault_ref IS NOT NULL""",
+            (expires_at, now, connection_id, user_id),
+        )
+        return cursor.rowcount == 1
+
+
 def list_repository_grants(user_id: int, connection_id: int | None = None) -> list[sqlite3.Row]:
     where = "c.user_id=?"
     arguments: list[object] = [user_id]

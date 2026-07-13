@@ -24,6 +24,7 @@ class GiteaIdentity:
     login: str
     avatar_url: str | None
     access_token: str
+    refresh_token: str | None
     scopes: tuple[str, ...]
     expires_at: int | None
     repositories: tuple[RepositoryMetadata, ...]
@@ -143,6 +144,12 @@ async def exchange_code(
     if isinstance(expires_in, (int, float)) and 0 < int(expires_in) <= 31_536_000:
         expires_at = int(time.time()) + int(expires_in)
     raw_scope = token_payload.get("scope")
+    raw_refresh_token = token_payload.get("refresh_token")
+    refresh_token = (
+        raw_refresh_token
+        if isinstance(raw_refresh_token, str) and 0 < len(raw_refresh_token) <= 32_768
+        else None
+    )
     scopes = (
         tuple(sorted(set(raw_scope.split())))
         if isinstance(raw_scope, str) and raw_scope.strip()
@@ -153,6 +160,7 @@ async def exchange_code(
         login=login,
         avatar_url=str(avatar)[:1000] if isinstance(avatar, str) and avatar else None,
         access_token=access_token,
+        refresh_token=refresh_token,
         scopes=scopes,
         expires_at=expires_at,
         repositories=tuple(repositories),

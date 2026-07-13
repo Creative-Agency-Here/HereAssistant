@@ -52,6 +52,9 @@
             <button v-if="connection.status === 'active'" class="btn" :disabled="busy" @click="toggleRepositories(connection.id)">
               {{ openConnection === connection.id ? 'Скрыть репозитории' : 'Выбрать репозитории' }}
             </button>
+            <button v-if="connection.status === 'expired'" class="btn" :disabled="busy" @click="refreshAccess(connection)">
+              Обновить доступ
+            </button>
             <button v-if="connection.status !== 'active'" class="btn" :disabled="busy" @click="connect(connection.host)">
               Подключить снова
             </button>
@@ -174,6 +177,19 @@ async function revoke(connection: GitConnection) {
   } catch {
     actionError.value = 'Не удалось завершить отключение. Обновите страницу и повторите.'
     await refresh()
+  } finally {
+    busy.value = false
+  }
+}
+
+async function refreshAccess(connection: GitConnection) {
+  busy.value = true
+  actionError.value = ''
+  try {
+    await apiFetch(`/api/git/connections/${connection.id}/refresh`, { method: 'POST' })
+    await refresh()
+  } catch {
+    actionError.value = 'Автоматическое обновление недоступно. Подключите аккаунт снова.'
   } finally {
     busy.value = false
   }

@@ -92,6 +92,7 @@ class RunnerConfig:
     git_credential_helper: Path | None
     git_vault_socket: Path | None
     git_database: Path | None
+    gitea_oauth_apps: dict[str, str]
 
 
 def _inside(path: Path, root: Path) -> bool:
@@ -275,6 +276,10 @@ def load_config(unix_user: str, *, config_dir: Path = CONFIG_DIR) -> RunnerConfi
         helper_value = str(raw.get("git_credential_helper") or "").strip()
         vault_socket_value = str(raw.get("git_vault_socket") or "").strip()
         database_value = str(raw.get("git_database") or "").strip()
+        oauth_apps = {
+            str(host).strip().lower(): str(client_id).strip()
+            for host, client_id in dict(raw.get("gitea_oauth_apps", {})).items()
+        }
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as error:
         raise RunnerDenied("runner config повреждён") from error
     if configured_user != unix_user:
@@ -298,6 +303,14 @@ def load_config(unix_user: str, *, config_dir: Path = CONFIG_DIR) -> RunnerConfi
         raise RunnerDenied("Git broker config не должен содержать provider accounts")
     if not git_broker and not accounts:
         raise RunnerDenied("provider runner accounts пуст")
+    if oauth_apps and (
+        not git_broker
+        or any(
+            host not in git_hosts or not client_id or len(client_id) > 512
+            for host, client_id in oauth_apps.items()
+        )
+    ):
+        raise RunnerDenied("Gitea OAuth apps невалидны")
     roots = tuple(Path(value).resolve(strict=True) for value in root_values)
     if not roots:
         raise RunnerDenied("runner project_roots пуст")
@@ -350,6 +363,7 @@ def load_config(unix_user: str, *, config_dir: Path = CONFIG_DIR) -> RunnerConfi
         git_credential_helper=credential_helper,
         git_vault_socket=vault_socket,
         git_database=git_database,
+        gitea_oauth_apps=oauth_apps,
     )
 
 
