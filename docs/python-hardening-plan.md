@@ -547,7 +547,7 @@ providers/
   включённом helper control files обязаны иметь Linux immutable flag, что закрывает
   замену после аудита. Добавлен read-only canary checker; live credential probe
   остаётся обязательным перед production activation.
-- Полный quality gate: 445 тестов, Pyright, Ruff/format, compileall, lock,
+- Полный quality gate: 447 тестов, Pyright, Ruff/format, compileall, lock,
   exception ratchet и repository hygiene — зелёные; installer проходит `bash -n`.
 - Gitea public-client OAuth2 + PKCE подключён к WebApp API: exact-host app config,
   HMAC-only single-use state, S256 verifier без хранения plaintext, bounded HTTPS
@@ -569,3 +569,7 @@ providers/
 - `scripts/check_git_broker_canary.sh` проверяет systemd 250+, root ownership/modes,
   dedicated broker config, SQLite integrity/schema, unit и опционально encrypted
   bundle без печати секрета. Checker read-only и не запускает service.
+- Telegram `/git` открывает личный Git settings WebApp и показывает owner-scoped
+  connection status без приёма PAT в чате. Из `/web` и общей menu-кнопки удалён
+  `WEBAPP_ACCESS_KEY`: Telegram использует per-user signed `initData`, поэтому
+  desktop fallback key больше не раздаётся всем пользователям через общий URL.

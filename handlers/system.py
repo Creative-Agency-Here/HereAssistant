@@ -13,7 +13,7 @@ from aiogram.types import (
     WebAppInfo,
 )
 
-from core import access, config, db, rtk, version
+from core import access, config, db, git_connections, rtk, version
 
 from . import repo
 from .common import is_allowed
@@ -31,7 +31,7 @@ async def cmd_web(message: Message):
     if not config.WEBAPP_URL:
         await message.answer("WEBAPP_URL не задан в .env — открыть нечего.")
         return
-    web_url = config.webapp_url(include_access_key=True)
+    web_url = config.webapp_url()
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🖥 Открыть ассистента", web_app=WebAppInfo(url=web_url))]
@@ -43,6 +43,37 @@ async def cmd_web(message: Message):
     )
 
 
+@router.message(Command("git"))
+async def cmd_git(message: Message):
+    """Безопасная точка входа в личные Git accounts без credentials в чате."""
+    if not is_allowed(message) or not message.from_user:
+        return
+    if not config.WEBAPP_URL:
+        await message.answer("WEBAPP_URL не задан — Git-настройки пока недоступны.")
+        return
+    connections = git_connections.list_connections(message.from_user.id)
+    active = sum(row["status"] == "active" for row in connections)
+    expired = sum(row["status"] == "expired" for row in connections)
+    web_url = config.webapp_url("/settings")
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔐 Открыть мои Git-аккаунты",
+                    web_app=WebAppInfo(url=web_url),
+                )
+            ]
+        ]
+    )
+    await message.answer(
+        "Git-аккаунты\n"
+        f"Подключено: {active}"
+        + (f" · требуют обновления: {expired}" if expired else "")
+        + "\n\nЛогин и пароль вводятся только на стороне Git provider-а — не отправляйте PAT в чат.",
+        reply_markup=keyboard,
+    )
+
+
 HELP_TEXT = """\
 HereAssistant — справка
 
@@ -51,6 +82,7 @@ HereAssistant — справка
   /account use X    — переключить на аккаунт X в этом чате
   /model            — список популярных моделей (кнопки)
   /model NAME       — переключить модель
+  /git              — личные Git-аккаунты и доступ к репозиториям
 
 Работа с папкой:
   /cwd              — показать текущую папку

@@ -154,6 +154,7 @@ COMMANDS = [
     BotCommand(command="deploy", description="Перезапустить процесс"),
     BotCommand(command="diff", description="Правки последнего ответа"),
     BotCommand(command="web", description="Открыть веб-интерфейс (Mini App)"),
+    BotCommand(command="git", description="Мои Git-аккаунты и репозитории"),
     BotCommand(command="users", description="Команда: кто писал боту, роли (админ)"),
     BotCommand(command="access", description="Режим доступа к боту (админ)"),
     BotCommand(command="logout", description="Снять свой доступ / отвязать бота"),
@@ -192,7 +193,9 @@ async def main():
     # menu-кнопка (≡ слева от поля ввода) — открыть веб-приложение (Mini App)
     try:
         if config.WEBAPP_URL:
-            _menu_url = config.webapp_url(include_access_key=True)
+            # Telegram Mini App authenticates with per-user initData. Never place
+            # the desktop fallback access key into a shared bot menu URL.
+            _menu_url = config.webapp_url()
             await bot.set_chat_menu_button(
                 menu_button=MenuButtonWebApp(
                     text="Ассистент",

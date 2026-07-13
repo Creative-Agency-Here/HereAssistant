@@ -275,7 +275,7 @@ sidebar. Existing `/history`, `/edits`, `/stats` сохраняются как r
 - [x] Реализовать Authorization Code + PKCE и exact-host allowlist.
 - [x] Добавить экран подключения/status/revoke Git accounts.
 - [x] Добавить каталог репозиториев и explicit grant picker.
-- [ ] Добавить `/git` как безопасную точку входа в WebApp.
+- [x] Добавить `/git` как безопасную точку входа без credentials в чате.
 - [ ] Clone/pull/push провести только через grant + broker.
 
 ### P3. GitHub connection

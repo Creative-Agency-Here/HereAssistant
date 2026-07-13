@@ -187,7 +187,7 @@ the backend can actually perform that action safely.
 - [x] Implement exact-host Authorization Code + PKCE.
 - [x] Add Git account connection/status/revoke cards.
 - [x] Add the repository catalog and explicit grant picker.
-- [ ] Add `/git` as the safe WebApp entry point.
+- [x] Add `/git` as the safe WebApp entry point without chat credentials.
 - [ ] Route clone/pull/push through repository grants and the broker only.
 
 ### P3 — GitHub
