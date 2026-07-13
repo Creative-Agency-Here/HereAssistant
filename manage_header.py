@@ -87,7 +87,9 @@ def render_header(
         active = sum(bool(account["enabled"]) for account in accounts)
         disabled = len(accounts) - active
         disabled_text = f" · {D}отключено: {disabled}{X}" if disabled else ""
-        print(box_mid(f"Аккаунты   {G}активно: {active}{X}{disabled_text} · {D}подробности [1]{X}"))
+        print(
+            box_mid(f"Аккаунты   {G}включено: {active}{X}{disabled_text} · {D}подробности [1]{X}")
+        )
     print(box_bot())
 
 

@@ -82,6 +82,6 @@ def test_render_header_summarizes_accounts_without_exposing_rows(
     render_header(base_dir=tmp_path, env_path=env_path, db_path=db_path)
 
     rendered = capsys.readouterr().out
-    assert "активно: 1" in rendered
+    assert "включено: 1" in rendered
     assert "подробности [1]" in rendered
     assert "main" not in rendered

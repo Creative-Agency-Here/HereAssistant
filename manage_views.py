@@ -66,10 +66,10 @@ def show_accounts(
         elif provider:
             logged, hint = login_state(str(provider["key"]), Path(row["cli_home_path"]))
             if hint == LOGIN_STATE_INACCESSIBLE:
-                status = badge("активен", BLACK, BG_G)
-                detail = "OS runner · вход скрыт изоляцией"
+                status = badge("включён", BLACK, BG_G)
+                detail = "OS runner · статус входа скрыт изоляцией"
             elif logged:
-                status = badge("активен", BLACK, BG_G)
+                status = badge("включён", BLACK, BG_G)
                 detail = "вход подтверждён"
             else:
                 status = badge("нет входа", BLACK, BG_R)
