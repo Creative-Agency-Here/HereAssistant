@@ -593,6 +593,12 @@ def write_rtk_metrics(cli_home: Path, metrics_file: Path) -> None:
         pass
 
 
+def run_git_process(command: list[str], cwd: Path, environment: dict[str, str]) -> int:
+    """Запускает Git с private, но group-writable файлами для общей project-group."""
+    os.umask(0o007)
+    return subprocess.call(command, cwd=cwd, env=environment)
+
+
 def run(
     command: list[str],
     cwd: Path,
@@ -660,10 +666,10 @@ def main() -> int:
         print(f"runner denied: {error}", file=sys.stderr)
         return 77
     if args.git:
-        return subprocess.call(
+        return run_git_process(
             command,
-            cwd=cwd,
-            env=git_environment(config, cwd, command),
+            cwd,
+            git_environment(config, cwd, command),
         )
     assert args.provider and cli_home is not None
     return run(

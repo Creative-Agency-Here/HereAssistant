@@ -13,6 +13,7 @@ from runner.entrypoint import (
     audit_git_configuration,
     git_environment,
     provider_environment,
+    run_git_process,
     sanitize_rtk,
     validate_git_request,
     write_rtk_metrics,
@@ -300,6 +301,26 @@ def test_git_environment_without_vault_is_public_only(
     assert environment["GIT_CONFIG_VALUE_1"] == "/dev/null"
     assert "HEREASSISTANT_GIT_VAULT_SOCKET" not in environment
     assert environment["HEREASSISTANT_GIT_ACCESS"] == "read"
+
+
+def test_git_process_uses_private_group_writable_umask(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    masks: list[int] = []
+    calls: list[tuple[list[str], Path, dict[str, str]]] = []
+    monkeypatch.setattr(runner_entrypoint.os, "umask", lambda value: masks.append(value) or 0o022)
+    monkeypatch.setattr(
+        runner_entrypoint.subprocess,
+        "call",
+        lambda command, *, cwd, env: calls.append((command, cwd, env)) or 0,
+    )
+
+    environment = {"PATH": "/usr/bin:/bin"}
+    result = run_git_process(["git", "status"], tmp_path, environment)
+
+    assert result == 0
+    assert masks == [0o007]
+    assert calls == [(["git", "status"], tmp_path, environment)]
 
 
 def init_git_repository(config: RunnerConfig) -> Path:
