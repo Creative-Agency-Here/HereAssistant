@@ -276,7 +276,7 @@ sidebar. Existing `/history`, `/edits`, `/stats` сохраняются как r
 - [x] Добавить экран подключения/status/revoke Git accounts.
 - [x] Добавить каталог репозиториев и explicit grant picker.
 - [x] Добавить `/git` как безопасную точку входа без credentials в чате.
-- [ ] Clone/pull/push провести только через grant + broker.
+- [x] Проверять hardened HTTPS clone/pull/push через repository grant + broker.
 
 ### P3. GitHub connection
 

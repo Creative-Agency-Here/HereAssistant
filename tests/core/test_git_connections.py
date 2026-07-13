@@ -172,8 +172,26 @@ def test_repository_catalog_defaults_disabled_and_preserves_explicit_selection(
 
     git_connections.sync_repository_catalog(100, current["id"], repositories)
     assert [row["enabled"] for row in git_connections.list_repository_grants(100)] == [0, 0]
+    assert (
+        git_connections.repository_grant_state(
+            100, "https://GIT.EXAMPLE.COM/alice/one", write=False
+        )
+        == "disabled"
+    )
     selected = git_connections.set_repository_enabled(100, current["id"], "1", True)
     assert selected is not None and selected["enabled"] == 1
+    assert (
+        git_connections.repository_grant_state(
+            100, "https://git.example.com/alice/one.git", write=True
+        )
+        == "allowed"
+    )
+    assert (
+        git_connections.repository_grant_state(
+            100, "https://git.example.com/alice/two.git", write=True
+        )
+        == "disabled"
+    )
     assert git_connections.set_repository_enabled(200, current["id"], "1", True) is None
 
     git_connections.sync_repository_catalog(100, current["id"], repositories[:1])

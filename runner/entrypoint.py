@@ -407,6 +407,8 @@ def validate_git_request(
         raise RunnerDenied("Git identity/cwd запрещены")
     if command in (
         ["git", "remote"],
+        ["git", "remote", "get-url", "origin"],
+        ["git", "remote", "get-url", "github"],
         ["git", "status", "--short", "--branch"],
         ["git", "pull", "--ff-only"],
     ):

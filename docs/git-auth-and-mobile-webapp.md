@@ -188,7 +188,7 @@ the backend can actually perform that action safely.
 - [x] Add Git account connection/status/revoke cards.
 - [x] Add the repository catalog and explicit grant picker.
 - [x] Add `/git` as the safe WebApp entry point without chat credentials.
-- [ ] Route clone/pull/push through repository grants and the broker only.
+- [x] Preflight hardened HTTPS clone/pull/push against repository grants and the broker.
 
 ### P3 — GitHub
 

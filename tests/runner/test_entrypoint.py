@@ -202,6 +202,15 @@ def test_git_request_allowlist_accepts_status_and_safe_clone(
             git_runner_config,
             user_id=100,
             cwd=str(root),
+            command=["git", "remote", "get-url", "origin"],
+        )
+        == root
+    )
+    assert (
+        validate_git_request(
+            git_runner_config,
+            user_id=100,
+            cwd=str(root),
             command=["git", "push", "--dry-run", "origin", "HEAD"],
         )
         == root

@@ -12,6 +12,7 @@ import sqlite3
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from . import config, db
 from .git_projects import GitRemoteDeniedError, validate_repository_url
@@ -350,6 +351,38 @@ def mark_connection_refreshed(user_id: int, connection_id: int, expires_at: int)
             (expires_at, now, connection_id, user_id),
         )
         return cursor.rowcount == 1
+
+
+def repository_grant_state(user_id: int, clone_url: str, *, write: bool) -> str:
+    """Возвращает allowed/disabled/insufficient/unknown без раскрытия чужих grants."""
+    now = int(time.time())
+    with db.conn() as connection:
+        rows = connection.execute(
+            """SELECT g.clone_url,g.enabled,g.permission
+               FROM git_repository_grants g
+               JOIN git_connections c ON c.id=g.connection_id
+               WHERE c.user_id=? AND c.status='active'
+                 AND (c.expires_at IS NULL OR c.expires_at>?)""",
+            (user_id, now),
+        ).fetchall()
+
+    def key(value: str) -> tuple[str, str]:
+        parsed = urlsplit(value)
+        path = parsed.path.rstrip("/")
+        if path.endswith(".git"):
+            path = path[:-4]
+        return (parsed.netloc.lower(), path)
+
+    target = key(clone_url)
+    for row in rows:
+        if target != key(str(row["clone_url"])):
+            continue
+        if not row["enabled"]:
+            return "disabled"
+        if write and row["permission"] not in ("write", "admin"):
+            return "insufficient"
+        return "allowed"
+    return "unknown"
 
 
 def list_repository_grants(user_id: int, connection_id: int | None = None) -> list[sqlite3.Row]:

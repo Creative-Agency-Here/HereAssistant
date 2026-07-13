@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from core import config, db, git_projects, projects
+from core import config, db, git_connections, git_projects, projects
 
 
 @pytest.fixture
@@ -95,6 +95,31 @@ def test_git_failure_payload_redacts_credentials() -> None:
     assert "private-value" not in str(error)
     assert "private-value" not in error.payload()["message"]
     assert "[redacted]" in str(error)
+
+
+def test_hardened_write_requires_explicit_repository_grant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "OS_RUNNERS_ENABLED", True)
+    monkeypatch.setattr(
+        git_connections,
+        "repository_grant_state",
+        lambda _user_id, _url, *, write: "disabled" if write else "unknown",
+    )
+
+    with pytest.raises(git_projects.GitAuthRequiredError, match="Выбери репозиторий"):
+        git_projects.require_repository_grant(
+            100,
+            "https://git.example.com/alice/project.git",
+            write=True,
+            allow_unknown_public=False,
+        )
+    git_projects.require_repository_grant(
+        100,
+        "https://git.example.com/public/project.git",
+        write=False,
+        allow_unknown_public=True,
+    )
 
 
 @pytest.mark.asyncio

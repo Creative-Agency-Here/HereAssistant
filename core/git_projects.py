@@ -121,6 +121,21 @@ def validate_name(value: str, field: str = "name") -> str:
     return value
 
 
+def require_repository_grant(
+    user_id: int, url: str, *, write: bool, allow_unknown_public: bool
+) -> None:
+    if not config.OS_RUNNERS_ENABLED or not url.startswith("https://"):
+        return
+    from . import git_connections
+
+    state = git_connections.repository_grant_state(user_id, url, write=write)
+    if state == "allowed" or (state == "unknown" and allow_unknown_public):
+        return
+    if state == "insufficient":
+        raise GitRemoteDeniedError("Для Git write нужен repository grant write/admin")
+    raise GitAuthRequiredError("Выбери репозиторий в /git перед этой Git-операцией")
+
+
 async def run_git(
     *args: str, user_id: int | None = None, cwd: Path | None = None, timeout: int = 300
 ) -> str:
@@ -151,6 +166,7 @@ async def run_git(
 async def clone_project(user_id: int, name: str, url: str) -> sqlite3.Row:
     name = validate_name(name)
     url = validate_repository_url(url)
+    require_repository_grant(user_id, url, write=False, allow_unknown_public=True)
     workspace = config.user_workspace(user_id).resolve()
     workspace.mkdir(parents=True, exist_ok=True)
     destination = workspace / name
@@ -192,7 +208,11 @@ async def status(user_id: int, root: str | Path) -> str:
 
 
 async def pull(user_id: int, root: str | Path) -> str:
-    return await run_git("pull", "--ff-only", user_id=user_id, cwd=Path(root), timeout=600)
+    directory = Path(root)
+    if config.OS_RUNNERS_ENABLED:
+        remote_url = await run_git("remote", "get-url", "origin", user_id=user_id, cwd=directory)
+        require_repository_grant(user_id, remote_url, write=False, allow_unknown_public=True)
+    return await run_git("pull", "--ff-only", user_id=user_id, cwd=directory, timeout=600)
 
 
 async def push(user_id: int, root: str | Path) -> str:
@@ -203,6 +223,10 @@ async def push(user_id: int, root: str | Path) -> str:
         targets.append("github")
     if not targets:
         raise GitRemoteDeniedError("У репозитория нет origin/github remote")
+    if config.OS_RUNNERS_ENABLED:
+        for remote in targets:
+            remote_url = await run_git("remote", "get-url", remote, user_id=user_id, cwd=directory)
+            require_repository_grant(user_id, remote_url, write=True, allow_unknown_public=False)
     for remote in targets:
         try:
             await run_git(
