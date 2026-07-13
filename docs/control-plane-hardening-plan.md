@@ -267,5 +267,24 @@ green.
   resistant audit is required.
 - [ ] Inventory provider/Git/package endpoints before runner egress enforcement.
 
+### 2026-07-13 — deployment and final smoke checkpoint
+
+- [x] Committed the code/documentation checkpoint as `ac061a8` and pushed it to
+  both the private Gitea remote and the public GitHub mirror.
+- [x] Fast-forwarded the clean production checkout. A subsequent independent UI
+  localization commit is a descendant of the security checkpoint; both remotes and
+  production contain the redaction change.
+- [x] Restarted only the API process for the access-logger change; bot stayed online.
+- [x] Sent a callback containing synthetic OAuth markers and confirmed that neither
+  marker appeared in the API logs. The safe log record contained only
+  `GET /api/git/oauth/callback/gitea` and the response metadata.
+- [x] Re-ran the credential-required Git broker canary without starting or restarting
+  the broker; it passed with the service active.
+- [x] Re-ran a cross-user negative runner probe; the foreign identity was denied with
+  the expected fail-closed exit code `77`.
+- [x] Confirmed bot/API online, Git vault active, brute-force protection active,
+  auditd active with zero lost events, SQLite quick check `ok`, clean production
+  checkout and a passing root-owned rollback check.
+
 Further entries must record only non-secret evidence: timestamp, changed files or
 units, validation result, rollback result and remaining risk.
