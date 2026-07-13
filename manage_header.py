@@ -14,7 +14,7 @@ from typing import Any
 from manage_accounts import ProviderSpec, list_accounts
 from manage_audit import account_usage, format_tokens
 from manage_env import admin_ids, env_state, env_value
-from manage_process import login_state
+from manage_process import LOGIN_STATE_INACCESSIBLE, login_state
 from manage_ui import B, C, D, G, M, R, X, Y, box_bot, box_mid, box_top, logo
 
 _BOT_CACHE: dict[str, object] = {"done": False, "username": None}
@@ -95,9 +95,15 @@ def render_header(
             owner_text = f"{D}явно общий{X}"
         else:
             owner_text = f"{Y}владелец не назначен{X}"
-        logged_in = bool(
-            provider and login_state(str(provider["key"]), Path(account["cli_home_path"]))[0]
-        )
+        logged_in = False
+        login_hint = ""
+        if provider:
+            logged_in, login_hint = login_state(
+                str(provider["key"]), Path(account["cli_home_path"])
+            )
+        if login_hint == LOGIN_STATE_INACCESSIBLE:
+            print(box_mid(f"Аккаунт    {B}{name}{X} · {owner_text} · {Y}защищённый профиль{X}"))
+            continue
         if not logged_in:
             print(box_mid(f"Аккаунт    {B}{name}{X} · {owner_text} · {R}нет входа{X}"))
             continue

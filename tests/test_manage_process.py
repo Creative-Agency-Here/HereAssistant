@@ -36,6 +36,24 @@ def test_login_state_is_false_for_missing_home_unknown_provider_and_no_marker(
     assert login_markers("unknown", tmp_path) == ()
 
 
+def test_login_state_handles_inaccessible_os_runner_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original_exists = Path.exists
+
+    def exists(path: Path) -> bool:
+        if path.name == ".credentials.json":
+            raise PermissionError(path)
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "exists", exists)
+
+    assert login_state("claude_code", tmp_path) == (
+        False,
+        manage_process.LOGIN_STATE_INACCESSIBLE,
+    )
+
+
 def test_npm_argv_wraps_windows_command_shims_only() -> None:
     assert npm_install_argv("pkg", npm_path="C:/npm.cmd", windows=True) == [
         "cmd",

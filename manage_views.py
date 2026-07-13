@@ -8,7 +8,7 @@ from typing import Any
 
 from manage_accounts import ProviderSpec, list_accounts
 from manage_audit import format_timestamp, format_tokens, ssh_history, telegram_history
-from manage_process import login_state
+from manage_process import LOGIN_STATE_INACCESSIBLE, login_state
 from manage_ui import BG_G, BG_R, BG_Y, BLACK, B, C, D, G, M, R, X, Y, badge, line
 
 
@@ -60,8 +60,11 @@ def show_accounts(
             (item for item in providers.values() if item["key"] == row["provider"]), None
         )
         if provider:
-            logged, _ = login_state(str(provider["key"]), Path(row["cli_home_path"]))
-            login = badge("есть", BLACK, BG_G) if logged else badge("нет ", BLACK, BG_R)
+            logged, hint = login_state(str(provider["key"]), Path(row["cli_home_path"]))
+            if hint == LOGIN_STATE_INACCESSIBLE:
+                login = badge("защ", BLACK, BG_Y)
+            else:
+                login = badge("есть", BLACK, BG_G) if logged else badge("нет ", BLACK, BG_R)
         else:
             login = "?"
         model = str(row["default_model"] or "-")[:22]

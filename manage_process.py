@@ -8,6 +8,8 @@ import subprocess
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+LOGIN_STATE_INACCESSIBLE = "inaccessible"
+
 
 def has_command(name: str) -> bool:
     return shutil.which(name) is not None
@@ -50,11 +52,15 @@ def login_markers(provider_key: str, cli_home: Path) -> tuple[Path, ...]:
 
 
 def login_state(provider_key: str, cli_home: Path) -> tuple[bool, str]:
-    if not cli_home.exists():
-        return False, ""
-    for marker in login_markers(provider_key, cli_home):
-        if marker.exists():
-            if provider_key == "gemini":
-                return True, f"{marker.parent.name}/{marker.name}"
-            return True, marker.name
+    try:
+        if not cli_home.exists():
+            return False, ""
+        for marker in login_markers(provider_key, cli_home):
+            if marker.exists():
+                if provider_key == "gemini":
+                    return True, f"{marker.parent.name}/{marker.name}"
+                return True, marker.name
+    except OSError:
+        # Изолированные OS-runner профили намеренно закрыты от control plane.
+        return False, LOGIN_STATE_INACCESSIBLE
     return False, ""

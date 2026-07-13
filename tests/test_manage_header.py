@@ -61,3 +61,45 @@ def test_render_header_handles_unconfigured_empty_install(
     assert "токен не задан" in rendered
     assert "Админ" in rendered and "не задан" in rendered
     assert "Аккаунт" in rendered and "нет" in rendered
+
+
+def test_render_header_marks_inaccessible_os_runner_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    reset_bot_cache()
+    db_path = tmp_path / "db.sqlite3"
+    env_path = tmp_path / ".env"
+    create_accounts(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "INSERT INTO accounts(provider,label,cli_home_path,enabled,owner_user_id) "
+            "VALUES (?,?,?,?,?)",
+            ("claude_code", "main", "/protected/claude", 1, 123),
+        )
+    env_path.write_text("TELEGRAM_BOT_TOKEN=PASTE_HERE\n", encoding="utf-8")
+    monkeypatch.setattr(manage_header, "logo", lambda: None)
+    monkeypatch.setattr(
+        manage_header,
+        "login_state",
+        lambda *_args: (False, manage_header.LOGIN_STATE_INACCESSIBLE),
+    )
+
+    render_header(
+        base_dir=tmp_path,
+        env_path=env_path,
+        db_path=db_path,
+        providers={
+            "1": {
+                "key": "claude_code",
+                "title": "Claude",
+                "subtitle": "",
+                "bin": "claude",
+                "npm_pkg": "",
+                "env_var": "CLAUDE_CONFIG_DIR",
+                "default_model": "",
+                "login_hint": "",
+            }
+        },
+    )
+
+    assert "защищённый профиль" in capsys.readouterr().out

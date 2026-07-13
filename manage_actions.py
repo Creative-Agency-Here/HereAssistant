@@ -23,7 +23,13 @@ from manage_accounts import (
 )
 from manage_config import BASE_DIR, CLI_HOMES_DIR, DB_PATH, ENV_PATH, PROVIDERS
 from manage_env import admin_ids, ensure_env, env_state
-from manage_process import has_command, install_npm_package, login_state, run_visible
+from manage_process import (
+    LOGIN_STATE_INACCESSIBLE,
+    has_command,
+    install_npm_package,
+    login_state,
+    run_visible,
+)
 from manage_ui import BG_G, BG_R, BLACK, B, C, D, G, M, R, W, X, Y, badge, getch, line
 from manage_views import show_accounts as render_accounts
 
@@ -164,7 +170,9 @@ def do_login(prov: ProviderSpec, cli_home: Path) -> None:
 
     run_visible(argv, env_extra)
     logged, hint = is_logged_in(prov["key"], cli_home)
-    if logged:
+    if hint == LOGIN_STATE_INACCESSIBLE:
+        print(f"\n{Y}⚠ Профиль защищён OS runner; status недоступен пользователю manager.{X}")
+    elif logged:
         print(f"\n{G}✓ Логин зафиксирован ({hint}){X}")
         if prov["key"] == "claude_code" and rtk.configure_claude_profile(cli_home):
             print(f"{G}✓ RTK hook и безопасные read/test permissions подключены.{X}")
@@ -309,8 +317,8 @@ def start_bot():
     for r in rows:
         p = next((v for v in PROVIDERS.values() if v["key"] == r["provider"]), None)
         if p:
-            logged, _ = is_logged_in(p["key"], Path(r["cli_home_path"]))
-            if not logged:
+            logged, hint = is_logged_in(p["key"], Path(r["cli_home_path"]))
+            if not logged and hint != LOGIN_STATE_INACCESSIBLE:
                 not_logged.append(r["label"])
     if not_logged:
         print(f"\n{Y}⚠ Не залогинены: {', '.join(not_logged)}{X}")

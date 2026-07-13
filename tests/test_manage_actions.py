@@ -72,3 +72,27 @@ def test_start_bot_runs_with_configured_logged_account(monkeypatch: pytest.Monke
 
     process.assert_called_once()
     assert process.call_args.args[0][-1].endswith("bot.py")
+
+
+def test_start_bot_accepts_inaccessible_os_runner_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    process = MagicMock(return_value=0)
+    monkeypatch.setattr(
+        manage_actions, "env_state", lambda _path: {"token_set": True, "admin_set": True}
+    )
+    monkeypatch.setattr(
+        manage_actions,
+        "list_accounts",
+        lambda _path: [{"provider": "claude_code", "cli_home_path": "/protected", "label": "main"}],
+    )
+    monkeypatch.setattr(
+        manage_actions,
+        "is_logged_in",
+        lambda *_args: (False, manage_actions.LOGIN_STATE_INACCESSIBLE),
+    )
+    monkeypatch.setattr(manage_actions.subprocess, "call", process)
+
+    start_bot()
+
+    process.assert_called_once()
