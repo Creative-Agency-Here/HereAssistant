@@ -4,6 +4,7 @@ import json
 import os
 import re
 import secrets
+import socket
 from pathlib import Path
 from typing import Optional
 
@@ -226,6 +227,13 @@ WEBAPP_URL: str = os.environ.get("WEBAPP_URL", "").strip()
 # Секретный ключ доступа к вебапу из браузера/десктопа (где нет Telegram initData).
 # Открыть ?key=<этот ключ> один раз — фронт запомнит и будет слать на каждый запрос.
 WEBAPP_ACCESS_KEY: str = os.environ.get("WEBAPP_ACCESS_KEY", "").strip()
+
+# Scoped M2M sync в HereCRM. Секрет принимается только из окружения процесса и
+# никогда не записывается в SQLite/логи. Пустой URL или токен = sync выключен.
+HERECRM_SYNC_URL: str = os.environ.get("HERECRM_SYNC_URL", "").strip().rstrip("/")
+HERECRM_SYNC_TOKEN: str = os.environ.get("HERECRM_SYNC_TOKEN", "").strip()
+HERECRM_SYNC_ORIGIN: str = os.environ.get("HERECRM_SYNC_ORIGIN", "").strip() or socket.gethostname()
+HERECRM_SYNC_INTERVAL_SEC: float = float(os.environ.get("HERECRM_SYNC_INTERVAL_SEC", "5"))
 
 
 def webapp_url(path: str = "/", *, include_access_key: bool = False) -> str:

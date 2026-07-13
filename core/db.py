@@ -175,6 +175,21 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(timestamp);
 CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type, timestamp);
 
+-- Надёжная очередь opt-in событий HereCRM. Payload может содержать только те
+-- типы данных, которые явно разрешены .hereassistant/project.yml.
+CREATE TABLE IF NOT EXISTS crm_sync_outbox (
+    event_id        TEXT PRIMARY KEY,
+    user_id         INTEGER NOT NULL,
+    conversation_id INTEGER NOT NULL,
+    payload         TEXT NOT NULL,
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at INTEGER NOT NULL,
+    last_error      TEXT,
+    created_at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_sync_outbox_due
+    ON crm_sync_outbox(next_attempt_at, created_at);
+
 -- Задачи сервисного API (/api/v1/tasks). Только для проектов mode: crm —
 -- private/local через service API невидимы (см. core/project_config.py).
 CREATE TABLE IF NOT EXISTS tasks (

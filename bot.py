@@ -16,7 +16,7 @@ import time
 from aiogram import BaseMiddleware, Bot, Dispatcher
 from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
-from core import access, config, db, logging_setup, version
+from core import access, config, crm_sync, db, logging_setup, version
 from handlers import ALL_ROUTERS
 from handlers.deploy import post_restart_report, startup_notification
 from utils.memory_link import ensure_memory_links
@@ -226,6 +226,7 @@ async def main():
 
     # фоновая таска для отложенного self-restart
     asyncio.create_task(restart_watcher(bot))
+    asyncio.create_task(crm_sync.worker())
 
     if config.ADMIN_ID is None:
         try:

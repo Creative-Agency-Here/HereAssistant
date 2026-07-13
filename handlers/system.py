@@ -13,7 +13,7 @@ from aiogram.types import (
     WebAppInfo,
 )
 
-from core import access, config, db, git_connections, rtk, version
+from core import access, config, crm_sync, db, git_connections, rtk, version
 
 from . import repo
 from .common import is_allowed
@@ -176,6 +176,7 @@ async def cmd_status(message: Message):
             "SELECT COUNT(*) AS n FROM messages WHERE conversation_id=?", (conv["id"],)
         ).fetchone()["n"]
     v = version.bot_version()
+    sync = crm_sync.status()
     lines = [
         f"chat={conv['chat_id']} thread={conv['thread_id']}",
         f"account: {acc['label'] if acc else '—'} ({acc['provider'] if acc else '—'})",
@@ -184,6 +185,10 @@ async def cmd_status(message: Message):
         f"cwd:     {conv['cwd']}",
         f"project: {conv['project_name'] or '—'}",
         f"history: {msg_count} сообщений",
+        (
+            f"HereCRM: {'подключён' if sync['configured'] else 'выключен'}"
+            f" · очередь {sync['pending']} · {sync['origin']}"
+        ),
         f"version: {v['short']} ({v['mtime']})",
     ]
     await message.answer("\n".join(lines))

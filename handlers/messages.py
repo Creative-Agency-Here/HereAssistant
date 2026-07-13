@@ -16,7 +16,7 @@ from aiogram.types import (
 )
 
 import providers
-from core import changes, config, events, project_config
+from core import changes, config, crm_sync, events, project_config
 from utils import rich
 from utils.files import download_attachment
 from utils.markdown import html_escape
@@ -347,6 +347,27 @@ async def _process_message(
             tokens_out=meta.get("tokens_out"),
             duration_ms=int(duration_s * 1000),
             payload=_out_payload,
+        )
+
+        # Надёжный M2M sync не участвует в Telegram delivery. Outbox получает
+        # только явно разрешённые project.yml типы данных; private/local → no-op.
+        crm_sync.enqueue(
+            policy,
+            crm_sync.Exchange(
+                conversation_id=int(conv["id"]),
+                telegram_user_id=user_id,
+                cwd=conv["cwd"] or config.DEFAULT_CWD,
+                project_name=conv["project_name"],
+                provider=account["provider"],
+                model=conv["model"],
+                prompt=user_text,
+                answer=raw_answer,
+                started_at=t0,
+                finished_at=time.time(),
+                tokens_in=meta.get("tokens_in"),
+                tokens_out=meta.get("tokens_out"),
+                duration_ms=int(duration_s * 1000),
+            ),
         )
 
         # ---------- финальная отправка ----------
