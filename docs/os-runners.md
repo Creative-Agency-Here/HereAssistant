@@ -1,8 +1,8 @@
 # Per-user Unix runners
 
-Status: the provider boundary is active for the first production user. A distinct
-Git broker UID, credential-helper proxy and fail-closed routing are implemented in
-source but are not deployed; fresh installations remain disabled by default.
+Status: the provider boundary and a distinct Git broker UID are implemented and
+have passed a first-user production canary. Fresh installations remain disabled
+by default and require an explicit Telegram-user-to-runner map.
 
 ## Threat boundary
 
@@ -152,7 +152,7 @@ The Git broker has a separate root-owned config
   "project_roots": ["/home/ha-ilya/projects"],
   "git_allowed_hosts": ["github.com", "git.example.com"],
   "git_credential_helper": "/usr/local/libexec/hereassistant-git-credential",
-  "git_vault_socket": "/run/hereassistant/git-vault/ha-ilya/broker.sock",
+  "git_vault_socket": "/run/hereassistant/git-vault/ha-ilya-git/broker.sock",
   "git_database": "/opt/hereassistant/bridge.sqlite3",
   "gitea_oauth_apps": {"git.example.com": "PUBLIC_CLIENT_ID"}
 }
@@ -165,11 +165,13 @@ socket peer UID plus that repository to an active owner grant, fetch the opaque
 logged. Until that root/systemd vault service exists, omit the helper/socket fields:
 public Git operations work, authenticated operations fail closed.
 
-The socket directory must not be accessible to the coding runner:
+The socket directory must not be accessible to the coding runner. The packaged
+systemd unit creates the per-instance directory before every start; for a manual
+preflight the equivalent is:
 
 ```bash
 sudo install -d -o root -g root -m 0755 /run/hereassistant/git-vault
-sudo install -d -o root -g ha-ilya-git -m 0750 /run/hereassistant/git-vault/ha-ilya
+sudo install -d -o root -g ha-ilya-git -m 0750 /run/hereassistant/git-vault/ha-ilya-git
 ```
 
 The installed `hereassistant-git-vault@.service` creates `broker.sock` as
@@ -211,10 +213,10 @@ printf '{}' | sudo /usr/local/libexec/hereassistant-git-vault-admin \
 
 Do not type a token literally in shell history. The callback process should write
 JSON directly to stdin and erase its in-memory exchange result after completion.
-After the first encrypted bundle is provisioned, run `systemctl daemon-reload` and
-start
-`hereassistant-git-vault@ha-ilya-git.service`. The installer copies the unit but
-does not start it. The database path is taken exclusively from the root-owned
+The first successful OAuth `put` enables and starts
+`hereassistant-git-vault@ha-ilya-git.service`; refresh and revoke reload an already
+active service. The installer copies the unit but does not start it before a
+credential exists. The database path is taken exclusively from the root-owned
 runner config; it cannot be selected through service or helper argv.
 
 The current bundle is loaded once at service start. Atomic encrypted rotation and

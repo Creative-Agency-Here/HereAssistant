@@ -5,7 +5,8 @@ After=local-fs.target
 [Service]
 Type=simple
 User=root
-Group=root
+Group=%i
+ExecStartPre=/usr/bin/install -d -o root -g %i -m 0750 /run/hereassistant/git-vault/%i
 ExecStart=/usr/local/libexec/hereassistant-git-vault --unix-user %i
 LoadCredentialEncrypted=git-credentials.json:/etc/hereassistant/git-credentials/%i.json.cred
 NoNewPrivileges=yes

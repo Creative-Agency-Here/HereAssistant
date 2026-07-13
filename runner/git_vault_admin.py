@@ -341,10 +341,12 @@ def _validate_storage(directory: Path, encrypted_path: Path) -> None:
             raise GitVaultAdminError("credential file permissions invalid")
 
 
-def _reload_active_service(unix_user: str) -> None:
+def _reload_service(unix_user: str, *, ensure_started: bool) -> None:
+    """Перечитывает bundle; первый OAuth put также включает broker на boot."""
+    action = ["enable", "--now"] if ensure_started else ["try-restart"]
     try:
         process = subprocess.run(
-            ["systemctl", "try-restart", f"hereassistant-git-vault@{unix_user}.service"],
+            ["systemctl", *action, f"hereassistant-git-vault@{unix_user}.service"],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -391,7 +393,7 @@ def main() -> int:
         else:
             credential = parse_secret_request(arguments.operation, payload)
             rotate_bundle(encrypted_path, vault_ref, credential)
-        _reload_active_service(arguments.unix_user)
+        _reload_service(arguments.unix_user, ensure_started=arguments.operation == "put")
     except (GitVaultAdminError, OSError):
         print("git vault admin denied", file=sys.stderr)
         return 1

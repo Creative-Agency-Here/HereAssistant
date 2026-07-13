@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,7 @@ import pytest
 from runner.git_vault_admin import (
     GitVaultAdminError,
     StoredCredential,
+    _reload_service,
     connection_refresh_target,
     connection_vault_ref,
     parse_secret_request,
@@ -212,3 +214,27 @@ def test_refresh_without_refresh_token_preserves_bundle(tmp_path: Path) -> None:
         )
 
     assert encrypted.read_bytes() == b"encrypted-old"
+
+
+@pytest.mark.parametrize(
+    ("ensure_started", "expected_action"),
+    ((True, ["enable", "--now"]), (False, ["try-restart"])),
+)
+def test_vault_service_start_policy(
+    monkeypatch: pytest.MonkeyPatch,
+    ensure_started: bool,
+    expected_action: list[str],
+) -> None:
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr("runner.git_vault_admin.subprocess.run", fake_run)
+
+    _reload_service("ha-user-git", ensure_started=ensure_started)
+
+    assert commands == [
+        ["systemctl", *expected_action, "hereassistant-git-vault@ha-user-git.service"]
+    ]
