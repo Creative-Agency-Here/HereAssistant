@@ -12,13 +12,23 @@ from core.git_connections import RepositoryMetadata
 from core.git_oauth import REQUESTED_SCOPES
 
 MAX_RESPONSE_BYTES = 262_144
+REPOSITORIES_PER_PAGE = 10
+MAX_REPOSITORY_PAGES = 100
 
 
 class GiteaOAuthClientError(RuntimeError):
-    def __init__(self, message: str, *, stage: str = "unknown", status: int | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        stage: str = "unknown",
+        status: int | None = None,
+        reason: str = "unknown",
+    ):
         super().__init__(message)
         self.stage = stage
         self.status = status
+        self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -69,15 +79,28 @@ def _repository(value: object) -> RepositoryMetadata:
 
 async def _json_response(response, stage: str) -> object:
     payload = await response.content.read(MAX_RESPONSE_BYTES + 1)
-    if response.status < 200 or response.status >= 300 or len(payload) > MAX_RESPONSE_BYTES:
+    if response.status < 200 or response.status >= 300:
         raise GiteaOAuthClientError(
-            "Gitea response отклонён", stage=stage, status=int(response.status)
+            "Gitea response отклонён",
+            stage=stage,
+            status=int(response.status),
+            reason="http_status",
+        )
+    if len(payload) > MAX_RESPONSE_BYTES:
+        raise GiteaOAuthClientError(
+            "Gitea response слишком большой",
+            stage=stage,
+            status=int(response.status),
+            reason="response_too_large",
         )
     try:
         value = json.loads(payload)
     except (UnicodeError, ValueError) as error:
         raise GiteaOAuthClientError(
-            "Gitea response невалиден", stage=stage, status=int(response.status)
+            "Gitea response невалиден",
+            stage=stage,
+            status=int(response.status),
+            reason="invalid_json",
         ) from error
     return value
 
@@ -122,11 +145,11 @@ async def exchange_code(
             if not isinstance(user_payload, dict):
                 raise GiteaOAuthClientError("Gitea user response невалиден")
             repositories: list[RepositoryMetadata] = []
-            for page in range(1, 21):
+            for page in range(1, MAX_REPOSITORY_PAGES + 1):
                 async with session.get(
                     f"{base_url}/api/v1/user/repos",
                     headers={"Authorization": f"Bearer {access_token}"},
-                    params={"limit": "50", "page": str(page)},
+                    params={"limit": str(REPOSITORIES_PER_PAGE), "page": str(page)},
                     allow_redirects=False,
                 ) as response:
                     repository_payload = await _json_response(response, "repositories")
@@ -138,7 +161,7 @@ async def exchange_code(
                 if not isinstance(raw_items, list):
                     raise GiteaOAuthClientError("Gitea repositories невалидны")
                 repositories.extend(_repository(value) for value in raw_items)
-                if len(raw_items) < 50:
+                if len(raw_items) < REPOSITORIES_PER_PAGE:
                     break
     except (ClientError, TimeoutError) as error:
         raise GiteaOAuthClientError("Gitea OAuth недоступен", stage="network") from error

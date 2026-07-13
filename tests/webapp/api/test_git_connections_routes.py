@@ -174,7 +174,10 @@ async def test_failed_exchange_marks_connection_error_without_logging_oauth_code
         _host: str, _client_id: str, _redirect_uri: str, _code: str, _verifier: str
     ) -> GiteaIdentity:
         raise routes.GiteaOAuthClientError(
-            "provider detail with one-time-code", stage="token_exchange", status=401
+            "provider detail with one-time-code",
+            stage="token_exchange",
+            status=401,
+            reason="http_status",
         )
 
     monkeypatch.setattr(routes, "exchange_code", exchange)
@@ -201,6 +204,7 @@ async def test_failed_exchange_marks_connection_error_without_logging_oauth_code
         assert "stage=exchange" in caplog.text
         assert "provider_stage=token_exchange" in caplog.text
         assert "status=401" in caplog.text
+        assert "reason=http_status" in caplog.text
         assert "GiteaOAuthClientError" in caplog.text
         assert "one-time-code" not in caplog.text
     finally:

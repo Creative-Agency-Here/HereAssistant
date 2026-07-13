@@ -149,11 +149,14 @@ async def callback_handler(request: web.Request) -> web.StreamResponse:
     ) as error:
         provider_stage = getattr(error, "stage", "none")
         provider_status = getattr(error, "status", None)
+        provider_reason = getattr(error, "reason", "none")
         log.warning(
-            "Gitea OAuth callback отклонён: stage=%s provider_stage=%s status=%s error=%s",
+            "Gitea OAuth callback отклонён: "
+            "stage=%s provider_stage=%s status=%s reason=%s error=%s",
             stage,
             provider_stage,
             provider_status if provider_status is not None else "none",
+            provider_reason,
             type(error).__name__,
         )
         if claim is not None:

@@ -1,6 +1,12 @@
 import pytest
 
-from webapp.api.gitea_oauth import GiteaOAuthClientError, _repository
+from webapp.api.gitea_oauth import (
+    MAX_RESPONSE_BYTES,
+    REPOSITORIES_PER_PAGE,
+    GiteaOAuthClientError,
+    _json_response,
+    _repository,
+)
 
 
 def test_repository_metadata_uses_gitea_permissions() -> None:
@@ -23,3 +29,21 @@ def test_repository_metadata_uses_gitea_permissions() -> None:
 def test_repository_metadata_rejects_incomplete_payload() -> None:
     with pytest.raises(GiteaOAuthClientError, match="repository невалиден"):
         _repository({"id": 77, "name": "missing-owner-and-url"})
+
+
+@pytest.mark.asyncio
+async def test_repository_page_is_bounded_and_reports_oversize_without_body() -> None:
+    class Content:
+        async def read(self, _limit: int) -> bytes:
+            return b"x" * (MAX_RESPONSE_BYTES + 1)
+
+    class Response:
+        status = 200
+        content = Content()
+
+    assert REPOSITORIES_PER_PAGE == 10
+    with pytest.raises(GiteaOAuthClientError) as captured:
+        await _json_response(Response(), "repositories")
+    assert captured.value.stage == "repositories"
+    assert captured.value.status == 200
+    assert captured.value.reason == "response_too_large"
