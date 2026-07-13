@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 from collections.abc import Mapping
 from typing import TypedDict
 
@@ -43,6 +44,11 @@ class GitConnectionStartDTO(TypedDict):
 class GitRepositoryGrantRequestDTO(TypedDict):
     connection_id: int
     external_repository_id: str
+
+
+class GitRepositoryBulkGrantDTO(TypedDict):
+    repository_ids: list[str]
+    enabled: bool
 
 
 class GitConnectionDTO(TypedDict):
@@ -113,7 +119,29 @@ def parse_git_repository_grant(payload: object) -> GitRepositoryGrantRequestDTO 
     }
 
 
-def git_connection_to_dto(row: Mapping[str, object]) -> GitConnectionDTO:
+def parse_git_repository_bulk_grant(payload: object) -> GitRepositoryBulkGrantDTO | None:
+    if not isinstance(payload, dict) or not isinstance(payload.get("enabled"), bool):
+        return None
+    raw_ids = payload.get("repository_ids")
+    if not isinstance(raw_ids, list) or not 1 <= len(raw_ids) <= 250:
+        return None
+    repository_ids: list[str] = []
+    seen: set[str] = set()
+    for value in raw_ids:
+        if not isinstance(value, str):
+            return None
+        repository_id = value.strip()
+        if not repository_id or len(repository_id) > 255:
+            return None
+        if repository_id not in seen:
+            seen.add(repository_id)
+            repository_ids.append(repository_id)
+    if not repository_ids:
+        return None
+    return {"repository_ids": repository_ids, "enabled": payload["enabled"]}
+
+
+def git_connection_to_dto(row: sqlite3.Row | Mapping[str, object]) -> GitConnectionDTO:
     try:
         raw_scopes = json.loads(str(row["scopes_json"] or "[]"))
     except json.JSONDecodeError:

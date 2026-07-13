@@ -11,17 +11,17 @@ export default {
   theme: {
     extend: {
       colors: {
-        // тёмный технический стиль (Linear-вдохновлённый)
-        bg:    { DEFAULT: '#0e1116', soft: '#161a21', card: '#1c2128' },
-        line:  '#2a313c',
-        text:  { DEFAULT: '#e6e8eb', soft: '#9ba3af', dim: '#6b7280' },
-        accent:{ DEFAULT: '#7aa2ff', hover: '#94b4ff' },
-        ok:    '#3fb950',
-        warn:  '#d29922',
-        err:   '#f85149',
+        // Фирменная палитра HereCRM: WebApp ощущается продолжением admin panel.
+        bg:    { DEFAULT: '#0f0f11', soft: '#151518', card: '#1a1a1e' },
+        line:  '#2b2b31',
+        text:  { DEFAULT: '#f5f4f7', soft: '#aaa7b2', dim: '#77737f' },
+        accent:{ DEFAULT: '#ab60f6', hover: '#bc7af8' },
+        ok:    '#61d16c',
+        warn:  '#f3bd45',
+        err:   '#f06565',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+        sans: ['Core Sans', 'Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
         mono: ['JetBrains Mono', 'Consolas', 'Menlo', 'monospace'],
       },
     },

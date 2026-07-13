@@ -9,7 +9,11 @@ from aiohttp import web
 
 from core import config, git_connections, git_oauth, git_vault_client
 from webapp.api.gitea_oauth import GiteaOAuthClientError, exchange_code
-from webapp.api.models import git_connection_to_dto, parse_git_connection_start
+from webapp.api.models import (
+    git_connection_to_dto,
+    parse_git_connection_start,
+    parse_git_repository_bulk_grant,
+)
 
 MAX_JSON_BYTES = 16_384
 log = logging.getLogger(__name__)
@@ -233,6 +237,38 @@ async def repository_grant_handler(request: web.Request) -> web.Response:
     if row is None:
         return web.json_response({"error": "repository not found"}, status=404)
     return web.json_response({"enabled": bool(row["enabled"])})
+
+
+async def repository_bulk_grant_handler(request: web.Request) -> web.Response:
+    try:
+        connection_id = int(request.match_info["connection_id"])
+    except (KeyError, ValueError):
+        return web.json_response({"error": "invalid connection"}, status=400)
+    if request.content_length is not None and request.content_length > MAX_JSON_BYTES:
+        return web.json_response({"error": "invalid payload"}, status=400)
+    try:
+        payload = await request.json()
+    except (ValueError, web.HTTPException):
+        return web.json_response({"error": "invalid payload"}, status=400)
+    values = parse_git_repository_bulk_grant(payload)
+    if values is None:
+        return web.json_response({"error": "invalid payload"}, status=400)
+    try:
+        rows = git_connections.set_repositories_enabled(
+            _user_id(request),
+            connection_id,
+            values["repository_ids"],
+            values["enabled"],
+        )
+    except git_connections.GitConnectionError:
+        return web.json_response({"error": "repositories unavailable"}, status=404)
+    return web.json_response(
+        {
+            "updated": len(rows),
+            "enabled": values["enabled"],
+            "repository_ids": [str(row["external_repository_id"]) for row in rows],
+        }
+    )
 
 
 async def refresh_handler(request: web.Request) -> web.Response:

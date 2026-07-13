@@ -1,6 +1,7 @@
 from webapp.api.models import (
     git_connection_to_dto,
     parse_git_connection_start,
+    parse_git_repository_bulk_grant,
     parse_git_repository_grant,
     parse_task_create,
     parse_task_patch,
@@ -67,6 +68,14 @@ def test_git_repository_grant_uses_only_connection_and_external_id() -> None:
             "user_id": 999,
         }
     ) == {"connection_id": 42, "external_repository_id": "repo-1"}
+
+
+def test_git_repository_bulk_grant_normalizes_unique_ids() -> None:
+    assert parse_git_repository_bulk_grant(
+        {"repository_ids": [" 12 ", "12", "13"], "enabled": True}
+    ) == {"repository_ids": ["12", "13"], "enabled": True}
+    assert parse_git_repository_bulk_grant({"repository_ids": [], "enabled": True}) is None
+    assert parse_git_repository_bulk_grant({"repository_ids": ["12"], "enabled": 1}) is None
 
 
 def test_git_connection_response_never_serializes_vault_reference() -> None:

@@ -153,6 +153,10 @@ def create_app() -> web.Application:
         "/api/git/connections/{connection_id}/repositories",
         route_git_connections.repositories_handler,
     )
+    app.router.add_patch(
+        "/api/git/connections/{connection_id}/repositories",
+        route_git_connections.repository_bulk_grant_handler,
+    )
     app.router.add_post(
         "/api/git/connections/{connection_id}/repositories/{repository_id}/grant",
         route_git_connections.repository_grant_handler,

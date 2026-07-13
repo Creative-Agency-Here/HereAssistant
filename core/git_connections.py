@@ -353,6 +353,55 @@ def set_repository_enabled(
         ).fetchone()
 
 
+def set_repositories_enabled(
+    user_id: int,
+    connection_id: int,
+    external_repository_ids: list[str],
+    enabled: bool,
+) -> list[sqlite3.Row]:
+    """Атомарно меняет явный доступ к нескольким owner-scoped repositories."""
+    repository_ids = list(
+        dict.fromkeys(
+            _required_metadata(value, "external_repository_id") for value in external_repository_ids
+        )
+    )
+    if not repository_ids or len(repository_ids) > 250:
+        raise GitConnectionError("Некорректный список repositories")
+    placeholders = ",".join("?" for _ in repository_ids)
+    now = int(time.time())
+    with db.conn() as connection:
+        current = connection.execute(
+            "SELECT status FROM git_connections WHERE id=? AND user_id=?",
+            (connection_id, user_id),
+        ).fetchone()
+        if current is None or current["status"] != "active":
+            raise GitConnectionError("Git connection не активен или недоступен")
+        rows = connection.execute(
+            f"""SELECT external_repository_id FROM git_repository_grants
+                WHERE connection_id=?
+                  AND external_repository_id IN ({placeholders})""",
+            (connection_id, *repository_ids),
+        ).fetchall()
+        found = {str(row["external_repository_id"]) for row in rows}
+        if found != set(repository_ids):
+            raise GitConnectionError("Один или несколько repositories недоступны")
+        connection.execute(
+            f"""UPDATE git_repository_grants SET enabled=?,updated_at=?
+                WHERE connection_id=?
+                  AND external_repository_id IN ({placeholders})""",
+            (int(enabled), now, connection_id, *repository_ids),
+        )
+        return list(
+            connection.execute(
+                f"""SELECT * FROM git_repository_grants
+                    WHERE connection_id=?
+                      AND external_repository_id IN ({placeholders})
+                    ORDER BY owner_name,repository_name,id""",
+                (connection_id, *repository_ids),
+            )
+        )
+
+
 def mark_connection_refreshed(user_id: int, connection_id: int, expires_at: int) -> bool:
     now = int(time.time())
     if expires_at <= now:

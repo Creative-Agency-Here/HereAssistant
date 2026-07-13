@@ -7,24 +7,87 @@
   body {
     @apply bg-bg text-text font-sans antialiased;
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    background-image:
+      radial-gradient(circle at 70% -10%, rgba(171, 96, 246, 0.11), transparent 30rem),
+      radial-gradient(circle at 10% 90%, rgba(97, 209, 108, 0.05), transparent 26rem);
+    min-height: 100vh;
   }
   ::selection { @apply bg-accent/30; }
 }
 
 @layer components {
   .card {
-    @apply bg-bg-card border border-line rounded-xl p-4;
+    @apply bg-bg-card/90 border border-line rounded-2xl p-4;
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.16);
   }
   .btn {
-    @apply inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg
+    @apply inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl
            bg-bg-soft border border-line text-text-soft hover:text-text hover:border-accent/40
-           transition;
+           transition duration-200 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed;
   }
+  .btn-primary { @apply bg-accent text-white border-accent hover:bg-accent-hover hover:border-accent-hover; box-shadow: 0 8px 24px rgba(171, 96, 246, 0.2); }
+  .btn-quiet { @apply bg-transparent; }
   .btn-danger { @apply hover:border-err/50 hover:text-err; }
   .chip {
     @apply inline-flex items-center px-2 py-0.5 rounded-md text-xs
            bg-bg-soft border border-line text-text-soft;
   }
+  .app-shell { @apply min-h-screen flex; }
+  .app-sidebar { @apply hidden md:flex md:w-64 fixed inset-y-0 left-0 flex-col border-r border-line bg-bg/90 backdrop-blur-xl p-5 z-30; }
+  .app-main { @apply flex-1 min-w-0 md:pl-64; }
+  .app-content { @apply w-full max-w-6xl mx-auto p-4 pb-28 md:p-8 lg:p-10; }
+  .brand-block { @apply flex items-center gap-3 mb-8; }
+  .brand-mark { @apply size-10 rounded-2xl flex items-center justify-center font-black text-white bg-accent; box-shadow: 0 10px 30px rgba(171, 96, 246, 0.35); }
+  .brand-name { @apply text-sm font-bold tracking-tight truncate; }
+  .brand-caption { @apply text-[10px] uppercase tracking-[0.18em] text-text-dim mt-0.5; }
+  .nav-caption { @apply text-[10px] uppercase tracking-[0.16em] text-text-dim font-semibold px-3 mb-2; }
+  .nav-item { @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-text-soft hover:text-text hover:bg-bg-card transition text-sm; }
+  .nav-item svg { @apply size-[18px] shrink-0; }
+  .nav-item-active { @apply text-text bg-accent/10 border border-accent/15; }
+  .nav-item-active svg { @apply text-accent; }
+  .sidebar-footer { @apply mt-auto flex items-center gap-2 text-[11px] text-text-soft border border-line bg-bg-soft rounded-xl px-3 py-2.5; }
+  .mobile-tabs { @apply md:hidden fixed bottom-0 inset-x-0 z-40 bg-bg/90 backdrop-blur-xl border-t border-line flex px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]; }
+  .tab-item { @apply flex-1 flex flex-col items-center gap-1 py-2.5 text-text-dim text-[10px]; }
+  .tab-item svg { @apply size-5; }
+  .tab-item-active { @apply text-accent; }
+  .page-stack { @apply space-y-7; }
+  .page-header { @apply flex items-center gap-4 flex-wrap; }
+  .eyebrow { @apply text-[10px] font-bold uppercase tracking-[0.18em] text-accent; }
+  .page-title { @apply text-2xl md:text-3xl font-bold tracking-tight mt-1; }
+  .page-description { @apply w-full text-sm text-text-soft max-w-2xl leading-relaxed; }
+  .header-status { @apply ml-auto inline-flex items-center gap-2 rounded-full border border-line bg-bg-soft px-3 py-1.5 text-xs text-text-soft; }
+  .status-orb { @apply size-2 rounded-full bg-text-dim shrink-0; }
+  .status-orb-active { @apply bg-ok; box-shadow: 0 0 12px rgba(97, 209, 108, 0.7); }
+  .status-dot { @apply size-1.5 rounded-full bg-current shrink-0; }
+  .notice { @apply rounded-2xl border px-4 py-3 text-sm; }
+  .notice-ok { @apply border-ok/25 bg-ok/5 text-ok; }
+  .notice-error { @apply border-err/25 bg-err/5 text-err; }
+  .section-heading { @apply flex items-center gap-3; }
+  .section-heading h2 { @apply text-sm font-bold; }
+  .section-heading p { @apply text-xs text-text-dim mt-1; }
+  .count-badge { @apply ml-auto min-w-7 h-7 px-2 inline-flex items-center justify-center rounded-lg bg-accent/10 text-accent text-xs font-bold; }
+  .integration-card { @apply bg-bg-card/90 border border-line rounded-[1.25rem] overflow-hidden; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.16); }
+  .integration-summary { @apply flex items-start gap-3 p-4 md:p-5; }
+  .provider-mark { @apply size-11 rounded-2xl bg-accent/10 border border-accent/15 text-accent flex items-center justify-center text-xs font-black; }
+  .connection-status { @apply inline-flex items-center gap-1.5 text-xs; }
+  .integration-actions { @apply flex gap-2 px-4 md:px-5 pb-4 md:pb-5 flex-wrap; }
+  .integration-repositories { @apply border-t border-line bg-bg/30; }
+  .repository-toolbar { @apply flex items-center gap-3 p-3 md:p-4 border-b border-line flex-wrap; }
+  .search-field { @apply flex-1 min-w-[14rem] flex items-center gap-2 rounded-xl border border-line bg-bg-soft px-3 py-2 text-text-soft focus-within:border-accent/60 focus-within:ring-2 focus-within:ring-accent/10 transition; }
+  .search-field svg { @apply size-4 shrink-0 text-text-dim; }
+  .search-field input { @apply min-w-0 flex-1 bg-transparent outline-none text-sm text-text placeholder:text-text-dim; }
+  .bulk-bar { @apply min-h-12 flex items-center gap-3 px-3 md:px-4 py-2 border-b border-line bg-bg-soft/40 flex-wrap; }
+  .bulk-select { @apply inline-flex items-center gap-2 text-xs font-semibold text-text-soft hover:text-text transition; }
+  .selection-count { @apply text-xs text-accent font-semibold; }
+  .check-box { @apply size-[18px] rounded-md border border-line bg-bg flex items-center justify-center text-white shrink-0 transition; }
+  .check-box svg { @apply size-3; }
+  .check-box-active { @apply bg-accent border-accent; box-shadow: 0 0 0 3px rgba(171, 96, 246, 0.1); }
+  .repository-state { @apply px-4 py-8 text-center text-sm text-text-dim; }
+  .repository-list { @apply divide-y divide-line max-h-[28rem] overflow-y-auto; }
+  .repository-row { @apply w-full flex items-center gap-3 p-3 md:px-4 text-left hover:bg-white/[0.025] transition; }
+  .repo-mark { @apply size-9 rounded-xl bg-bg-soft border border-line flex items-center justify-center text-xs font-bold text-text-soft shrink-0; }
+  .access-badge { @apply inline-flex items-center gap-1.5 rounded-full bg-bg-soft border border-line px-2.5 py-1 text-[10px] text-text-dim shrink-0; }
+  .access-badge-active { @apply border-ok/25 bg-ok/5 text-ok; }
 }
 
 /* Рендер markdown в просмотре диалога (.md) */

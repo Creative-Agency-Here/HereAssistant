@@ -120,6 +120,25 @@ async def test_gitea_connection_flow_is_owner_scoped_and_token_free_in_database(
         )
         assert granted.status == 200
         assert (await granted.json())["enabled"] is True
+        bulk = await client.patch(
+            f"/api/git/connections/{started_payload['connection_id']}/repositories",
+            json={"repository_ids": ["77"], "enabled": False},
+        )
+        assert bulk.status == 200
+        assert await bulk.json() == {
+            "updated": 1,
+            "enabled": False,
+            "repository_ids": ["77"],
+        }
+        invalid_bulk = await client.patch(
+            f"/api/git/connections/{started_payload['connection_id']}/repositories",
+            json={"repository_ids": ["77", "foreign"], "enabled": True},
+        )
+        assert invalid_bulk.status == 404
+        after_invalid = git_connections.list_repository_grants(
+            100, started_payload["connection_id"]
+        )
+        assert after_invalid[0]["enabled"] == 0
         denied_foreign = await client.post(
             f"/api/git/connections/{started_payload['connection_id']}/repositories/999/grant"
         )

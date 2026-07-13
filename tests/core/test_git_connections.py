@@ -213,6 +213,51 @@ def test_repository_catalog_defaults_disabled_and_preserves_explicit_selection(
     assert next(row for row in rows if row["external_repository_id"] == "2")["enabled"] == 0
 
 
+def test_repository_catalog_bulk_selection_is_atomic_and_owner_scoped(
+    connection_db: Path,
+) -> None:
+    current = git_connections.create_pending_connection(100, "gitea", "git.example.com")
+    git_connections.activate_connection(
+        100,
+        current["id"],
+        external_user_id="42",
+        external_login="alice",
+        avatar_url=None,
+        vault_ref=f"vault://git/100/{current['id']}/primary",
+        scopes=["write:repository"],
+        expires_at=None,
+    )
+    git_connections.sync_repository_catalog(
+        100,
+        current["id"],
+        [
+            git_connections.RepositoryMetadata(
+                str(index),
+                "alice",
+                f"repo-{index}",
+                f"https://git.example.com/alice/repo-{index}.git",
+                "main",
+                "write",
+            )
+            for index in range(1, 4)
+        ],
+    )
+
+    rows = git_connections.set_repositories_enabled(100, current["id"], ["1", "2"], True)
+    assert {row["external_repository_id"] for row in rows} == {"1", "2"}
+    assert all(row["enabled"] == 1 for row in rows)
+
+    with pytest.raises(git_connections.GitConnectionError, match="недоступны"):
+        git_connections.set_repositories_enabled(100, current["id"], ["2", "missing"], False)
+    states = {
+        row["external_repository_id"]: row["enabled"]
+        for row in git_connections.list_repository_grants(100, current["id"])
+    }
+    assert states == {"1": 1, "2": 1, "3": 0}
+    with pytest.raises(git_connections.GitConnectionError, match="недоступен"):
+        git_connections.set_repositories_enabled(200, current["id"], ["1"], False)
+
+
 def test_expired_connection_is_marked_before_listing(connection_db: Path) -> None:
     current = git_connections.create_pending_connection(100, "gitea", "git.example.com")
     git_connections.activate_connection(
