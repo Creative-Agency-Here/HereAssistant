@@ -384,10 +384,13 @@ def validate_request(
     profile = config.accounts.get(account)
     if profile is None or profile.provider != provider:
         raise RunnerDenied("account/provider не разрешены runner config")
-    actual_home = Path(cli_home).resolve(strict=True)
+    try:
+        actual_home = Path(cli_home).resolve(strict=True)
+        actual_cwd = Path(cwd).resolve(strict=True)
+    except OSError as error:
+        raise RunnerDenied("provider path недоступен") from error
     if actual_home != profile.cli_home:
         raise RunnerDenied("cli_home не совпадает с runner config")
-    actual_cwd = Path(cwd).resolve(strict=True)
     if not any(_inside(actual_cwd, root) for root in config.project_roots):
         raise RunnerDenied("cwd вне разрешённых project_roots")
     if not command or command[0] != PROVIDER_COMMANDS[provider]:
@@ -400,7 +403,10 @@ def validate_git_request(
 ) -> Path:
     if not config.git_broker:
         raise RunnerDenied("Git разрешён только в отдельном broker config")
-    actual_cwd = Path(cwd).resolve(strict=True)
+    try:
+        actual_cwd = Path(cwd).resolve(strict=True)
+    except OSError as error:
+        raise RunnerDenied("Git cwd недоступен") from error
     if user_id != config.user_id or not any(
         _inside(actual_cwd, root) for root in config.project_roots
     ):

@@ -134,6 +134,21 @@ def test_validate_request_fails_closed(runner_config: RunnerConfig, field: str) 
         validate(runner_config, **values)  # type: ignore[arg-type]
 
 
+def test_validate_request_normalizes_unavailable_path_to_denial(
+    runner_config: RunnerConfig,
+) -> None:
+    with pytest.raises(RunnerDenied, match="provider path недоступен"):
+        validate(
+            runner_config,
+            user_id=100,
+            provider="claude_code",
+            account="claude-main",
+            cli_home=str(runner_config.accounts["claude-main"].cli_home),
+            cwd=str(runner_config.project_roots[0] / "missing"),
+            command=["claude"],
+        )
+
+
 def test_provider_environment_contains_no_application_secrets(
     runner_config: RunnerConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -231,6 +246,18 @@ def test_git_request_allowlist_accepts_status_and_safe_clone(
         )
         == root
     )
+
+
+def test_git_request_normalizes_unavailable_path_to_denial(
+    git_runner_config: RunnerConfig,
+) -> None:
+    with pytest.raises(RunnerDenied, match="Git cwd недоступен"):
+        validate_git_request(
+            git_runner_config,
+            user_id=100,
+            cwd=str(git_runner_config.project_roots[0] / "missing"),
+            command=["git", "status", "--short", "--branch"],
+        )
 
 
 @pytest.mark.parametrize(
