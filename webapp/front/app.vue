@@ -1,5 +1,5 @@
 <template>
-  <BrowserAuthGate
+  <AuthBrowserAuthGate
     v-if="state !== 'authorized'"
     :state="state"
     :crm-login-url="crmLoginUrl"
