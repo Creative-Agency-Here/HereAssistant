@@ -232,6 +232,7 @@ WEBAPP_ACCESS_KEY: str = os.environ.get("WEBAPP_ACCESS_KEY", "").strip()
 # никогда не записывается в SQLite/логи. Пустой URL или токен = sync выключен.
 HERECRM_SYNC_URL: str = os.environ.get("HERECRM_SYNC_URL", "").strip().rstrip("/")
 HERECRM_SYNC_TOKEN: str = os.environ.get("HERECRM_SYNC_TOKEN", "").strip()
+HERECRM_WEB_URL: str = os.environ.get("HERECRM_WEB_URL", "").strip().rstrip("/")
 HERECRM_SYNC_ORIGIN: str = os.environ.get("HERECRM_SYNC_ORIGIN", "").strip() or socket.gethostname()
 HERECRM_SYNC_INTERVAL_SEC: float = float(os.environ.get("HERECRM_SYNC_INTERVAL_SEC", "5"))
 

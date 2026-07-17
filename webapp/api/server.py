@@ -21,10 +21,12 @@ from aiohttp import web
 from aiohttp.abc import AbstractAccessLogger
 
 from core import config
+from webapp.api import browser_session
 from webapp.api.auth import validate_init_data
 from webapp.api.routes import changes as route_changes
 from webapp.api.routes import connections as route_connections
 from webapp.api.routes import crm_activity as route_crm_activity
+from webapp.api.routes import crm_auth as route_crm_auth
 from webapp.api.routes import git_connections as route_git_connections
 from webapp.api.routes import history as route_history
 from webapp.api.routes import now as route_now
@@ -76,6 +78,11 @@ async def auth_middleware(request: web.Request, handler):
     # single-use HMAC-bound state is validated inside the route.
     if request.path == "/api/git/oauth/callback/gitea":
         return await handler(request)
+    # До обмена CRM-тикета собственной сессии HereAssistant ещё нет.
+    if request.path == "/api/auth/crm/exchange":
+        return await handler(request)
+    if request.path == "/api/auth/config":
+        return await handler(request)
 
     # Сервисный API (/api/v1/*) — ТОЛЬКО Bearer SERVICE_API_TOKEN.
     # Пустой токен = сервисный API отключён (503), а не открыт.
@@ -105,6 +112,8 @@ async def auth_middleware(request: web.Request, handler):
         key = request.headers.get("X-Access-Key", "") or request.query.get("key", "")
         if key and hmac.compare_digest(key, config.WEBAPP_ACCESS_KEY):
             user = {"id": config.ADMIN_ID or 0, "first_name": "key", "username": "key"}
+    if not user:
+        user = browser_session.read(request.cookies.get(browser_session.COOKIE_NAME, ""))
     if not user:
         return web.json_response({"error": "unauthorized"}, status=401)
 
@@ -153,6 +162,9 @@ def create_app() -> web.Application:
     app.router.add_get("/api/health", health)
     app.router.add_get("/health", health)  # alias для nginx/uptime-мониторинга
     app.router.add_get("/api/status", route_status.handler)
+    app.router.add_get("/api/auth/session", route_crm_auth.session_handler)
+    app.router.add_get("/api/auth/config", route_crm_auth.config_handler)
+    app.router.add_post("/api/auth/crm/exchange", route_crm_auth.exchange_handler)
     app.router.add_get("/api/now", route_now.handler)
     app.router.add_get("/api/history", route_history.list_handler)
     app.router.add_get("/api/history/{conv_id}", route_history.get_handler)

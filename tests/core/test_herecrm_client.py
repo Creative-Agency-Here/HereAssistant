@@ -35,3 +35,23 @@ def test_endpoint_requires_token(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(herecrm_client.HereCrmClientError):
         herecrm_client.endpoint("conversations")
+
+
+@pytest.mark.asyncio
+async def test_sso_exchange_uses_scoped_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called: tuple[str, dict[str, str]] | None = None
+
+    async def post(path: str, payload: dict[str, str]) -> dict[str, object]:
+        nonlocal called
+        called = (path, payload)
+        return {"userId": 7, "tenantId": "tenant-id"}
+
+    monkeypatch.setattr(herecrm_client, "_post", post)
+
+    assert await herecrm_client.exchange_sso_ticket("hat_ticket") == {
+        "userId": 7,
+        "tenantId": "tenant-id",
+    }
+    assert called == ("sso/exchange", {"ticket": "hat_ticket"})

@@ -58,6 +58,29 @@ async def _get(path: str, params: dict[str, str] | None = None) -> Any:
         raise HereCrmClientError("crm_unavailable", 502) from error
 
 
+async def _post(path: str, payload: dict[str, str]) -> Any:
+    timeout = aiohttp.ClientTimeout(total=15)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                endpoint(path),
+                json=payload,
+                headers={"Authorization": f"Bearer {config.HERECRM_SYNC_TOKEN}"},
+            ) as response:
+                if response.status in (401, 403):
+                    raise HereCrmClientError("crm_sso_denied", 403)
+                if response.status >= 400:
+                    raise HereCrmClientError("crm_unavailable", 502)
+                try:
+                    return await response.json()
+                except (aiohttp.ContentTypeError, ValueError) as error:
+                    raise HereCrmClientError("crm_invalid_response", 502) from error
+    except HereCrmClientError:
+        raise
+    except (aiohttp.ClientError, asyncio.TimeoutError) as error:
+        raise HereCrmClientError("crm_unavailable", 502) from error
+
+
 async def conversations(*, channel: str | None = None, provider: str | None = None) -> Any:
     params = {
         key: value
@@ -77,3 +100,7 @@ async def feed(conversation_id: str, *, cursor: str | None = None, limit: int = 
         params["cursor"] = cursor
     safe_id = quote(conversation_id, safe="")
     return await _get(f"conversations/{safe_id}/feed", params)
+
+
+async def exchange_sso_ticket(ticket: str) -> Any:
+    return await _post("sso/exchange", {"ticket": ticket})

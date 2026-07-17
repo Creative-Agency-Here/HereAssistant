@@ -32,6 +32,8 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       apiBase: process.env.NUXT_PUBLIC_API_BASE ?? '',
+      crmApiBase: process.env.NUXT_PUBLIC_CRM_API_BASE ?? '',
+      crmWebUrl: process.env.NUXT_PUBLIC_CRM_WEB_URL ?? '',
     },
   },
   nitro: {

@@ -1,5 +1,11 @@
 <template>
-  <div class="app-shell">
+  <BrowserAuthGate
+    v-if="state !== 'authorized'"
+    :state="state"
+    :crm-login-url="crmLoginUrl"
+    @retry="check"
+  />
+  <div v-else class="app-shell">
     <aside class="app-sidebar">
       <div class="brand-block">
         <div class="brand-mark brand-mark-logo"><GitHereGitMark /></div>
@@ -51,4 +57,5 @@
 <script setup lang="ts">
 const route = useRoute()
 const activityDetail = computed(() => /^\/activity\/[^/]+/.test(route.path))
+const { state, crmLoginUrl, check } = useBrowserAuth()
 </script>
