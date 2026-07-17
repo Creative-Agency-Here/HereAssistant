@@ -61,10 +61,19 @@ async def config_handler(_request: web.Request) -> web.Response:
         if parsed.scheme == "https" and parsed.netloc
         else ""
     )
+    crm_web_url = config.HERECRM_WEB_URL or derived_web_url
+    web_parsed = urlparse(crm_web_url)
+    # CRM ставит host-only cookie на web-origin. Поэтому browser SSO должен идти
+    # через его same-origin /api/v1, а server-to-server sync остаётся на api.*.
+    browser_api_base = (
+        f"{web_parsed.scheme}://{web_parsed.netloc}/api/v1"
+        if web_parsed.scheme == "https" and web_parsed.netloc
+        else config.HERECRM_SYNC_URL
+    )
     return web.json_response(
         {
-            "crmApiBase": config.HERECRM_SYNC_URL,
-            "crmWebUrl": config.HERECRM_WEB_URL or derived_web_url,
+            "crmApiBase": browser_api_base,
+            "crmWebUrl": crm_web_url,
         },
         headers={"Cache-Control": "no-store, max-age=0"},
     )

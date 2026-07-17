@@ -74,7 +74,7 @@ async def test_public_config_contains_urls_but_not_sync_token(
     body = json.loads(response.text)
 
     assert body == {
-        "crmApiBase": "https://api.example.com/api/v1",
+        "crmApiBase": "https://crm.example.com/api/v1",
         "crmWebUrl": "https://crm.example.com",
     }
     assert "has_must_stay_server_side" not in response.text
