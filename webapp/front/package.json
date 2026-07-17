@@ -7,7 +7,8 @@
     "dev": "nuxt dev --port 3000",
     "build": "nuxt build",
     "generate": "nuxt generate",
-    "preview": "nuxt preview"
+    "preview": "nuxt preview",
+    "test:activity": "node --test tests/activity-events.test.mjs"
   },
   "devDependencies": {
     "@nuxtjs/tailwindcss": "^6.12.0",

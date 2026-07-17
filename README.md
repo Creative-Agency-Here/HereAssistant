@@ -111,12 +111,27 @@ connection status for Telegram, terminal CLI and CRM. CRM data is visible only t
 - **Edits** — a per-file journal of every change the agent made, with full unified diffs.
 - **Connections** — safe provider metadata and CLI launch guidance; credentials and auth-home paths are never returned.
 
+### Verified action details
+
+Read, Edit, Write, Bash and Agent calls now expand into structured mobile cards: file contents, visual diffs, exact commands, bounded output, status, duration and token counts where available. The pull-up bottom sheet and all five modes are locked by automated tests and real 390 × 844 screenshots.
+
+<table>
+  <tr>
+    <td><img src="docs/img/activity/activity-read.png" alt="Read action detail" width="250"></td>
+    <td><img src="docs/img/activity/activity-edit.png" alt="Edit action detail" width="250"></td>
+    <td><img src="docs/img/activity/activity-bash.png" alt="Bash action detail" width="250"></td>
+  </tr>
+</table>
+
+Full verified gallery and reproducible checks: [docs/mobile-activity-proof.md](docs/mobile-activity-proof.md).
+
 ## Docs
 
 - [Onboarding & authorization path](docs/onboarding.md) — BotFather token → claim code → owner, adding teammates, `/logout` (with a flow diagram)
 - [Ubuntu production runbook](docs/ubuntu-pm2-nginx.md)
 - [Providers & auth homes](docs/providers.md)
 - [Privacy modes](docs/privacy.md)
+- [Verified mobile activity and screenshot proof](docs/mobile-activity-proof.md)
 - [Security model](SECURITY.md) — this is a remote-code-execution gateway by design; read before deploying
 - [Contributing](CONTRIBUTING.md)
 

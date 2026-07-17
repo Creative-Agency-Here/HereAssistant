@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { CrmSession, FeedEvent, FeedItem, FeedPage } from '~/types/activity'
 import { channelLabel, providerLabel } from '~/types/activity'
+import { eventIcon, eventSummary, eventTitle } from '~/utils/activityEvents.mjs'
 
 type TimelineEntry =
   | { kind: 'message'; key: string; item: Extract<FeedItem, { kind: 'message' }> }
@@ -33,15 +34,6 @@ const timeline = computed<TimelineEntry[]>(() => {
 
 function dateTime(value: string) {
   return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
-}
-
-function eventTitle(event: FeedEvent) {
-  return event.payload?.name || ({ tool_call: 'Инструмент', status: 'Статус', file_change: 'Изменение файла' } as Record<string, string>)[event.eventType] || event.eventType || 'Действие'
-}
-
-function eventDetail(event: FeedEvent) {
-  if (typeof event.payload?.detail === 'string' && event.payload.detail) return event.payload.detail
-  return 'Подробности не переданы источником.'
 }
 
 function showEvents(events: FeedEvent[]) {
@@ -100,10 +92,10 @@ watch(feed, () => nextTick(scrollDown))
           </article>
 
           <button v-else class="tool-event-group" type="button" @click="showEvents(entry.events)">
-            <span class="tool-event-icon">⌘</span>
+            <span class="tool-event-icon">{{ entry.events.length === 1 ? eventIcon(entry.events[0]) : '⌘' }}</span>
             <span class="min-w-0">
               <strong>{{ entry.events.length === 1 ? eventTitle(entry.events[0]) : `${entry.events.length} действий ассистента` }}</strong>
-              <small>{{ entry.events.length === 1 ? eventDetail(entry.events[0]) : entry.events.map(eventTitle).slice(0, 3).join(' · ') }}</small>
+              <small>{{ entry.events.length === 1 ? eventSummary(entry.events[0]) : entry.events.map(eventTitle).slice(0, 3).join(' · ') }}</small>
             </span>
             <b>›</b>
           </button>
@@ -129,20 +121,17 @@ watch(feed, () => nextTick(scrollDown))
       :open="selectedEvents.length > 0"
       :title="selectedEvent ? eventTitle(selectedEvent) : 'Действия ассистента'"
       tall
+      :expanded="Boolean(selectedEvent)"
       @close="closeSheet"
     >
       <template v-if="selectedEvent">
         <button v-if="selectedEvents.length > 1" class="sheet-back-button" type="button" @click="selectedEvent = null">‹ Все действия</button>
-        <div class="event-detail-card">
-          <span>{{ selectedEvent.eventType }}</span>
-          <p>{{ eventDetail(selectedEvent) }}</p>
-          <time>{{ dateTime(selectedEvent.createdAt) }}</time>
-        </div>
+        <ActivityEventDetail :event="selectedEvent" :formatted-time="dateTime(selectedEvent.createdAt)" />
       </template>
       <div v-else class="sheet-event-list">
         <button v-for="item in selectedEvents" :key="item.id" type="button" @click="selectedEvent = item">
-          <span class="tool-event-icon">⌘</span>
-          <span><strong>{{ eventTitle(item) }}</strong><small>{{ eventDetail(item) }}</small></span>
+          <span class="tool-event-icon">{{ eventIcon(item) }}</span>
+          <span><strong>{{ eventTitle(item) }}</strong><small>{{ eventSummary(item) }}</small></span>
           <b>›</b>
         </button>
       </div>

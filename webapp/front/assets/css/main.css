@@ -285,9 +285,10 @@
   .connection-git-link b { @apply text-xl font-normal text-text-dim; }
 
   .sheet-backdrop { @apply fixed inset-0 z-[80] flex items-end justify-center bg-black/65 backdrop-blur-sm; }
-  .activity-sheet { @apply flex max-h-[72dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-[2rem] border border-b-0 border-line bg-bg-card; padding-bottom: env(safe-area-inset-bottom); }
-  .activity-sheet-tall { @apply max-h-[88dvh]; }
-  .sheet-handle { @apply mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-white/20; }
+  .activity-sheet { @apply flex max-h-[72dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-[2rem] border border-b-0 border-line bg-bg-card transition-[max-height,transform] duration-300; padding-bottom: env(safe-area-inset-bottom); }
+  .activity-sheet-tall { @apply h-[92dvh] max-h-[92dvh]; }
+  .sheet-handle-button { @apply flex h-6 shrink-0 touch-none items-center justify-center; }
+  .sheet-handle { @apply h-1 w-10 rounded-full bg-white/20; }
   .sheet-header { @apply grid min-h-16 shrink-0 grid-cols-[3rem_1fr_3rem] items-center border-b border-line px-3; }
   .sheet-header h2 { @apply truncate px-2 text-center text-sm font-semibold; }
   .sheet-close { @apply flex size-12 items-center justify-center rounded-full text-2xl font-light text-text-soft; }
@@ -333,10 +334,38 @@
   .sheet-back-button { @apply mb-3 min-h-11 rounded-xl px-2 text-sm font-semibold text-accent; }
   .sheet-event-list { @apply space-y-2; }
   .sheet-event-list button { @apply flex min-h-16 w-full items-center gap-3 rounded-xl border border-line bg-bg-soft p-3 text-left transition hover:border-accent/30; }
-  .event-detail-card { @apply rounded-2xl border border-line bg-bg-soft p-4; }
-  .event-detail-card > span { @apply inline-flex rounded-lg border border-line bg-bg px-2 py-1 font-mono text-[10px] text-accent; }
-  .event-detail-card p { @apply whitespace-pre-wrap break-words py-5 text-sm leading-relaxed text-text-soft; }
-  .event-detail-card time { @apply text-[11px] text-text-dim; }
+  .event-detail { @apply space-y-3; }
+  .event-detail-hero { @apply flex items-center gap-3 rounded-2xl border border-line bg-bg-soft p-3; }
+  .event-detail-icon { @apply flex size-10 shrink-0 items-center justify-center rounded-xl border border-accent/20 bg-accent/10 font-mono text-xs font-bold text-accent; }
+  .event-detail-hero strong { @apply block truncate text-sm; }
+  .event-detail-hero small { @apply mt-0.5 block truncate text-[11px] text-text-dim; }
+  .event-status { @apply inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-semibold; }
+  .event-status i { @apply size-1.5 rounded-full not-italic; }
+  .event-status.is-success { @apply border-ok/20 bg-ok/10 text-ok; }
+  .event-status.is-success i { @apply bg-ok; }
+  .event-status.is-error { @apply border-err/20 bg-err/10 text-err; }
+  .event-status.is-error i { @apply bg-err; }
+  .event-status.is-running { @apply border-warn/20 bg-warn/10 text-warn; }
+  .event-status.is-running i { @apply bg-warn; }
+  .event-facts { @apply overflow-hidden rounded-2xl border border-line bg-bg-soft; }
+  .event-facts div { @apply grid grid-cols-[4.5rem_1fr] gap-2 border-b border-line/70 px-3 py-2.5 last:border-0; }
+  .event-facts dt { @apply text-[10px] uppercase tracking-wide text-text-dim; }
+  .event-facts dd { @apply min-w-0 break-all font-mono text-[11px] text-text-soft; }
+  .event-section { @apply overflow-hidden rounded-2xl border border-line bg-bg-soft; }
+  .event-section > h3, .event-section > header { @apply flex min-h-10 items-center border-b border-line/70 px-3; }
+  .event-section h3 { @apply text-[10px] font-bold uppercase tracking-[.12em] text-text-dim; }
+  .event-section header button { @apply ml-auto min-h-8 rounded-lg px-2 text-[10px] font-semibold text-accent; }
+  .event-task { @apply whitespace-pre-wrap break-words p-3 text-xs leading-relaxed text-text-soft; }
+  .event-code, .event-output, .event-diff { @apply max-h-72 overflow-auto p-3 font-mono text-[11px] leading-relaxed text-text-soft; }
+  .event-output { @apply text-ok/90; }
+  .event-diff { @apply p-0; }
+  .event-diff code { @apply block py-2; }
+  .event-diff span { @apply flex min-w-max px-3 py-0.5; }
+  .event-diff span b { @apply mr-2 w-3 select-none text-center font-normal; }
+  .event-diff .diff-add { @apply bg-ok/10 text-ok; }
+  .event-diff .diff-remove { @apply bg-err/10 text-err; }
+  .event-fallback { @apply rounded-2xl border border-line bg-bg-soft p-4 text-sm leading-relaxed text-text-soft; }
+  .event-detail-footer { @apply flex flex-wrap items-center gap-x-3 gap-y-1 px-1 pb-2 text-[10px] text-text-dim; }
 }
 
 @media (min-width: 768px) {

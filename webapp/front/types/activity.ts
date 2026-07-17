@@ -63,7 +63,28 @@ export interface FeedMessage {
 export interface FeedEvent {
   id: number
   eventType: string
-  payload: { name?: string; detail?: string | null; [key: string]: unknown } | null
+  payload: {
+    name?: string
+    detail?: string | null
+    kind?: 'read' | 'edit' | 'write' | 'bash' | 'agent' | 'other'
+    path?: string
+    command?: string
+    cwd?: string
+    content?: string
+    before?: string
+    after?: string
+    output?: string
+    task?: string
+    agentName?: string
+    lineStart?: number
+    lineCount?: number
+    status?: 'running' | 'success' | 'error'
+    exitCode?: number
+    durationMs?: number
+    tokensIn?: number
+    tokensOut?: number
+    [key: string]: unknown
+  } | null
   createdAt: string
 }
 

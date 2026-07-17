@@ -139,6 +139,20 @@ CLI/Telegram-каналы, недельные и 30-дневные отчёты.
 - **Правки** — журнал изменений по файлам с полными diff.
 - **Подключения** — безопасные метаданные профилей и команда запуска CLI; credentials и auth-home пути API не возвращает.
 
+### Проверенные подробности действий
+
+Вызовы Read, Edit, Write, Bash и Agent раскрываются в структурированные мобильные карточки: содержимое файлов, визуальный diff, точная команда, ограниченный вывод, статус, длительность и токены, когда они доступны. Pull-up bottom sheet и все пять режимов зафиксированы автотестами и настоящими скриншотами 390 × 844.
+
+<table>
+  <tr>
+    <td><img src="docs/img/activity/activity-read.png" alt="Подробности Read" width="250"></td>
+    <td><img src="docs/img/activity/activity-edit.png" alt="Подробности Edit" width="250"></td>
+    <td><img src="docs/img/activity/activity-bash.png" alt="Подробности Bash" width="250"></td>
+  </tr>
+</table>
+
+Полная проверенная галерея и воспроизводимые команды: [docs/mobile-activity-proof.ru.md](docs/mobile-activity-proof.ru.md).
+
 ## Процессы и запуск (PM2)
 
 Конфиг — `ecosystem.config.js` в корне проекта.
