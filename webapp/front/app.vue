@@ -14,8 +14,8 @@
         <NuxtLink to="/" class="nav-item" active-class="nav-item-active">
           <AppNavIcon name="now" />Сейчас
         </NuxtLink>
-        <NuxtLink to="/history" class="nav-item" active-class="nav-item-active">
-          <AppNavIcon name="history" />История
+        <NuxtLink to="/activity" class="nav-item" active-class="nav-item-active">
+          <AppNavIcon name="activity" />Активность
         </NuxtLink>
         <NuxtLink to="/edits" class="nav-item" active-class="nav-item-active">
           <AppNavIcon name="edits" />Правки
@@ -35,15 +35,20 @@
     </aside>
 
     <main class="app-main">
-      <div class="app-content"><NuxtPage /></div>
+      <div class="app-content" :class="activityDetail ? 'app-content-detail' : ''"><NuxtPage /></div>
     </main>
 
-    <nav class="mobile-tabs">
+    <nav v-if="!activityDetail" class="mobile-tabs">
       <NuxtLink to="/" class="tab-item" active-class="tab-item-active"><AppNavIcon name="now" /><span>Сейчас</span></NuxtLink>
-      <NuxtLink to="/history" class="tab-item" active-class="tab-item-active"><AppNavIcon name="history" /><span>История</span></NuxtLink>
+      <NuxtLink to="/activity" class="tab-item" active-class="tab-item-active"><AppNavIcon name="activity" /><span>Активность</span></NuxtLink>
       <NuxtLink to="/edits" class="tab-item" active-class="tab-item-active"><AppNavIcon name="edits" /><span>Правки</span></NuxtLink>
       <NuxtLink to="/stats" class="tab-item" active-class="tab-item-active"><AppNavIcon name="stats" /><span>RTK</span></NuxtLink>
       <NuxtLink to="/settings" class="tab-item" active-class="tab-item-active"><AppNavIcon name="git" /><span>Git</span></NuxtLink>
     </nav>
   </div>
 </template>
+
+<script setup lang="ts">
+const route = useRoute()
+const activityDetail = computed(() => /^\/activity\/[^/]+/.test(route.path))
+</script>

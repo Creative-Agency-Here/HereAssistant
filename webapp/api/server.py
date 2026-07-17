@@ -23,6 +23,8 @@ from aiohttp.abc import AbstractAccessLogger
 from core import config
 from webapp.api.auth import validate_init_data
 from webapp.api.routes import changes as route_changes
+from webapp.api.routes import connections as route_connections
+from webapp.api.routes import crm_activity as route_crm_activity
 from webapp.api.routes import git_connections as route_git_connections
 from webapp.api.routes import history as route_history
 from webapp.api.routes import now as route_now
@@ -155,6 +157,13 @@ def create_app() -> web.Application:
     app.router.add_get("/api/history", route_history.list_handler)
     app.router.add_get("/api/history/{conv_id}", route_history.get_handler)
     app.router.add_get("/api/changes", route_changes.list_handler)
+    app.router.add_get("/api/connections", route_connections.handler)
+    app.router.add_get("/api/crm/conversations", route_crm_activity.conversations_handler)
+    app.router.add_get("/api/crm/digest", route_crm_activity.digest_handler)
+    app.router.add_get(
+        "/api/crm/conversations/{conversation_id}/feed",
+        route_crm_activity.feed_handler,
+    )
     app.router.add_get("/api/rtk", route_rtk.handler)
     app.router.add_get("/api/git/connections", route_git_connections.list_handler)
     app.router.add_post("/api/git/connections/start", route_git_connections.start_handler)

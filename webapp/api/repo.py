@@ -160,6 +160,27 @@ def get_conversation(conv_id: int, user_id: int) -> Optional[dict]:
     return out
 
 
+def list_cli_accounts(user_id: int) -> list[dict]:
+    """Доступные пользователю CLI-профили без auth-home и других секретов."""
+    with db.conn() as c:
+        rows = c.execute(
+            """SELECT provider, label, default_model, shared
+               FROM accounts
+               WHERE enabled=1 AND (owner_user_id=? OR shared=1)
+               ORDER BY shared, label""",
+            (user_id,),
+        ).fetchall()
+    return [
+        {
+            "provider": str(row["provider"]),
+            "label": str(row["label"]),
+            "defaultModel": row["default_model"],
+            "shared": bool(row["shared"]),
+        }
+        for row in rows
+    ]
+
+
 # ---------- журнал изменений файлов ----------
 
 

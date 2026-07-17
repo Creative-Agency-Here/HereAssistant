@@ -185,3 +185,161 @@
   .md th { @apply bg-bg-soft font-semibold; }
   .md .md-scroll { @apply overflow-x-auto; }
 }
+
+/* Мобильный центр активности: сессии, отчёты и подключения. */
+@layer components {
+  .app-content-detail { @apply p-0 pb-0 md:p-8 lg:p-10 md:max-w-6xl; }
+  .activity-page { @apply relative mx-auto w-full max-w-3xl space-y-4 pb-24 md:pb-8; }
+  .activity-header { @apply flex min-h-14 items-center gap-3 pt-1; }
+  .activity-header h1 { @apply mt-0.5 text-2xl font-bold tracking-tight; }
+  .activity-refresh { @apply ml-auto flex size-11 items-center justify-center rounded-full border border-line bg-bg-soft text-xl text-text-soft transition hover:border-accent/40 hover:text-text; }
+
+  .activity-tabs { @apply grid grid-cols-3 gap-1 rounded-2xl border border-line bg-bg-soft p-1; }
+  .activity-tabs button { @apply min-h-11 rounded-xl px-2 text-xs font-semibold text-text-dim transition; }
+  .activity-tabs .activity-tab-active { @apply bg-bg-card text-text shadow-lg; }
+  .filter-scroller { @apply -mx-4 flex snap-x gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0; scrollbar-width: none; }
+  .filter-scroller::-webkit-scrollbar { display: none; }
+  .filter-scroller button { @apply min-h-10 shrink-0 snap-start rounded-full border border-line bg-bg-soft px-4 text-xs font-medium text-text-soft transition; }
+  .filter-scroller .filter-chip-active { @apply border-accent/40 bg-accent/10 text-accent; }
+
+  .activity-state { @apply flex min-h-36 flex-col items-center justify-center gap-3 rounded-[1.6rem] border border-line bg-bg-card/70 p-6 text-center text-sm text-text-soft; }
+  .activity-state-error { @apply border-err/25 bg-err/5 text-err; }
+  .session-list { @apply space-y-3; }
+  .session-card { @apply block w-full rounded-[1.6rem] border border-line bg-bg-card/90 p-4 text-left transition active:scale-[0.99] hover:border-accent/30; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.14); }
+  .session-card-top { @apply flex items-start gap-3; }
+  .session-provider-orb { @apply flex size-10 shrink-0 items-center justify-center rounded-xl border border-line bg-bg-soft text-sm font-black text-text-soft; }
+  .session-provider-claude_code { @apply border-[#d77757]/25 bg-[#d77757]/10 text-[#e18a6d]; }
+  .session-provider-codex { @apply border-ok/25 bg-ok/10 text-ok; }
+  .session-provider-gemini { @apply border-[#5e8eff]/25 bg-[#5e8eff]/10 text-[#79a0ff]; }
+  .session-card-title { @apply truncate text-[15px] font-semibold text-text; }
+  .session-connection-line { @apply mt-1 flex min-w-0 items-center gap-1.5 text-xs text-text-dim; }
+  .connection-glyph { @apply text-text-soft; }
+  .session-card-preview { @apply ml-[3.25rem] mt-3 flex min-w-0 flex-wrap items-center gap-1 border-t border-line/70 pt-3 text-[11px] text-text-dim; }
+
+  .activity-empty { @apply flex min-h-64 flex-col items-center justify-center rounded-[1.8rem] border border-dashed border-line bg-bg-card/40 p-8 text-center; }
+  .activity-empty-icon { @apply mb-4 flex size-12 items-center justify-center rounded-2xl border border-accent/20 bg-accent/10 text-2xl text-accent; }
+  .activity-empty h2 { @apply text-base font-semibold; }
+  .activity-empty p { @apply mt-2 max-w-sm text-sm leading-relaxed text-text-dim; }
+  .activity-empty-small { @apply px-4 py-6 text-center text-sm text-text-dim; }
+  .local-history-link { @apply flex min-h-16 items-center gap-3 rounded-2xl border border-line bg-bg-soft px-4 text-text-soft transition hover:border-accent/30 hover:text-text; }
+  .local-history-link span { @apply flex min-w-0 flex-1 flex-col; }
+  .local-history-link strong { @apply text-sm text-text; }
+  .local-history-link small { @apply mt-0.5 text-xs text-text-dim; }
+  .local-history-link b { @apply text-xl font-normal text-text-dim; }
+
+  .new-session-cta { @apply fixed bottom-[calc(4.7rem+env(safe-area-inset-bottom))] left-1/2 z-30 flex min-h-12 -translate-x-1/2 items-center justify-center gap-2 rounded-full border border-accent/40 bg-accent px-6 text-sm font-bold text-white shadow-2xl transition active:scale-[0.98] md:static md:ml-auto md:translate-x-0; box-shadow: 0 14px 40px rgba(171, 96, 246, 0.35); }
+  .new-session-cta span { @apply text-lg font-normal; }
+
+  .period-switch { @apply grid grid-cols-2 rounded-2xl border border-line bg-bg-soft p-1; }
+  .period-switch button { @apply min-h-11 rounded-xl text-xs font-semibold text-text-dim transition; }
+  .period-switch .period-active { @apply bg-bg-card text-text shadow-lg; }
+  .report-hero { @apply flex items-center justify-between overflow-hidden rounded-[1.8rem] border border-accent/20 bg-gradient-to-br from-accent/15 to-bg-card p-5; }
+  .report-big-number { @apply mt-2 text-5xl font-bold tracking-tight; }
+  .report-hero p { @apply mt-1 text-sm text-text-soft; }
+  .report-ring { @apply flex size-24 shrink-0 flex-col items-center justify-center rounded-full border-[10px] border-accent/20 outline outline-1 outline-accent/30; }
+  .report-ring span { @apply text-2xl font-bold; }
+  .report-ring small { @apply text-[10px] uppercase tracking-widest text-text-dim; }
+  .report-grid { @apply grid grid-cols-2 gap-3; }
+  .metric-card { @apply flex min-h-36 flex-col rounded-[1.4rem] border border-line bg-bg-card p-4; }
+  .metric-icon { @apply mb-auto text-xl text-accent; }
+  .metric-card strong { @apply text-2xl; }
+  .metric-card > span:not(.metric-icon) { @apply text-xs text-text-soft; }
+  .metric-card small { @apply mt-1 text-[11px] text-text-dim; }
+  .activity-panel { @apply overflow-hidden rounded-[1.5rem] border border-line bg-bg-card/80; }
+  .activity-panel-heading { @apply flex items-center gap-3 border-b border-line p-4; }
+  .activity-panel-heading h3 { @apply text-sm font-semibold; }
+  .activity-panel-heading p { @apply mt-0.5 text-[11px] text-text-dim; }
+  .activity-panel-heading > span { @apply ml-auto rounded-lg bg-accent/10 px-2 py-1 text-xs font-bold text-accent; }
+  .report-session-row { @apply flex min-h-16 w-full items-center gap-3 border-b border-line px-4 text-left transition last:border-0 hover:bg-white/[0.025]; }
+  .report-session-row div { @apply flex flex-1 flex-col; }
+  .report-session-row strong { @apply truncate text-sm; }
+  .report-session-row span { @apply truncate text-xs text-text-dim; }
+  .report-session-row time { @apply text-[11px] text-text-dim; }
+  .report-session-row b { @apply text-lg font-normal text-text-dim; }
+  .report-breakdown-row { @apply flex min-h-12 items-center justify-between border-b border-line px-4 text-sm last:border-0; }
+  .report-breakdown-row span { @apply truncate text-text-soft; }
+
+  .connection-card { @apply flex flex-wrap items-start gap-3 rounded-[1.5rem] border border-line bg-bg-card/90 p-4; }
+  .connection-card-icon { @apply flex size-11 shrink-0 items-center justify-center rounded-xl border border-line bg-bg-soft text-xs font-black; }
+  .connection-telegram { @apply border-[#38a8e8]/25 bg-[#38a8e8]/10 text-[#56baf0]; }
+  .connection-cli { @apply border-ok/25 bg-ok/10 font-mono text-ok; }
+  .connection-crm { @apply border-accent/25 bg-accent/10 text-accent; }
+  .connection-git { @apply size-10; }
+  .connection-card-title { @apply flex min-h-6 items-center gap-2; }
+  .connection-card-title h3 { @apply text-sm font-semibold; }
+  .connection-card-title span { @apply ml-auto rounded-full border border-line bg-bg-soft px-2 py-1 text-[9px] uppercase tracking-wide text-text-dim; }
+  .connection-card-title .status-active { @apply border-ok/25 bg-ok/5 text-ok; }
+  .connection-card p { @apply mt-1 text-xs leading-relaxed text-text-dim; }
+  .connection-account { @apply mt-3 inline-flex rounded-lg border border-line bg-bg-soft px-2.5 py-1.5 text-xs text-text-soft; }
+  .command-copy { @apply mt-3 flex min-h-12 w-full items-center gap-3 rounded-xl border border-line bg-bg px-3 text-left transition hover:border-accent/30; }
+  .command-copy code { @apply min-w-0 flex-1 truncate text-xs text-text-soft; }
+  .command-copy span { @apply shrink-0 text-[10px] font-semibold text-accent; }
+  .connection-accounts-list { @apply mt-1 w-full space-y-2 border-t border-line pt-3; }
+  .connection-accounts-list > div { @apply grid grid-cols-[auto_1fr] items-center gap-x-2 text-xs; }
+  .connection-accounts-list > div > span:last-child { @apply col-start-2 truncate text-[11px] text-text-dim; }
+  .connection-hint { @apply mt-3 rounded-xl border border-warn/20 bg-warn/5 p-3 text-[11px] leading-relaxed text-warn; }
+  .connection-git-link { @apply flex min-h-16 items-center gap-3 rounded-[1.4rem] border border-line bg-bg-card p-3 transition hover:border-accent/30; }
+  .connection-git-link > span:nth-child(2) { @apply flex min-w-0 flex-1 flex-col; }
+  .connection-git-link strong { @apply text-sm; }
+  .connection-git-link small { @apply truncate text-xs text-text-dim; }
+  .connection-git-link b { @apply text-xl font-normal text-text-dim; }
+
+  .sheet-backdrop { @apply fixed inset-0 z-[80] flex items-end justify-center bg-black/65 backdrop-blur-sm; }
+  .activity-sheet { @apply flex max-h-[72dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-[2rem] border border-b-0 border-line bg-bg-card; padding-bottom: env(safe-area-inset-bottom); }
+  .activity-sheet-tall { @apply max-h-[88dvh]; }
+  .sheet-handle { @apply mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-white/20; }
+  .sheet-header { @apply grid min-h-16 shrink-0 grid-cols-[3rem_1fr_3rem] items-center border-b border-line px-3; }
+  .sheet-header h2 { @apply truncate px-2 text-center text-sm font-semibold; }
+  .sheet-close { @apply flex size-12 items-center justify-center rounded-full text-2xl font-light text-text-soft; }
+  .sheet-content { @apply min-h-0 flex-1 overflow-y-auto p-4; }
+  .sheet-fade-enter-active, .sheet-fade-leave-active { transition: opacity .2s ease; }
+  .sheet-fade-enter-active .activity-sheet, .sheet-fade-leave-active .activity-sheet { transition: transform .25s ease; }
+  .sheet-fade-enter-from, .sheet-fade-leave-to { opacity: 0; }
+  .sheet-fade-enter-from .activity-sheet, .sheet-fade-leave-to .activity-sheet { transform: translateY(100%); }
+  .sheet-open { overflow: hidden; }
+}
+
+@layer components {
+  .conversation-page { @apply fixed inset-0 z-50 flex flex-col bg-bg md:absolute md:inset-y-0 md:left-64 md:right-0; }
+  .conversation-header { @apply z-10 flex min-h-[4.5rem] shrink-0 items-center gap-3 border-b border-line bg-bg/90 px-3 backdrop-blur-xl md:px-6; padding-top: env(safe-area-inset-top); }
+  .conversation-header > button { @apply flex size-11 shrink-0 items-center justify-center rounded-full text-3xl font-light text-text-soft transition hover:bg-bg-soft hover:text-text; }
+  .conversation-header h1 { @apply truncate text-sm font-semibold; }
+  .conversation-header p { @apply mt-0.5 truncate text-[11px] text-text-dim; }
+  .conversation-live { @apply ml-auto hidden shrink-0 items-center gap-1.5 rounded-full border border-line bg-bg-soft px-2.5 py-1.5 text-[10px] text-text-soft sm:flex; }
+  .conversation-live i { @apply size-1.5 rounded-full bg-ok not-italic; box-shadow: 0 0 10px rgba(97, 209, 108, .8); }
+  .conversation-stream { @apply min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-5 md:px-8; scroll-behavior: smooth; }
+  .conversation-stream > * { @apply mx-auto max-w-3xl; }
+  .conversation-date { @apply mb-5 text-center text-[10px] font-semibold uppercase tracking-[.16em] text-text-dim; }
+  .conversation-message { @apply mb-4 rounded-[1.4rem] border border-line bg-bg-card/80 p-4; }
+  .conversation-user { @apply ml-auto max-w-[92%] border-accent/20 bg-accent/10; }
+  .conversation-system { @apply border-warn/20 bg-warn/5; }
+  .message-author { @apply mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-text-soft; }
+  .message-author time { @apply ml-auto font-normal normal-case tracking-normal text-text-dim; }
+  .message-meta { @apply mt-3 border-t border-line/70 pt-2 text-[10px] text-text-dim; }
+  .tool-event-group { @apply mx-auto mb-4 flex min-h-16 w-full max-w-3xl items-center gap-3 rounded-[1.2rem] border border-line bg-bg-soft/80 px-3 text-left transition hover:border-accent/30; }
+  .tool-event-icon { @apply flex size-9 shrink-0 items-center justify-center rounded-xl border border-line bg-bg text-base text-accent; }
+  .tool-event-group > span:nth-child(2), .sheet-event-list button > span:nth-child(2) { @apply flex min-w-0 flex-1 flex-col; }
+  .tool-event-group strong, .sheet-event-list strong { @apply truncate text-xs font-semibold; }
+  .tool-event-group small, .sheet-event-list small { @apply mt-0.5 truncate text-[11px] text-text-dim; }
+  .tool-event-group b, .sheet-event-list b { @apply text-lg font-normal text-text-dim; }
+  .older-feed-hint { @apply py-4 text-center text-xs text-text-dim; }
+  .scroll-down { @apply absolute bottom-28 left-1/2 z-20 flex size-11 -translate-x-1/2 items-center justify-center rounded-full border border-line bg-bg-card text-lg text-text-soft shadow-xl; }
+  .conversation-composer { @apply absolute inset-x-0 bottom-0 z-10 border-t border-line bg-bg/90 p-3 backdrop-blur-xl; padding-bottom: max(.75rem, env(safe-area-inset-bottom)); }
+  .conversation-composer > button { @apply mx-auto flex min-h-14 w-full max-w-3xl items-center gap-3 rounded-2xl border border-accent/30 bg-accent/10 px-4 text-left transition active:scale-[.99]; }
+  .conversation-composer span { @apply flex flex-1 flex-col; }
+  .conversation-composer strong { @apply text-sm; }
+  .conversation-composer small { @apply text-[11px] text-text-dim; }
+  .conversation-composer b { @apply text-xl font-normal text-accent; }
+  .sheet-back-button { @apply mb-3 min-h-11 rounded-xl px-2 text-sm font-semibold text-accent; }
+  .sheet-event-list { @apply space-y-2; }
+  .sheet-event-list button { @apply flex min-h-16 w-full items-center gap-3 rounded-xl border border-line bg-bg-soft p-3 text-left transition hover:border-accent/30; }
+  .event-detail-card { @apply rounded-2xl border border-line bg-bg-soft p-4; }
+  .event-detail-card > span { @apply inline-flex rounded-lg border border-line bg-bg px-2 py-1 font-mono text-[10px] text-accent; }
+  .event-detail-card p { @apply whitespace-pre-wrap break-words py-5 text-sm leading-relaxed text-text-soft; }
+  .event-detail-card time { @apply text-[11px] text-text-dim; }
+}
+
+@media (min-width: 768px) {
+  .activity-sheet { margin-left: 16rem; }
+  .new-session-cta { box-shadow: none; }
+}

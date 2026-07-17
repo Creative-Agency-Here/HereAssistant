@@ -79,3 +79,28 @@ def test_file_changes_are_written_and_read_per_user(
 
     assert [(item["file"], item["project_id"]) for item in first] == [("a.py", 10)]
     assert [(item["file"], item["project_id"]) for item in second] == [("b.py", 20)]
+
+
+def test_cli_connection_view_returns_only_safe_owned_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configure(tmp_path, monkeypatch)
+    with db.conn() as connection:
+        connection.executemany(
+            """INSERT INTO accounts
+               (provider, label, cli_home_path, default_model, enabled, owner_user_id, shared)
+               VALUES (?, ?, ?, ?, 1, ?, ?)""",
+            [
+                ("claude_code", "own", "/secret/own", "opus", 100, 0),
+                ("codex", "foreign", "/secret/foreign", "codex", 200, 0),
+                ("gemini", "shared", "/secret/shared", None, None, 1),
+            ],
+        )
+
+    accounts = repo.list_cli_accounts(100)
+
+    assert [item["label"] for item in accounts] == ["own", "shared"]
+    assert all(
+        set(item) == {"provider", "label", "defaultModel", "shared"}
+        for item in accounts
+    )

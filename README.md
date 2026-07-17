@@ -100,13 +100,16 @@ a conversation you started here (or in the CLI directly) can be picked up later.
 
 ## Web Mini App
 
-A Nuxt 3 Mini App inside Telegram (or in the browser) — watch the agent live and review every change,
-authenticated via Telegram `initData`.
+A mobile-first Nuxt 3 Mini App inside Telegram (or in the browser), authenticated via Telegram
+`initData`. The activity center combines personal HereCRM sessions, weekly/30-day reports and safe
+connection status for Telegram, terminal CLI and CRM. CRM data is visible only to the assistant owner.
 
 ![Web Mini App — live status and file-change journal](docs/img/webapp-miniapp.png)
 
 - **Now** — live task status, the current step, recent actions and a streaming bot log.
+- **Activity** — personal CRM/CLI/Telegram sessions, progressive tool-event details and weekly reports.
 - **Edits** — a per-file journal of every change the agent made, with full unified diffs.
+- **Connections** — safe provider metadata and CLI launch guidance; credentials and auth-home paths are never returned.
 
 ## Docs
 
