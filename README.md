@@ -13,14 +13,14 @@ A personal Telegram bot that bridges you to CLI coding agents — **Claude Code,
 ## Features
 
 - **Multiple providers, one chat** — Claude Code, Codex, Gemini as isolated CLI subprocesses; switch accounts and models with inline buttons.
-- **Terminal chat (`python chat.py`)** — an interactive REPL right in your console, like the native `claude`: a prompt, full live output (model reasoning, tool calls `⏺` and their results `⎿`, streamed answer — no Telegram length limit), `/resume` picker over past sessions, and slash-commands for settings. Runs on the same subscription accounts as the bot.
+- **Terminal chat (`python chat.py`)** — an interactive REPL right in your console, like the native `claude`: a prompt, full live output, `/resume`, and a live terminal title with the task name/count, working animation and an explicit `✕` while work remains unfinished. Runs on the same subscription accounts as the bot.
 - **Team access, managed from the bot** — newcomers file an access request; the owner approves with one tap (`✅ / 👑 admin / ⛔`). Access modes via `/access` (open / approve / admins-only), roles and member search via `/users` — everything lives in the DB, no `.env` editing or restarts to add teammates.
 - **Account isolation** — each subscription has an explicit owner or shared flag and lives in its own auth home (`CLAUDE_CONFIG_DIR` / `CODEX_HOME` / `HOME`); users never fall back to another owner's profile.
 - **User-scoped repositories** — clone only from allowlisted Git hosts, switch registered projects, create isolated branch worktrees, inspect/pull, and confirm pushes from Telegram.
 - **Live progress** — streaming progress message in chat while the agent works; interrupt by sending a new message.
 - **Rich Messages (Bot API 10.1)** — final answers via `sendRichMessage` with native tables, headings, code blocks and math; answer text streams as an animated `sendRichMessageDraft` preview. Automatic fallback to the classic HTML path.
 - **Native session resume** — Claude sessions continue via `--resume`; context survives without storing your data.
-- **Web Mini App** — history, live status and file-change journal (Nuxt 3), authenticated via Telegram initData.
+- **Web Mini App** — history, live status, file-change journal and one view of local/server contours, Git divergence, disk and confirmed deployment state (Nuxt 3), authenticated via Telegram initData.
 - **File exchange** — send documents/photos/voice to the agent; long answers come back as Markdown files.
 - **Voice input** — transcription via faster-whisper.
 - **Stats and events** — token usage, durations and errors per model/account (metrics only, never content).
@@ -92,7 +92,7 @@ Or run `python manage.py` and choose **[4] Terminal chat** from the menu.
 **Inside** — slash-commands for everything:
 
 `/help` · `/model` · `/account` · `/cwd` · `/new` · `/resume` (pick & continue a past session) ·
-`/status` · `/diff` · `/clear` · `/exit`
+`/status` · `/tasks` · `/diff` · `/clear` · `/exit`
 
 **Full transparency** — you see the model's reasoning, every tool call `⏺` and its result `⎿`, the
 answer streamed live, with no 4096-char Telegram limit. `/resume` reads the native session store, so
@@ -109,7 +109,7 @@ connection status for Telegram, terminal CLI and CRM. CRM data is visible only t
 - **Now** — live task status, the current step, recent actions and a streaming bot log.
 - **Activity** — personal CRM/CLI/Telegram sessions, progressive tool-event details and weekly reports.
 - **Edits** — a per-file journal of every change the agent made, with full unified diffs.
-- **Connections** — safe provider metadata and CLI launch guidance; credentials and auth-home paths are never returned.
+- **Connections** — local/server contour states plus safe provider, repository, disk, Git and deployment metadata; credentials, remotes, file names and auth-home paths are never returned.
 
 ### Verified action details
 

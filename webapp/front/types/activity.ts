@@ -116,7 +116,39 @@ export interface AssistantConnections {
   crm: {
     status: 'active' | 'not_configured'
     ownerOnly: boolean
+    error: string | null
   }
+  workspace: {
+    projectsOnDisk: number
+    repositoriesOnDisk: number
+    disk: { freeBytes: number | null; totalBytes: number | null; freeLabel: string }
+    git: {
+      connections: number
+      attention: number
+      repositories: number
+      current: {
+        available: boolean
+        branch?: string
+        dirty?: number
+        ahead?: number
+        behind?: number
+        state?: 'changes' | 'diverged' | 'push_needed' | 'pull_needed' | 'synced'
+      }
+    }
+    tasks: { linked: boolean; open: number; titles: string[] }
+    deployment: { state: 'deployed' | 'partial' | 'pending' | 'unknown'; targets: Array<{ name: string; status: string }> }
+  }
+  contours: Array<{
+    id: string
+    label: string
+    kind: string
+    originHost: string
+    local: boolean
+    state: 'working' | 'open' | 'closed'
+    estimated: boolean
+    sessions: number
+    lastActivityAt: string | null
+  }>
 }
 
 export const channelLabels: Record<SessionChannel, string> = {

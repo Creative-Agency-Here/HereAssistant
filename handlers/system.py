@@ -14,9 +14,11 @@ from aiogram.types import (
 )
 
 from core import access, config, crm_sync, db, git_connections, rtk, version
+from core.workspace_status import workspace_overview
 
 from . import repo
 from .common import is_allowed
+from .onboarding import COMMAND_CATALOG, welcome_keyboard
 
 log = logging.getLogger(__name__)
 
@@ -107,60 +109,11 @@ async def cmd_git(message: Message):
     )
 
 
-HELP_TEXT = """\
-HereAssistant — справка
-
-Управление аккаунтами:
-  /accounts         — список аккаунтов (кнопки для переключения)
-  /account use X    — переключить на аккаунт X в этом чате
-  /model            — список популярных моделей (кнопки)
-  /model NAME       — переключить модель
-  /git              — личные Git-аккаунты и доступ к репозиториям
-
-Работа с папкой:
-  /cwd              — показать текущую папку
-  /cwd /path        — сменить рабочую папку
-  /where            — текущая папка и проект
-  /project list     — список проектов в workspace/
-  /project new X    — создать проект workspace/X и переключиться
-  /project use X    — переключиться на существующий проект
-
-Сессия и история:
-  /new              — новая сессия (сбросить provider_session_id)
-  /reset            — очистить историю текущего чата (с подтверждением)
-  /delete           — удалить беседу целиком: запись в БД + топик в Telegram (если в форум-топике)
-  /status           — что сейчас активно (аккаунт, модель, cwd, кол-во сообщений)
-
-Статистика:
-  /stats            — сводка за 24 часа
-  /stats week       — за 7 дней
-  /stats all        — за всё время
-  /log              — последние 20 событий
-  /log error        — последние ошибки
-  /rtk              — экономия контекстных токенов RTK
-
-Команда и доступ (для админов):
-  /users            — все, кто писал боту: роли и допуск кнопками
-  /users <поиск>    — поиск по нику, имени или id
-  /access           — режим доступа: открытый / по подтверждению / только админы
-  /logout           — снять свой доступ (владельцу — отвязать бота)
-
-Деплой и версия:
-  /version          — текущий хеш bot.py + дата
-  /deploy           — перезапустить процесс (применить изменения в bot.py)
-  /diff             — показать правки последнего ответа (по файлам, unified diff)
-
-Файлы:
-  Можно отправлять документы, фото, аудио, voice, видео —
-  бот скачает их в .runtime/downloads/ и сообщит CLI пути.
-"""
-
-
 @router.message(Command("help"))
 async def cmd_help(message: Message, command: CommandObject):
     if not is_allowed(message):
         return
-    await message.answer(HELP_TEXT)
+    await message.answer(COMMAND_CATALOG, reply_markup=welcome_keyboard())
 
 
 @router.message(Command("status"))
@@ -177,19 +130,35 @@ async def cmd_status(message: Message):
         ).fetchone()["n"]
     v = version.bot_version()
     sync = crm_sync.status()
+    overview = workspace_overview(message.from_user.id, conv["cwd"])
+    current_git = overview["git"]["current"]
+    git_line = "не Git-проект"
+    if current_git.get("available"):
+        git_line = (
+            f"{current_git['branch']} · изменений {current_git['dirty']} · "
+            f"отправить {current_git['ahead']} · получить {current_git['behind']}"
+        )
+    deploy_labels = {
+        "deployed": "задеплоено",
+        "partial": "частично",
+        "pending": "ожидает",
+        "unknown": "нет подтверждения",
+    }
     lines = [
-        f"chat={conv['chat_id']} thread={conv['thread_id']}",
-        f"account: {acc['label'] if acc else '—'} ({acc['provider'] if acc else '—'})",
-        f"model:   {conv['model'] or '—'}",
-        f"session: {conv['provider_session_id'] or '(new)'}",
-        f"cwd:     {conv['cwd']}",
-        f"project: {conv['project_name'] or '—'}",
-        f"history: {msg_count} сообщений",
+        "HereAssistant · текущее состояние",
+        f"🤖 {acc['label'] if acc else 'аккаунт не выбран'} · {conv['model'] or 'модель не выбрана'}",
+        f"📁 {conv['project_name'] or conv['cwd']}",
+        f"💬 Сессия: {(conv['provider_session_id'] or 'новая')[:12]} · {msg_count} сообщений",
+        f"📋 Задачи HereCRM: {overview['tasks']['open']} в работе",
+        f"🔀 Git: {git_line}",
+        f"🚀 Деплой: {deploy_labels.get(overview['deployment']['state'], 'нет подтверждения')}",
+        f"📦 Репозитории: {overview['git']['repositories']} доступно · {overview['repositoriesOnDisk']} на диске",
+        f"💾 Свободно: {overview['disk']['freeLabel']}",
         (
-            f"HereCRM: {'подключён' if sync['configured'] else 'выключен'}"
+            f"🔄 HereCRM: {'подключена' if sync['configured'] else 'выключена'}"
             f" · очередь {sync['pending']} · {sync['origin']}"
         ),
-        f"version: {v['short']} ({v['mtime']})",
+        f"🏷 Версия: {v['short']} ({v['mtime']})",
     ]
     await message.answer("\n".join(lines))
 

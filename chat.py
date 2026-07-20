@@ -38,6 +38,7 @@ from chat_renderer import (
     M,
     ProgressRenderState,
     R,
+    W,
     X,
     Y,
     finish_stream,
@@ -46,7 +47,9 @@ from chat_renderer import (
 )
 from chat_sessions import Session
 from chat_sessions import list_resumable as _list_resumable
-from core import config, db
+from core import config, crm_sync, db, project_config
+from core.workspace_status import task_summary, workspace_overview
+from terminal_title import TerminalTitle
 
 # Аккаунты читаем напрямую из БД, НЕ через handlers.repo: пакет handlers/__init__
 # тянет все telegram-хендлеры (aiogram) — лишняя тяжёлая зависимость для CLI, и
@@ -159,7 +162,7 @@ def _pick_user(preselect: str | None):
         print(f"{R}нет такого номера{X}")
 
 
-async def _run_prompt(sess: Session, prompt: str):
+async def _run_prompt(sess: Session, prompt: str) -> bool:
     state = ProgressRenderState()
     prov = providers.make(sess.account, user_id=sess.user_id)
     t0 = time.time()
@@ -173,13 +176,33 @@ async def _run_prompt(sess: Session, prompt: str):
         )
     except Exception as e:
         print(f"\n{R}✗ Ошибка: {e}{X}")
-        return
+        return False
     finally:
         prov.cleanup_runtime()
     finish_stream(state, text)
     sess.session_id = new_session or sess.session_id
     sess.last_meta = meta or {}
     sys.stdout.write(format_run_summary(meta, time.time() - t0))
+    policy = project_config.policy_for(sess.cwd)
+    crm_sync.enqueue(
+        policy,
+        crm_sync.Exchange(
+            conversation_id=sess.crm_conversation_id,
+            telegram_user_id=sess.user_id,
+            cwd=sess.cwd,
+            project_name=policy.name or os.path.basename(sess.cwd),
+            provider=sess.provider,
+            model=sess.model,
+            prompt=prompt,
+            answer=text,
+            started_at=t0,
+            finished_at=time.time(),
+            tokens_in=(meta or {}).get("tokens_in"),
+            tokens_out=(meta or {}).get("tokens_out"),
+            duration_ms=int((time.time() - t0) * 1000),
+        ),
+    )
+    return True
 
 
 # ---------- прощание ----------
@@ -218,7 +241,16 @@ async def _repl(sess: Session):
         default_cwd=config.user_default_cwd,
         resumable=_list_resumable,
     )
+    title = TerminalTitle()
+    summary = task_summary(sess.cwd)
+    title.idle(sess.cwd, summary["open"])
     commands.status(sess)
+    overview = workspace_overview(sess.user_id, sess.cwd)
+    print(
+        f"  {D}задачи {X}  {W}{overview['tasks']['open']} в работе{X}"
+        f"  {D}· Git: {overview['git']['repositories']} доступно / "
+        f"{overview['repositoriesOnDisk']} на диске · свободно {overview['disk']['freeLabel']}{X}"
+    )
     print(f"\n{D}/help — команды · /exit — выход{X}")
     loop = asyncio.get_event_loop()
     while True:
@@ -233,13 +265,23 @@ async def _repl(sess: Session):
             continue
         if line.startswith("/"):
             if not commands.handle(sess, line):
+                summary = task_summary(sess.cwd)
+                title.idle(sess.cwd, summary["open"])
                 _farewell()
                 return
+            summary = task_summary(sess.cwd)
+            title.idle(sess.cwd, summary["open"])
             continue
+        summary = task_summary(sess.cwd)
+        title.start(line, max(1, summary["open"]))
+        completed = False
         try:
-            await _run_prompt(sess, line)
+            completed = await _run_prompt(sess, line)
         except KeyboardInterrupt:
             print(f"\n{Y}⏹ прервано{X}")
+        finally:
+            latest = task_summary(sess.cwd)
+            await title.finish(completed=completed, cwd=sess.cwd, open_tasks=latest["open"])
 
 
 def _arg_after(argv, flag):
@@ -257,7 +299,20 @@ def _run():
     user_id, user_name = _pick_user(_arg_after(argv, "-u"))
     account = _pick_account(_arg_after(argv, "-a"), user_id)
     sess = Session(account, user_id, user_name)
-    asyncio.run(_repl(sess))
+    asyncio.run(_run_with_sync(sess))
+
+
+async def _run_with_sync(sess: Session) -> None:
+    sync_task = asyncio.create_task(crm_sync.worker()) if crm_sync.configured() else None
+    try:
+        await _repl(sess)
+    finally:
+        if sync_task is not None:
+            sync_task.cancel()
+            try:
+                await sync_task
+            except asyncio.CancelledError:
+                pass
 
 
 def main():

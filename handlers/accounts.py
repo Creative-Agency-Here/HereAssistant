@@ -10,6 +10,7 @@ from core import access, events
 
 from . import repo
 from .common import is_allowed
+from .onboarding import account_setup_keyboard
 
 router = Router()
 log = logging.getLogger("bridge.accounts")
@@ -32,9 +33,9 @@ async def cmd_accounts(message: Message):
     accs = repo.list_accounts(message.from_user.id)
     if not accs:
         await message.answer(
-            "Аккаунты не настроены. Запусти на сервере:\n"
-            "  python manage.py\n"
-            "и добавь через пункт 2."
+            "AI-аккаунтов пока нет. Нажми ниже — покажу безопасную настройку "
+            "для локального Mac или серверного контура.",
+            reply_markup=account_setup_keyboard(),
         )
         return
 
@@ -48,9 +49,13 @@ async def cmd_accounts(message: Message):
         note = f" — {acc['notes']}" if acc["notes"] else ""
         lines.append(f"  {mark} {acc['label']} ({acc['provider']}){model}{note}")
     lines.append("\nНажми, чтобы переключиться:")
+    keyboard = _accounts_keyboard(message.from_user.id, conv["account_id"])
+    keyboard.inline_keyboard.insert(
+        -1, [InlineKeyboardButton(text="➕ Добавить аккаунт", callback_data="onb:accounts")]
+    )
     await message.answer(
         "\n".join(lines),
-        reply_markup=_accounts_keyboard(message.from_user.id, conv["account_id"]),
+        reply_markup=keyboard,
     )
 
 

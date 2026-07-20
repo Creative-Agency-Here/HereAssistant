@@ -5,6 +5,7 @@ import os
 import re
 import secrets
 import socket
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -236,6 +237,14 @@ HERECRM_WEB_URL: str = os.environ.get("HERECRM_WEB_URL", "").strip().rstrip("/")
 HERECRM_SYNC_ORIGIN: str = os.environ.get("HERECRM_SYNC_ORIGIN", "").strip() or socket.gethostname()
 HERECRM_SYNC_INTERVAL_SEC: float = float(os.environ.get("HERECRM_SYNC_INTERVAL_SEC", "5"))
 
+# Человекочитаемая идентичность этой инсталляции в общей витрине контуров.
+# Значения не являются секретами; дефолты переносимы между macOS/Linux/Windows.
+HEREASSISTANT_CONTOUR_NAME: str = os.environ.get("HEREASSISTANT_CONTOUR_NAME", "").strip()
+HEREASSISTANT_CONTOUR_HOST: str = os.environ.get("HEREASSISTANT_CONTOUR_HOST", "").strip()
+HEREASSISTANT_CONTOUR_KIND: str = os.environ.get(
+    "HEREASSISTANT_CONTOUR_KIND", ""
+).strip().lower() or ("local" if sys.platform == "darwin" else "server")
+
 
 def webapp_url(path: str = "/", *, include_access_key: bool = False) -> str:
     if not WEBAPP_URL:
@@ -248,7 +257,7 @@ def webapp_url(path: str = "/", *, include_access_key: bool = False) -> str:
 
 
 # Версия приложения (для /health, /api/status и баннера терминального чата).
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.5.0"
 
 # Токен сервисного API (/api/v1/*) для внешних систем (например, CRM).
 # ПУСТОЙ по умолчанию = сервисные эндпоинты отключены (503), а не открыты.

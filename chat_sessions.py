@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -28,6 +29,9 @@ class Session:
         self.cwd = config.user_default_cwd(user_id)
         self.session_id: str | None = None
         self.last_meta: Mapping[str, Any] = {}
+        # Stable only for this terminal chat. CRM turns it into a deterministic
+        # UUID and keeps subsequent prompts in one conversation.
+        self.crm_conversation_id = uuid.uuid4().int % (2**63 - 1)
 
     @property
     def label(self) -> str:

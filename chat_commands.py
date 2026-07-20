@@ -12,11 +12,32 @@ from typing import TextIO
 from chat_identity import UserRecord, find_user, user_display
 from chat_renderer import B, C, D, G, R, W, X
 from chat_sessions import AccountRecord, ResumableSession, Session
+from core.workspace_status import workspace_overview
 
 AccountsLookup = Callable[[int], Sequence[AccountRecord]]
 UsersLookup = Callable[[], Sequence[UserRecord]]
 WorkspaceLookup = Callable[[int], str]
 ResumeLookup = Callable[[Session], list[ResumableSession]]
+
+
+def git_state_label(snapshot: Mapping[str, object]) -> str:
+    labels = {
+        "changes": f"{snapshot.get('dirty', 0)} изменений не зафиксировано",
+        "diverged": f"расхождение: ↑{snapshot.get('ahead', 0)} ↓{snapshot.get('behind', 0)}",
+        "push_needed": f"нужно отправить {snapshot.get('ahead', 0)} коммитов",
+        "pull_needed": f"нужно получить {snapshot.get('behind', 0)} коммитов",
+        "synced": "синхронизировано",
+    }
+    return labels.get(str(snapshot.get("state")), "состояние неизвестно")
+
+
+def deployment_label(state: object) -> str:
+    return {
+        "deployed": "задеплоено",
+        "partial": "частично",
+        "pending": "ожидает деплоя",
+        "unknown": "нет подтверждения",
+    }.get(str(state), "нет подтверждения")
 
 
 class CommandRouter:
@@ -49,6 +70,8 @@ class CommandRouter:
             self.help()
         elif command == "/status":
             self.status(session)
+        elif command == "/tasks":
+            self.tasks(session)
         elif command == "/model":
             self._model(session, argument)
         elif command == "/account":
@@ -80,7 +103,8 @@ class CommandRouter:
   {C}/cwd{X} [путь]        показать/сменить рабочую папку
   {C}/new{X}               начать новую сессию (забыть контекст)
   {C}/resume{X}            выбрать и продолжить прошлую сессию проекта
-  {C}/status{X}            аккаунт, модель, папка, id сессии
+  {C}/status{X}            сессия, задачи, Git, диск и деплой
+  {C}/tasks{X}             задачи HereCRM выбранного проекта
   {C}/diff{X}              диффы правок последнего ответа
   {C}/clear{X}             очистить экран
   {C}/exit{X} (или Ctrl+D) выход
@@ -88,6 +112,7 @@ class CommandRouter:
         )
 
     def status(self, session: Session) -> None:
+        overview = workspace_overview(session.user_id, session.cwd)
         self._print(
             f"  {D}кто    {X}  {W}{session.user_name or session.user_id}{X}"
             f"  {D}— от его имени: workspace, сессии и архив{X}"
@@ -104,6 +129,39 @@ class CommandRouter:
             self._print(
                 f"  {D}сессия {X}  {W}новая{X}  {D}— контекст пуст · /resume — вернуть прошлую{X}"
             )
+        tasks = overview["tasks"]
+        git = overview["git"]
+        current = git["current"]
+        self._print(
+            f"  {D}задачи {X}  {W}{tasks['open']} в работе{X}  "
+            f"{D}({'связано с HereCRM' if tasks['linked'] else 'локальный проект'}){X}"
+        )
+        self._print(
+            f"  {D}Git    {X}  {W}{git['connections']} подключений · "
+            f"{git['repositories']} доступно · {overview['repositoriesOnDisk']} на диске{X}"
+        )
+        if current.get("available"):
+            self._print(
+                f"  {D}ветка  {X}  {W}{current['branch']}{X}  {D}· {git_state_label(current)}{X}"
+            )
+        self._print(
+            f"  {D}диск   {X}  {W}{overview['disk']['freeLabel']} свободно{X}  "
+            f"{D}· деплой: {deployment_label(overview['deployment']['state'])}{X}"
+        )
+
+    def tasks(self, session: Session) -> None:
+        tasks = workspace_overview(session.user_id, session.cwd)["tasks"]
+        if not tasks["linked"]:
+            self._print(
+                f"{D}Проект не связан с HereCRM. Добавь crm_project_id в "
+                f".hereassistant/project.yml и включи sync.{X}"
+            )
+            return
+        self._print(f"{B}HereCRM · {tasks['open']} в работе{X}")
+        if not tasks["titles"]:
+            self._print(f"  {G}✓ открытых задач нет{X}")
+        for index, title in enumerate(tasks["titles"], 1):
+            self._print(f"  {B}{index}.{X} {title}")
 
     def resume(self, session: Session) -> None:
         items = self.resumable(session)

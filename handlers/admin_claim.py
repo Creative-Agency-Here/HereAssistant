@@ -11,7 +11,8 @@ from aiogram.types import Message
 
 from core import access, config, db, events
 
-from .common import is_admin, is_allowed, send_long
+from .common import is_admin, is_allowed
+from .onboarding import welcome_keyboard, welcome_text
 
 router = Router()
 log = logging.getLogger("bridge.claim")
@@ -63,13 +64,8 @@ async def cmd_start(message: Message, command: CommandObject):
         )
         await message.answer(
             f"✅ Готово — ты владелец бота (id {config.ADMIN_ID} сохранён в .env).\n\n"
-            "Быстрый старт:\n"
-            "1. /accounts — подключи подписку CLI-агента (Claude / Codex / Gemini)\n"
-            "2. /project — выбери рабочую папку\n"
-            "3. Пиши задачу обычным текстом — агент выполнит\n\n"
-            "Коллеги: пусть просто напишут боту — тебе придёт заявка\n"
-            "с кнопками (режимы: /access, роли: /users).\n"
-            "Терминальный чат: python chat.py. /help — вся справка."
+            + welcome_text(config.ADMIN_ID),
+            reply_markup=welcome_keyboard(),
         )
         log.info(
             "Admin claimed by user_id=%s username=%s", config.ADMIN_ID, message.from_user.username
@@ -85,13 +81,9 @@ async def cmd_start(message: Message, command: CommandObject):
         return
 
     extra = "Команда: /users · режим доступа: /access\n" if is_admin(message) else ""
-    await send_long(
-        message,
-        "Мульти-CLI мост готов. ✅ Ты авторизован.\n\n"
-        "/accounts — подписки CLI-агентов · /project — рабочая папка\n"
-        "/status — что активно · /logout — снять свой доступ · /help — справка\n"
-        + extra
-        + "\nПиши задачу обычным текстом — агент выполнит и покажет ход работы.",
+    await message.answer(
+        welcome_text(message.from_user.id) + ("\n\n" + extra.strip() if extra else ""),
+        reply_markup=welcome_keyboard(),
     )
 
 

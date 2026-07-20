@@ -78,6 +78,7 @@ def get_active_task(user_id: int, stale_after_sec: int = 1800) -> Optional[dict]
         "model": conv_d.get("model"),
         "project": conv_d.get("project_name") or conv_d.get("cwd"),
         "request_preview": payload.get("text_preview", "")[:300],
+        "current_step": payload.get("text_preview", "")[:300] or "Выполняю задачу",
     }
 
 
