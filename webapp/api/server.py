@@ -25,6 +25,7 @@ from webapp.api import browser_session
 from webapp.api.auth import validate_init_data
 from webapp.api.routes import changes as route_changes
 from webapp.api.routes import connections as route_connections
+from webapp.api.routes import control as route_control
 from webapp.api.routes import crm_activity as route_crm_activity
 from webapp.api.routes import crm_auth as route_crm_auth
 from webapp.api.routes import git_connections as route_git_connections
@@ -170,6 +171,9 @@ def create_app() -> web.Application:
     app.router.add_get("/api/history/{conv_id}", route_history.get_handler)
     app.router.add_get("/api/changes", route_changes.list_handler)
     app.router.add_get("/api/connections", route_connections.handler)
+    app.router.add_post("/api/control/stop", route_control.stop_handler)
+    app.router.add_post("/api/contours/heartbeat", route_control.heartbeat_handler)
+    app.router.add_post("/api/contours/close", route_control.close_handler)
     app.router.add_get("/api/crm/conversations", route_crm_activity.conversations_handler)
     app.router.add_get("/api/crm/digest", route_crm_activity.digest_handler)
     app.router.add_get(

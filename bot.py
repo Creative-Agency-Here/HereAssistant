@@ -11,12 +11,13 @@ import asyncio
 import json
 import logging
 import os
+import sqlite3
 import time
 
 from aiogram import BaseMiddleware, Bot, Dispatcher
 from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
-from core import access, config, crm_sync, db, logging_setup, version
+from core import access, config, control, crm_sync, db, logging_setup, version
 from handlers import ALL_ROUTERS
 from handlers.deploy import post_restart_report, startup_notification
 from utils.memory_link import ensure_memory_links
@@ -135,6 +136,41 @@ async def restart_watcher(bot: Bot):
         os._exit(42)
 
 
+async def control_watcher() -> None:
+    """Apply user-scoped Web/VS Code stop requests inside the bot process."""
+    from handlers.message_state import runtime
+
+    log = logging.getLogger("bridge.control")
+    while True:
+        await asyncio.sleep(0.5)
+        try:
+            requests = control.pending()
+        except (OSError, sqlite3.Error):
+            log.exception("failed to read control requests")
+            continue
+        for request in requests:
+            cancelled = 0
+            try:
+                if request["action"] == "stop":
+                    for key, task in list(runtime.active_tasks.items()):
+                        if key[0] == int(request["user_id"]) and not task.done():
+                            task.cancel()
+                            cancelled += 1
+                control.mark_handled(int(request["id"]), cancelled=cancelled)
+                log.info(
+                    "control request=%s action=%s cancelled=%s",
+                    request["id"],
+                    request["action"],
+                    cancelled,
+                )
+            except (OSError, sqlite3.Error, ValueError, TypeError):
+                log.exception("failed to apply control request=%s", request.get("id"))
+                try:
+                    control.mark_handled(int(request["id"]), failed=True)
+                except (OSError, sqlite3.Error, ValueError, TypeError):
+                    log.exception("failed to mark control request=%s", request.get("id"))
+
+
 COMMANDS = [
     BotCommand(command="help", description="Справка по командам"),
     BotCommand(command="accounts", description="Список аккаунтов"),
@@ -227,6 +263,7 @@ async def main():
     # фоновая таска для отложенного self-restart
     asyncio.create_task(restart_watcher(bot))
     asyncio.create_task(crm_sync.worker())
+    asyncio.create_task(control_watcher())
 
     if config.ADMIN_ID is None:
         try:

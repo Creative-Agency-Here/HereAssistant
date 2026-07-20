@@ -38,6 +38,7 @@ webapp/front/.nuxt/
 webapp/front/.output/
 webapp/front/dist/
 webapp/front/dist
+/dist/
 
 # локальная авто-память и настройки IDE/агента (личное, не код)
 memory/

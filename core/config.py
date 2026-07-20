@@ -236,6 +236,9 @@ HERECRM_SYNC_TOKEN: str = os.environ.get("HERECRM_SYNC_TOKEN", "").strip()
 HERECRM_WEB_URL: str = os.environ.get("HERECRM_WEB_URL", "").strip().rstrip("/")
 HERECRM_SYNC_ORIGIN: str = os.environ.get("HERECRM_SYNC_ORIGIN", "").strip() or socket.gethostname()
 HERECRM_SYNC_INTERVAL_SEC: float = float(os.environ.get("HERECRM_SYNC_INTERVAL_SEC", "5"))
+# Только диагностический boolean для UI. Сам MCP-токен остаётся в окружении и
+# никогда не возвращается API/расширению/SQLite.
+HERECRM_MCP_CONFIGURED: bool = bool(os.environ.get("HERECRM_MCP_TOKEN", "").strip())
 
 # Человекочитаемая идентичность этой инсталляции в общей витрине контуров.
 # Значения не являются секретами; дефолты переносимы между macOS/Linux/Windows.
@@ -257,7 +260,7 @@ def webapp_url(path: str = "/", *, include_access_key: bool = False) -> str:
 
 
 # Версия приложения (для /health, /api/status и баннера терминального чата).
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.6.0"
 
 # Токен сервисного API (/api/v1/*) для внешних систем (например, CRM).
 # ПУСТОЙ по умолчанию = сервисные эндпоинты отключены (503), а не открыты.

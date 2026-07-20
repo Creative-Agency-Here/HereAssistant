@@ -203,6 +203,36 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(crm_project_id, updated_at);
 
+-- Команды управления из Web App / VS Code передаются API-процессом боту через
+-- общую SQLite. Никаких shell-команд или prompt-содержимого здесь нет.
+CREATE TABLE IF NOT EXISTS control_requests (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    action      TEXT NOT NULL CHECK (action IN ('stop')),
+    status      TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'handled', 'failed')),
+    result      TEXT,
+    created_at  INTEGER NOT NULL,
+    handled_at  INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_control_requests_pending
+    ON control_requests(status, created_at);
+
+-- Живые heartbeat установок VS Code. Заголовки задач не принимаются: витрина
+-- хранит только состояние и счётчики, поэтому не обходит project privacy policy.
+CREATE TABLE IF NOT EXISTS contour_heartbeats (
+    user_id      INTEGER NOT NULL,
+    contour_id   TEXT NOT NULL,
+    label        TEXT NOT NULL,
+    kind         TEXT NOT NULL CHECK (kind IN ('local', 'server', 'remote')),
+    state        TEXT NOT NULL CHECK (state IN ('open', 'working', 'closed')),
+    task_count   INTEGER NOT NULL DEFAULT 0,
+    updated_at   INTEGER NOT NULL,
+    PRIMARY KEY (user_id, contour_id)
+);
+CREATE INDEX IF NOT EXISTS idx_contour_heartbeats_user
+    ON contour_heartbeats(user_id, updated_at);
+
 CREATE TABLE IF NOT EXISTS file_changes (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     ts          INTEGER NOT NULL,

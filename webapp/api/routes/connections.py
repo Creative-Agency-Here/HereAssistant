@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from aiohttp import web
 
 from core import config, herecrm_client
+from core import contours as contour_store
 from core.workspace_status import installation_identity, parse_activity_at, workspace_overview
 from webapp.api import repo
 
@@ -67,13 +68,27 @@ def _contours(local: dict[str, str], sessions: list[dict], *, local_working: boo
     return sorted(grouped.values(), key=lambda item: (not item["local"], item["label"]))
 
 
+def _merge_heartbeats(items: list[dict], heartbeats: list[dict]) -> list[dict]:
+    merged = {str(item["id"]).casefold(): item for item in items}
+    local_ids = {key for key, value in merged.items() if value.get("local")}
+    for heartbeat in heartbeats:
+        key = str(heartbeat["id"]).casefold()
+        previous = merged.get(key, {})
+        merged[key] = {
+            **previous,
+            **heartbeat,
+            "local": key in local_ids or bool(previous.get("local")),
+        }
+    return sorted(merged.values(), key=lambda item: (not item.get("local"), item["label"]))
+
+
 async def handler(request: web.Request) -> web.Response:
     user_id = int(request["user"]["id"])
     owner = config.ADMIN_ID is not None and user_id == config.ADMIN_ID
     accounts = repo.list_cli_accounts(user_id)
     recent = repo.list_conversations(user_id, limit=1)
     cwd = recent[0].get("cwd") if recent else config.user_default_cwd(user_id)
-    workspace = workspace_overview(user_id, cwd)
+    workspace = await asyncio.to_thread(workspace_overview, user_id, cwd)
     active_task = repo.get_active_task(user_id)
     crm_payload: object = []
     crm_error: str | None = None
@@ -84,11 +99,12 @@ async def handler(request: web.Request) -> web.Response:
             crm_error = "crm_unavailable"
         except herecrm_client.HereCrmClientError as error:
             crm_error = error.code
-    contours = _contours(
+    contour_items = _contours(
         installation_identity(),
         _crm_sessions(crm_payload),
         local_working=active_task is not None,
     )
+    contour_items = _merge_heartbeats(contour_items, contour_store.list_for_user(user_id))
     return web.json_response(
         {
             "telegram": {
@@ -104,8 +120,9 @@ async def handler(request: web.Request) -> web.Response:
                 "status": "active" if owner and herecrm_client.configured() else "not_configured",
                 "ownerOnly": True,
                 "error": crm_error,
+                "taskAutomation": "active" if config.HERECRM_MCP_CONFIGURED else "not_configured",
             },
             "workspace": workspace,
-            "contours": contours,
+            "contours": contour_items,
         }
     )

@@ -21,6 +21,7 @@ A personal Telegram bot that bridges you to CLI coding agents — **Claude Code,
 - **Rich Messages (Bot API 10.1)** — final answers via `sendRichMessage` with native tables, headings, code blocks and math; answer text streams as an animated `sendRichMessageDraft` preview. Automatic fallback to the classic HTML path.
 - **Native session resume** — Claude sessions continue via `--resume`; context survives without storing your data.
 - **Web Mini App** — history, live status, file-change journal and one view of local/server contours, Git divergence, disk and confirmed deployment state (Nuxt 3), authenticated via Telegram initData.
+- **VS Code Workbench** — a native Activity Bar, animated status bar, local/server heartbeats, CRM task state, Integrated Terminal controls, and a Git/deploy block inside Source Control.
 - **File exchange** — send documents/photos/voice to the agent; long answers come back as Markdown files.
 - **Voice input** — transcription via faster-whisper.
 - **Stats and events** — token usage, durations and errors per model/account (metrics only, never content).
@@ -125,6 +126,21 @@ Read, Edit, Write, Bash and Agent calls now expand into structured mobile cards:
 
 Full verified gallery and reproducible checks: [docs/mobile-activity-proof.md](docs/mobile-activity-proof.md).
 
+## VS Code Workbench
+
+Build and install the dependency-free extension:
+
+```bash
+python3 scripts/package_vscode_extension.py
+code --install-extension dist/hereassistant-vscode-0.6.0.vsix --force
+```
+
+It keeps access keys in VS Code SecretStorage, launches the existing `chat.py`
+inside the active workspace, reports real local state through an atomic runtime
+file and adds Pull/Push/deploy visibility to Source Control.
+
+Full setup and behavior: [docs/vscode-workbench.md](docs/vscode-workbench.md).
+
 ## Docs
 
 - [Onboarding & authorization path](docs/onboarding.md) — BotFather token → claim code → owner, adding teammates, `/logout` (with a flow diagram)
@@ -132,6 +148,7 @@ Full verified gallery and reproducible checks: [docs/mobile-activity-proof.md](d
 - [Providers & auth homes](docs/providers.md)
 - [Privacy modes](docs/privacy.md)
 - [Verified mobile activity and screenshot proof](docs/mobile-activity-proof.md)
+- [VS Code Workbench](docs/vscode-workbench.md)
 - [Security model](SECURITY.md) — this is a remote-code-execution gateway by design; read before deploying
 - [Contributing](CONTRIBUTING.md)
 

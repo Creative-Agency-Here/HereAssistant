@@ -1,0 +1,17 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "HereAssistant: test VS Code extension",
+      "type": "shell",
+      "command": "npm --prefix vscode-extension test",
+      "problemMatcher": []
+    },
+    {
+      "label": "HereAssistant: package VSIX",
+      "type": "shell",
+      "command": ".venv/bin/python scripts/package_vscode_extension.py",
+      "problemMatcher": []
+    }
+  ]
+}

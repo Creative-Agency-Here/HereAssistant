@@ -30,7 +30,9 @@
             <span class="chip">📁 {{ data.project }}</span>
           </div>
           <div class="flex gap-2 pt-2">
-            <button class="btn btn-danger" @click="onStop">Прервать</button>
+            <button class="btn btn-danger" :disabled="stopping" @click="onStop">
+              {{ stopping ? 'Прерываю…' : 'Прервать' }}
+            </button>
           </div>
         </div>
         <div v-else class="text-text-soft">Нет активных задач.</div>
@@ -93,6 +95,7 @@ interface NowResponse {
 const { data, pending, error, refresh } = await useApi<NowResponse>('/api/now')
 const { logLines, connected } = useLiveLog()
 const logEl = ref<HTMLElement | null>(null)
+const stopping = ref(false)
 
 // автообновление статуса каждые 2 секунды (ws тоже шлёт, но fetch гарантирует upd)
 let timer: ReturnType<typeof setInterval> | null = null
@@ -109,8 +112,18 @@ watch(logLines, async () => {
   if (logEl.value) logEl.value.scrollTop = logEl.value.scrollHeight
 })
 
-function onStop() {
-  alert('Прерывание — TODO в Этапе 2.4')
+async function onStop() {
+  if (stopping.value) return
+  stopping.value = true
+  try {
+    await apiFetch('/api/control/stop', { method: 'POST' })
+    await new Promise(resolve => window.setTimeout(resolve, 600))
+    await refresh()
+  } catch {
+    alert('Не удалось передать команду остановки. Проверьте подключение к HereAssistant API.')
+  } finally {
+    stopping.value = false
+  }
 }
 
 function lineClass(line: string) {

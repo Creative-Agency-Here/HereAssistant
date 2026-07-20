@@ -47,7 +47,7 @@ from chat_renderer import (
 )
 from chat_sessions import Session
 from chat_sessions import list_resumable as _list_resumable
-from core import config, crm_sync, db, project_config
+from core import config, crm_sync, db, integration_state, project_config
 from core.workspace_status import task_summary, workspace_overview
 from terminal_title import TerminalTitle
 
@@ -234,7 +234,7 @@ def _farewell():
 
 
 # ---------- REPL ----------
-async def _repl(sess: Session):
+async def _repl(sess: Session, integration_id: str | None = None):
     commands = CommandRouter(
         accounts=_db_accounts,
         users=_db_users,
@@ -244,6 +244,14 @@ async def _repl(sess: Session):
     title = TerminalTitle()
     summary = task_summary(sess.cwd)
     title.idle(sess.cwd, summary["open"])
+    if integration_id:
+        integration_state.write(
+            integration_id,
+            state="open",
+            cwd=sess.cwd,
+            task_count=summary["open"],
+            session_id=sess.session_id,
+        )
     commands.status(sess)
     overview = workspace_overview(sess.user_id, sess.cwd)
     print(
@@ -271,9 +279,26 @@ async def _repl(sess: Session):
                 return
             summary = task_summary(sess.cwd)
             title.idle(sess.cwd, summary["open"])
+            if integration_id:
+                integration_state.write(
+                    integration_id,
+                    state="open",
+                    cwd=sess.cwd,
+                    task_count=summary["open"],
+                    session_id=sess.session_id,
+                )
             continue
         summary = task_summary(sess.cwd)
         title.start(line, max(1, summary["open"]))
+        if integration_id:
+            integration_state.write(
+                integration_id,
+                state="working",
+                cwd=sess.cwd,
+                task_count=max(1, summary["open"]),
+                title=line,
+                session_id=sess.session_id,
+            )
         completed = False
         try:
             completed = await _run_prompt(sess, line)
@@ -282,6 +307,15 @@ async def _repl(sess: Session):
         finally:
             latest = task_summary(sess.cwd)
             await title.finish(completed=completed, cwd=sess.cwd, open_tasks=latest["open"])
+            if integration_id:
+                integration_state.write(
+                    integration_id,
+                    state="open" if completed else "error",
+                    cwd=sess.cwd,
+                    task_count=latest["open"],
+                    title=None if completed else line,
+                    session_id=sess.session_id,
+                )
 
 
 def _arg_after(argv, flag):
@@ -299,13 +333,19 @@ def _run():
     user_id, user_name = _pick_user(_arg_after(argv, "-u"))
     account = _pick_account(_arg_after(argv, "-a"), user_id)
     sess = Session(account, user_id, user_name)
-    asyncio.run(_run_with_sync(sess))
+    requested_cwd = _arg_after(argv, "--cwd")
+    if requested_cwd:
+        path = os.path.abspath(os.path.expanduser(requested_cwd))
+        if not os.path.isdir(path):
+            raise ValueError(f"Рабочая папка не существует: {requested_cwd}")
+        sess.cwd = path
+    asyncio.run(_run_with_sync(sess, _arg_after(argv, "--integration-id")))
 
 
-async def _run_with_sync(sess: Session) -> None:
+async def _run_with_sync(sess: Session, integration_id: str | None = None) -> None:
     sync_task = asyncio.create_task(crm_sync.worker()) if crm_sync.configured() else None
     try:
-        await _repl(sess)
+        await _repl(sess, integration_id)
     finally:
         if sync_task is not None:
             sync_task.cancel()
@@ -313,6 +353,14 @@ async def _run_with_sync(sess: Session) -> None:
                 await sync_task
             except asyncio.CancelledError:
                 pass
+        if integration_id:
+            integration_state.write(
+                integration_id,
+                state="closed",
+                cwd=sess.cwd,
+                task_count=task_summary(sess.cwd)["open"],
+                session_id=sess.session_id,
+            )
 
 
 def main():

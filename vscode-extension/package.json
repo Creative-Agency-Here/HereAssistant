@@ -1,0 +1,126 @@
+{
+  "name": "hereassistant-vscode",
+  "displayName": "HereAssistant",
+  "description": "Local VS Code workbench for HereAssistant sessions, CRM tasks, contours, Git and deployments.",
+  "version": "0.6.0",
+  "publisher": "creative-agency-here",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other", "SCM Providers"],
+  "keywords": ["ai", "assistant", "crm", "git", "terminal"],
+  "main": "./extension.js",
+  "extensionKind": ["workspace", "ui"],
+  "activationEvents": [
+    "onView:hereAssistant.sessions",
+    "onView:hereAssistant.contours",
+    "onView:hereAssistant.actions",
+    "onView:hereAssistant.delivery",
+    "onCommand:hereAssistant.setup",
+    "onCommand:hereAssistant.start",
+    "onCommand:hereAssistant.runTask"
+  ],
+  "contributes": {
+    "commands": [
+      { "command": "hereAssistant.setup", "title": "HereAssistant: Настроить подключение", "icon": "$(settings-gear)" },
+      { "command": "hereAssistant.refresh", "title": "HereAssistant: Обновить", "icon": "$(refresh)" },
+      { "command": "hereAssistant.start", "title": "HereAssistant: Открыть терминал", "icon": "$(terminal)" },
+      { "command": "hereAssistant.runTask", "title": "HereAssistant: Запустить задачу", "icon": "$(play)" },
+      { "command": "hereAssistant.finishTask", "title": "HereAssistant: Завершить текущую задачу", "icon": "$(pass-filled)" },
+      { "command": "hereAssistant.stop", "title": "HereAssistant: Прервать задачу", "icon": "$(debug-stop)" },
+      { "command": "hereAssistant.newSession", "title": "HereAssistant: Новая сессия", "icon": "$(add)" },
+      { "command": "hereAssistant.resume", "title": "HereAssistant: Продолжить сессию", "icon": "$(history)" },
+      { "command": "hereAssistant.gitPull", "title": "HereAssistant: Git Pull", "icon": "$(cloud-download)" },
+      { "command": "hereAssistant.gitPush", "title": "HereAssistant: Git Push", "icon": "$(cloud-upload)" },
+      { "command": "hereAssistant.deploy", "title": "HereAssistant: Запустить деплой", "icon": "$(rocket)" },
+      { "command": "hereAssistant.openWeb", "title": "HereAssistant: Открыть Web App", "icon": "$(globe)" },
+      { "command": "hereAssistant.setAccessKey", "title": "HereAssistant: Обновить ключ доступа", "icon": "$(key)" },
+      { "command": "hereAssistant.manageAccounts", "title": "HereAssistant: Управление AI-аккаунтами", "icon": "$(account)" }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "hereAssistant",
+          "title": "HereAssistant",
+          "icon": "media/here.svg"
+        }
+      ]
+    },
+    "views": {
+      "hereAssistant": [
+        { "id": "hereAssistant.sessions", "name": "Сессия и задачи" },
+        { "id": "hereAssistant.contours", "name": "Рабочие контуры" },
+        { "id": "hereAssistant.actions", "name": "Действия" }
+      ],
+      "scm": [
+        { "id": "hereAssistant.delivery", "name": "HereAssistant · Git и деплой", "when": "hereAssistant.enabled" }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "hereAssistant.sessions",
+        "contents": "Подключите HereAssistant, чтобы видеть задачи и сессии.\n[Настроить](command:hereAssistant.setup)",
+        "when": "!hereAssistant.configured"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "hereAssistant.refresh", "when": "view =~ /hereAssistant\\./", "group": "navigation@1" },
+        { "command": "hereAssistant.runTask", "when": "view == hereAssistant.sessions", "group": "navigation@2" },
+        { "command": "hereAssistant.stop", "when": "view == hereAssistant.sessions && hereAssistant.working", "group": "navigation@3" }
+      ]
+    },
+    "configuration": {
+      "title": "HereAssistant",
+      "properties": {
+        "hereAssistant.installationPath": {
+          "type": "string",
+          "default": "",
+          "description": "Папка установки HereAssistant, где находятся chat.py и .runtime."
+        },
+        "hereAssistant.apiBase": {
+          "type": "string",
+          "default": "",
+          "description": "HTTPS URL HereAssistant Web API без завершающего слеша."
+        },
+        "hereAssistant.webAppUrl": {
+          "type": "string",
+          "default": "",
+          "description": "URL HereAssistant Web App."
+        },
+        "hereAssistant.contourName": {
+          "type": "string",
+          "default": "",
+          "description": "Название этой установки, например «MacBook Ильи»."
+        },
+        "hereAssistant.contourKind": {
+          "type": "string",
+          "enum": ["local", "server"],
+          "default": "local",
+          "description": "Тип рабочего контура."
+        },
+        "hereAssistant.accountLabel": {
+          "type": "string",
+          "default": "",
+          "description": "Предпочтительный AI-аккаунт; пусто — спросить при запуске."
+        },
+        "hereAssistant.pollIntervalSeconds": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 60,
+          "description": "Интервал чтения локального состояния и API."
+        },
+        "hereAssistant.deployCommand": {
+          "type": "string",
+          "default": "",
+          "description": "Явная штатная команда деплоя проекта. Выполняется только после подтверждения."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}

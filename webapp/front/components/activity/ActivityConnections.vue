@@ -50,7 +50,7 @@ async function copyCommand() {
         <div v-for="contour in data.contours" :key="contour.id">
           <span class="status-orb" :class="contour.state !== 'closed' ? 'status-orb-active' : ''" />
           <strong>{{ contour.label }}{{ contour.local ? ' · этот контур' : '' }}</strong>
-          <span>{{ contourState[contour.state] }} · {{ contour.sessions }} сессий</span>
+          <span>{{ contourState[contour.state] }} · {{ contour.taskCount || 0 }} задач · {{ contour.sessions }} сессий</span>
         </div>
       </div>
     </section>
@@ -97,6 +97,9 @@ async function copyCommand() {
       <div class="min-w-0 flex-1">
         <div class="connection-card-title"><h3>HereCRM</h3><span :class="data.crm.status === 'active' ? 'status-active' : ''">{{ data.crm.status === 'active' ? 'Синхронизация активна' : 'Нужно подключить' }}</span></div>
         <p>CRM получает только явно разрешённые проектом данные. Обратная витрина доступна владельцу.</p>
+        <div class="connection-hint">
+          Автоматизация задач: {{ data.crm.taskAutomation === 'active' ? 'MCP готов' : 'нужен HERECRM_MCP_TOKEN' }}
+        </div>
         <div v-if="data.crm.status !== 'active'" class="connection-hint">
           Выпустите новый HereAssistant-токен в CRM и задайте `HERECRM_SYNC_URL` + `HERECRM_SYNC_TOKEN`.
         </div>

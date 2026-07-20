@@ -76,3 +76,35 @@ def test_contours_merge_local_and_remote_sessions() -> None:
     remote = next(item for item in result if item["originHost"] == "macbook")
     assert remote["sessions"] == 2
     assert remote["state"] == "closed"
+
+
+def test_live_heartbeat_overrides_estimated_crm_contour() -> None:
+    result = connections._merge_heartbeats(  # noqa: SLF001
+        [
+            {
+                "id": "macbook",
+                "label": "macbook",
+                "kind": "remote",
+                "originHost": "macbook",
+                "local": False,
+                "state": "closed",
+                "estimated": True,
+            }
+        ],
+        [
+            {
+                "id": "macbook",
+                "label": "MacBook Ильи",
+                "kind": "local",
+                "originHost": "macbook",
+                "local": False,
+                "state": "working",
+                "estimated": False,
+                "taskCount": 1,
+            }
+        ],
+    )
+
+    assert result[0]["label"] == "MacBook Ильи"
+    assert result[0]["state"] == "working"
+    assert result[0]["estimated"] is False

@@ -112,6 +112,8 @@ def test_fresh_database_init_is_idempotent(tmp_path: Path, monkeypatch: pytest.M
         "messages",
         "events",
         "tasks",
+        "control_requests",
+        "contour_heartbeats",
         "file_changes",
     } <= tables
     assert owner == ("admin", "approved")

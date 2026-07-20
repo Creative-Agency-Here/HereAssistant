@@ -117,6 +117,7 @@ export interface AssistantConnections {
     status: 'active' | 'not_configured'
     ownerOnly: boolean
     error: string | null
+    taskAutomation: 'active' | 'not_configured'
   }
   workspace: {
     projectsOnDisk: number
@@ -147,6 +148,7 @@ export interface AssistantConnections {
     state: 'working' | 'open' | 'closed'
     estimated: boolean
     sessions: number
+    taskCount?: number
     lastActivityAt: string | null
   }>
 }
