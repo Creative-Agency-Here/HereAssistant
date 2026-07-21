@@ -30,7 +30,7 @@ bar and run **HereAssistant: Setup connection**.
 
 ```bash
 python3 scripts/package_vscode_extension.py
-code --install-extension dist/hereassistant-vscode-0.7.1.vsix
+code --install-extension dist/hereassistant-vscode-0.7.2.vsix
 ```
 
 Setup asks for:

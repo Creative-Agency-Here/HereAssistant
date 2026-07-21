@@ -17,8 +17,9 @@
 - status bar с анимацией `sync~spin` во время работы и ошибкой для явно
   незавершённого состояния.
 
-Во время непотокового запуска Codex сразу появляется строка
-`working (00:00)`, её таймер обновляется до готового ответа.
+Во время непотокового запуска Codex сразу появляется короткая строка
+`Working (00:00)`, её таймер обновляется до готового ответа. OSC 9;4 одновременно
+включает нативную анимацию состояния terminal-вкладки VS Code.
 
 Агент работает в обычном Integrated Terminal. Расширение запускает тот же
 `chat.py`, тот же provider account и тот же workspace, поэтому ответы, инструменты,
@@ -35,14 +36,14 @@ python3 scripts/package_vscode_extension.py
 Установить:
 
 ```bash
-code --install-extension dist/hereassistant-vscode-0.7.1.vsix --force
+code --install-extension dist/hereassistant-vscode-0.7.2.vsix --force
 ```
 
 Если `code` не добавлен в PATH на macOS:
 
 ```bash
 "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
-  --install-extension dist/hereassistant-vscode-0.7.1.vsix --force
+  --install-extension dist/hereassistant-vscode-0.7.2.vsix --force
 ```
 
 После перезапуска VS Code нажать `Here` в status bar → `Настроить` и выбрать

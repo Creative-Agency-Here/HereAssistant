@@ -132,7 +132,7 @@ Build and install the dependency-free extension:
 
 ```bash
 python3 scripts/package_vscode_extension.py
-code --install-extension dist/hereassistant-vscode-0.7.1.vsix --force
+code --install-extension dist/hereassistant-vscode-0.7.2.vsix --force
 ```
 
 It keeps access keys in VS Code SecretStorage, launches the existing `chat.py`

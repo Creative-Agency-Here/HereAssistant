@@ -170,7 +170,7 @@ CRM-проекта, `/status` — Git push/pull и deploy-marker без дога
 
 ```bash
 python3 scripts/package_vscode_extension.py
-code --install-extension dist/hereassistant-vscode-0.7.1.vsix --force
+code --install-extension dist/hereassistant-vscode-0.7.2.vsix --force
 ```
 
 Расширение запускает существующий `chat.py` в текущем workspace, открывает каждую

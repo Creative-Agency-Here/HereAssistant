@@ -287,6 +287,15 @@ class Controller {
     });
     if (apiBase === undefined) return;
     await this.configuration().update('apiBase', apiBase.replace(/\/$/, ''), vscode.ConfigurationTarget.Global);
+    const webAppUrl = await vscode.window.showInputBox({
+      title: 'Web App / CRM',
+      prompt: 'Адрес интерфейса, который откроет кнопка «HereCRM»; можно оставить пустым',
+      value: this.configuration().get('webAppUrl', '').trim(),
+      placeHolder: 'https://crm.example.com/tasks',
+      validateInput: (value) => !value || /^https?:\/\//i.test(value) ? null : 'Нужен HTTP(S) URL',
+    });
+    if (webAppUrl === undefined) return;
+    await this.configuration().update('webAppUrl', webAppUrl.replace(/\/$/, ''), vscode.ConfigurationTarget.Global);
     const contourName = await vscode.window.showInputBox({
       title: 'Название этого контура',
       value: this.contourLabel(),
@@ -447,7 +456,7 @@ class Controller {
       {
         label: '$(settings-gear) Настроить подключение',
         description: 'Пошаговая настройка расширения',
-        detail: 'Папка HereAssistant, локальный/серверный контур, Web API и аккаунт по умолчанию.',
+        detail: 'Папка HereAssistant, Web App, локальный/серверный контур, API и аккаунт по умолчанию.',
         command: 'hereAssistant.setup',
       },
     ], { title: 'HereAssistant · быстрые действия', placeHolder: this.localState?.title || 'Выберите действие' });
@@ -506,7 +515,9 @@ class Controller {
     const location = this.configuration().get('terminalLocation', 'editor') === 'panel'
       ? vscode.TerminalLocation.Panel
       : vscode.TerminalLocation.Editor;
-    this.terminal = vscode.window.createTerminal({ name: `Here · ${path.basename(workspace)}`, cwd: workspace, location });
+    // Имя намеренно не фиксируется через API: OSC title из chat.py должен
+    // свободно показывать текущую задачу и её анимацию в terminal-editor вкладке.
+    this.terminal = vscode.window.createTerminal({ cwd: workspace, location });
     this.terminals.set(this.terminal, { id: integrationId, stateMtime, state: null });
     this.terminal.show();
     this.terminal.sendText(args.join(' '), true);

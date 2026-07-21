@@ -31,6 +31,8 @@ async def test_title_animates_and_marks_unfinished_work() -> None:
     rendered = output.getvalue()
     assert "2 · Исправить синхронизацию" in rendered
     assert "✕ 2 · Исправить синхронизацию" in rendered
+    assert "\033]9;4;3;0\a" in rendered
+    assert "\033]9;4;2;100\a" in rendered
     assert rendered.count("\033]0;") >= 2
     assert rendered.count("\033]2;") >= 2
 
@@ -54,6 +56,6 @@ async def test_activity_animates_and_clears_non_streaming_wait() -> None:
     await activity.stop()
 
     rendered = output.getvalue()
-    assert "working (00:00)" in rendered
-    assert "Ctrl+C — остановить" in rendered
+    assert "Working (00:00)" in rendered
+    assert "остановить" not in rendered
     assert rendered.endswith("\r\033[2K")

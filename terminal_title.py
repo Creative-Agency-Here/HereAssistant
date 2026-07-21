@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TextIO
 
 SPINNER = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+ACTIVITY_COLORS = (183, 177, 141, 135, 129, 93)
 
 
 def compact_title(value: str, limit: int = 42) -> str:
@@ -49,7 +50,15 @@ class TerminalTitle:
         self.output.write(f"\033]0;{safe}\a\033]2;{safe}\a")
         self.output.flush()
 
+    def progress(self, state: int, value: int = 0) -> None:
+        """Передать VS Code/xterm системное состояние вкладки через OSC 9;4."""
+        if not self.enabled:
+            return
+        self.output.write(f"\033]9;4;{state};{value}\a")
+        self.output.flush()
+
     def idle(self, cwd: str, open_tasks: int = 0) -> None:
+        self.progress(0)
         project = Path(cwd).name or "HereAssistant"
         mark = "✕" if open_tasks else "✓"
         if self._last_prompt:
@@ -64,6 +73,8 @@ class TerminalTitle:
         self._last_prompt = self._prompt
         self._count = max(1, task_count)
         if self.enabled:
+            # Indeterminate progress включает нативную анимацию вкладки VS Code.
+            self.progress(3)
             self._animation = asyncio.create_task(self._animate())
 
     async def _animate(self) -> None:
@@ -87,11 +98,12 @@ class TerminalTitle:
         if completed:
             self.idle(cwd, open_tasks)
         else:
+            self.progress(2, 100)
             self.set(f"✕ {self._count or 1} · {self._prompt or 'Сессия не завершена'}")
 
 
 class TerminalActivity:
-    """Visible heartbeat while a provider cannot stream intermediate events."""
+    """Живой индикатор, пока провайдер не умеет отдавать промежуточные события."""
 
     def __init__(self, output: TextIO = sys.stdout, *, enabled: bool | None = None) -> None:
         self.output = output
@@ -115,9 +127,10 @@ class TerminalActivity:
                 elapsed = max(0, int(time.monotonic() - self._started_at))
                 minutes, seconds = divmod(elapsed, 60)
                 frame = SPINNER[index % len(SPINNER)]
+                color = ACTIVITY_COLORS[index % len(ACTIVITY_COLORS)]
                 self.output.write(
-                    f"\r\033[2K{frame} working ({minutes:02d}:{seconds:02d})"
-                    " · Ctrl+C — остановить"
+                    f"\r\033[2K\033[38;5;{color}m{frame}\033[0m"
+                    f" \033[2mWorking ({minutes:02d}:{seconds:02d})\033[0m"
                 )
                 self.output.flush()
                 index += 1

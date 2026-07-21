@@ -58,8 +58,4 @@ class TerminalPrompt:
             ANSI(prompt),
             prompt_continuation=lambda width, _line, _soft: " " * max(0, width - 2) + "· ",
             wrap_lines=True,
-            bottom_toolbar=ANSI(
-                "\x1b[2m клик — курсор · Enter — отправить · Alt+Enter — новая строка"
-                " · Shift+drag — выделить \x1b[0m"
-            ),
         )
