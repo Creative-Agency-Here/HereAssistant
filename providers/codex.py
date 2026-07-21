@@ -9,6 +9,15 @@ from .base import CLIProvider
 _extract_session_id = extract_session_id
 
 
+def permission_args(mode: str) -> list[str]:
+    """Безопасные режимы для неинтерактивного codex exec."""
+    if mode == "read-only":
+        return ["--sandbox", "read-only", "-c", "approval_policy=never"]
+    if mode == "workspace":
+        return ["--sandbox", "workspace-write", "-c", "approval_policy=never"]
+    return []
+
+
 class CodexProvider(CLIProvider):
     provider_name = "codex"
 
@@ -30,6 +39,7 @@ class CodexProvider(CLIProvider):
             argv = ["codex", "exec", "--skip-git-repo-check"]
         if model:
             argv += ["-c", f"model={model}"]
+        argv += permission_args(self.permission_mode)
         # инструкция языка через config override
         argv += ["-c", f"instructions={config.RU_SYSTEM_INSTRUCTION!r}"]
         argv += [full_prompt]

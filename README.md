@@ -13,7 +13,7 @@ A personal Telegram bot that bridges you to CLI coding agents — **Claude Code,
 ## Features
 
 - **Multiple providers, one chat** — Claude Code, Codex, Gemini as isolated CLI subprocesses; switch accounts and models with inline buttons.
-- **Terminal chat (`python chat.py`)** — an interactive REPL right in your console, like the native `claude`: a prompt, full live output, `/resume`, and a live terminal title with the task name/count, working animation and an explicit `✕` while work remains unfinished. Runs on the same subscription accounts as the bot.
+- **Terminal chat (`python chat.py`)** — an interactive REPL right in your console, like the native `claude`: a prompt, full live output, slash-command suggestions, `/resume`, safe Codex sandbox modes through `/permissions`, and a live terminal title with the task name/count, working animation and an explicit `✕` while work remains unfinished. Runs on the same subscription accounts as the bot.
 - **Team access, managed from the bot** — newcomers file an access request; the owner approves with one tap (`✅ / 👑 admin / ⛔`). Access modes via `/access` (open / approve / admins-only), roles and member search via `/users` — everything lives in the DB, no `.env` editing or restarts to add teammates.
 - **Account isolation** — each subscription has an explicit owner or shared flag and lives in its own auth home (`CLAUDE_CONFIG_DIR` / `CODEX_HOME` / `HOME`); users never fall back to another owner's profile.
 - **User-scoped repositories** — clone only from allowlisted Git hosts, switch registered projects, create isolated branch worktrees, inspect/pull, and confirm pushes from Telegram.
@@ -143,13 +143,17 @@ cd HereAssistant
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 python3 scripts/package_vscode_extension.py
-code --install-extension dist/hereassistant-vscode-0.7.4.vsix --force
+code --install-extension dist/hereassistant-vscode-0.7.5.vsix --force
 ```
 
 Reload VS Code, click the purple **Here** item in the status bar, choose
 **Set up connection**, and select this cloned folder. The menu starts or returns
 to terminal sessions, opens HereCRM, and manages AI accounts. To interrupt a
 specific response, focus its terminal and use the terminal's regular `Ctrl+C`.
+Typing `/` opens the command catalogue; keep typing to filter it, then use Tab,
+Enter, or the mouse. `/permissions` offers account, read-only, and workspace
+sandbox profiles for Codex. Since the current provider transport is non-interactive
+`codex exec`, denied operations fail closed instead of showing a per-command approval dialog.
 
 The extension keeps access keys in VS Code SecretStorage, launches the existing
 `chat.py` inside the active workspace, reports real local state through an atomic

@@ -12,6 +12,8 @@ The `creative-agency-here.hereassistant-vscode` extension adds:
   actions as a Quick Pick;
 - multiline editing with Enter to send, Alt+Enter for a new line, history, and
   bracketed-paste support;
+- a filterable slash-command catalogue: type `/`, then use Tab, Enter, or the mouse;
+- `/permissions` for explicit Codex account, read-only, and workspace sandbox modes;
 - click-to-position editing; hold Shift while dragging for native terminal
   selection, with copy-friendly soft wrapping;
 - **HereAssistant · Git and deploy** inside the standard Source Control view;
@@ -25,6 +27,12 @@ native animated progress status of the VS Code terminal tab.
 The agent runs in the standard Integrated Terminal. The extension launches the
 existing `chat.py`, provider account, and workspace, so hooks and provider
 sessions stay identical to the terminal and Telegram workflows.
+
+The Codex provider currently uses non-interactive `codex exec`. Consequently,
+`/permissions read-only` and `/permissions workspace` fail closed when an operation
+is outside the selected sandbox; they do not emulate the native per-command
+approval dialog. Exact one-time/prefix approvals require the Codex app-server
+transport and are intentionally not claimed by this release.
 
 ## Installation
 
@@ -46,14 +54,14 @@ python3 scripts/package_vscode_extension.py
 Install it:
 
 ```bash
-code --install-extension dist/hereassistant-vscode-0.7.4.vsix --force
+code --install-extension dist/hereassistant-vscode-0.7.5.vsix --force
 ```
 
 If `code` is not in `PATH` on macOS:
 
 ```bash
 "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
-  --install-extension dist/hereassistant-vscode-0.7.4.vsix --force
+  --install-extension dist/hereassistant-vscode-0.7.5.vsix --force
 ```
 
 After reloading VS Code, click **Here** in the status bar, run **Setup**, and

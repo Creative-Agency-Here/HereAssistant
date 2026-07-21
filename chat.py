@@ -27,7 +27,7 @@ import sys
 import time
 
 import providers
-from chat_commands import CommandRouter
+from chat_commands import COMMAND_SPECS, CommandRouter
 from chat_identity import find_user as _find_user
 from chat_identity import user_display as _user_display
 from chat_renderer import (
@@ -166,6 +166,7 @@ def _pick_user(preselect: str | None):
 async def _run_prompt(sess: Session, prompt: str) -> bool:
     state = ProgressRenderState()
     prov = providers.make(sess.account, user_id=sess.user_id)
+    prov.permission_mode = sess.permission_mode
     activity = TerminalActivity()
     if sess.provider == "codex":
         activity.start()
@@ -250,7 +251,7 @@ async def _repl(sess: Session, integration_id: str | None = None):
         default_cwd=config.user_default_cwd,
         resumable=_list_resumable,
     )
-    terminal_prompt = TerminalPrompt()
+    terminal_prompt = TerminalPrompt(commands=COMMAND_SPECS)
     title = TerminalTitle()
     summary = task_summary(sess.cwd)
     title.idle(sess.cwd, summary["open"])

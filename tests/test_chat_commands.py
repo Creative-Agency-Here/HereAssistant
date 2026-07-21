@@ -165,3 +165,27 @@ def test_clear_and_unknown_command_are_boundary_safe(monkeypatch: pytest.MonkeyP
 
     clear.assert_called_once()
     assert "неизвестная команда /unknown" in output.getvalue()
+
+
+def test_permissions_selects_safe_codex_sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
+    session, router, output, _ = setup(monkeypatch)
+    session.account = account(provider="codex")
+
+    router.handle(session, "/permissions workspace")
+    router.handle(session, "/permissions")
+
+    assert session.permission_mode == "workspace"
+    rendered = output.getvalue()
+    assert "запись только в рабочем пространстве" in rendered
+    assert "без окна «разрешить один раз»" in rendered
+
+
+def test_permissions_does_not_claim_support_for_other_providers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, router, output, _ = setup(monkeypatch)
+
+    router.handle(session, "/permissions read-only")
+
+    assert session.permission_mode == "account"
+    assert "только Codex" in output.getvalue()

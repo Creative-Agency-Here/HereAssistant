@@ -28,6 +28,10 @@ class Session:
         self.model: str | None = account["default_model"]
         self.cwd = config.user_default_cwd(user_id)
         self.session_id: str | None = None
+        # Для Codex: наследовать профиль аккаунта либо явно ограничить sandbox.
+        # HereAssistant пока запускает codex exec неинтерактивно, поэтому режимы
+        # не имитируют диалог одобрения отдельной команды.
+        self.permission_mode = "account"
         self.last_meta: Mapping[str, Any] = {}
         # Stable only for this terminal chat. CRM turns it into a deterministic
         # UUID and keeps subsequent prompts in one conversation.

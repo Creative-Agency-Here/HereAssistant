@@ -150,7 +150,11 @@ CLI/Telegram-каналы, недельные и 30-дневные отчёты.
 Terminal CLI запускается через `.venv/bin/python chat.py`. В заголовке окна он
 показывает название и количество задач, анимацию во время выполнения и `✕`, пока
 работа явно не завершена. `/tasks` показывает открытые HereCRM-задачи выбранного
-CRM-проекта, `/status` — Git push/pull и deploy-marker без догадок.
+CRM-проекта, `/status` — Git push/pull и deploy-marker без догадок. Символ `/`
+открывает фильтруемый каталог команд с выбором через Tab, Enter или мышь.
+`/permissions` переключает Codex между профилем аккаунта, read-only и sandbox с
+записью внутри workspace; запрещённые операции завершаются безопасной ошибкой без
+ложной имитации покомандного окна одобрения неинтерактивного `codex exec`.
 
 ### Проверенные подробности действий
 
@@ -183,7 +187,7 @@ cd HereAssistant
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 python3 scripts/package_vscode_extension.py
-code --install-extension dist/hereassistant-vscode-0.7.4.vsix --force
+code --install-extension dist/hereassistant-vscode-0.7.5.vsix --force
 ```
 
 Перезапустите VS Code, нажмите фиолетовый **Here** в status bar, выберите

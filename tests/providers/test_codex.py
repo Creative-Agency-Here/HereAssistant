@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from providers.codex import _extract_session_id
+from providers.codex import _extract_session_id, permission_args
 from providers.parsers.codex import extract_session_id
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "providers" / "codex_session.txt"
@@ -40,3 +40,19 @@ def test_codex_text_fixture_extracts_anonymized_session() -> None:
 
     assert extract_session_id(text, "") == "12345678-abcd-4321-aaaa-123456789012"
     assert "token" not in text.lower()
+
+
+def test_permission_args_are_fail_closed_for_noninteractive_exec() -> None:
+    assert permission_args("read-only") == [
+        "--sandbox",
+        "read-only",
+        "-c",
+        "approval_policy=never",
+    ]
+    assert permission_args("workspace") == [
+        "--sandbox",
+        "workspace-write",
+        "-c",
+        "approval_policy=never",
+    ]
+    assert permission_args("account") == []

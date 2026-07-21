@@ -19,6 +19,28 @@ UsersLookup = Callable[[], Sequence[UserRecord]]
 WorkspaceLookup = Callable[[int], str]
 ResumeLookup = Callable[[Session], list[ResumableSession]]
 
+COMMAND_SPECS: tuple[tuple[str, str], ...] = (
+    ("/help", "справка по командам"),
+    ("/status", "сессия, задачи, Git, диск и деплой"),
+    ("/tasks", "задачи HereCRM выбранного проекта"),
+    ("/model", "показать или сменить модель"),
+    ("/account", "показать или сменить AI-аккаунт"),
+    ("/permissions", "режим песочницы Codex"),
+    ("/user", "сменить пользователя workspace"),
+    ("/cwd", "показать или сменить рабочую папку"),
+    ("/new", "начать сессию с чистого контекста"),
+    ("/resume", "продолжить прошлую сессию"),
+    ("/diff", "правки последнего ответа"),
+    ("/clear", "очистить экран"),
+    ("/exit", "закрыть терминальный чат"),
+)
+
+PERMISSION_MODES = {
+    "account": "профиль аккаунта Codex",
+    "read-only": "только чтение",
+    "workspace": "запись только в рабочем пространстве",
+}
+
 
 def git_state_label(snapshot: Mapping[str, object]) -> str:
     labels = {
@@ -76,6 +98,8 @@ class CommandRouter:
             self._model(session, argument)
         elif command == "/account":
             self._account(session, argument)
+        elif command == "/permissions":
+            self._permissions(session, argument)
         elif command == "/cwd":
             self._cwd(session, argument)
         elif command == "/user":
@@ -99,6 +123,7 @@ class CommandRouter:
   {C}/help{X}              эта справка
   {C}/model{X} [имя]       показать/сменить модель
   {C}/account{X} [label]   показать/сменить аккаунт (сбрасывает сессию)
+  {C}/permissions{X}       режим песочницы Codex
   {C}/user{X} [@имя|id]    кто работает: workspace и сессии пишутся на него
   {C}/cwd{X} [путь]        показать/сменить рабочую папку
   {C}/new{X}               начать новую сессию (забыть контекст)
@@ -111,6 +136,34 @@ class CommandRouter:
 {D}Просто пиши текст — это уйдёт агенту. Отправляется по Enter.{X}"""
         )
 
+    def _permissions(self, session: Session, argument: str) -> None:
+        if session.provider != "codex":
+            self._print(
+                f"{D}/permissions сейчас управляет только Codex. "
+                f"Для {session.provider} действует безопасный профиль провайдера.{X}"
+            )
+            return
+        mode = argument.lower().replace("_", "-")
+        aliases = {"readonly": "read-only", "default": "account"}
+        mode = aliases.get(mode, mode)
+        if mode:
+            if mode not in PERMISSION_MODES:
+                self._print(
+                    f"{R}неизвестный режим '{argument}'{X} — account, read-only или workspace"
+                )
+                return
+            session.permission_mode = mode
+            self._print(f"{G}▸ разрешения: {PERMISSION_MODES[mode]}{X}")
+            return
+        self._print(f"{B}Разрешения Codex:{X}")
+        for name, label in PERMISSION_MODES.items():
+            current = f" {G}← текущий{X}" if name == session.permission_mode else ""
+            self._print(f"  {C}/permissions {name}{X}  {D}— {label}{X}{current}")
+        self._print(
+            f"{D}HereAssistant использует неинтерактивный codex exec: запрещённая "
+            f"операция завершится ошибкой без окна «разрешить один раз».{X}"
+        )
+
     def status(self, session: Session) -> None:
         overview = workspace_overview(session.user_id, session.cwd)
         self._print(
@@ -119,6 +172,11 @@ class CommandRouter:
         )
         self._print(f"  {D}аккаунт{X}  {W}{session.label}{X}  {D}({session.provider}){X}")
         self._print(f"  {D}модель {X}  {W}{session.model or '—'}{X}")
+        if session.provider == "codex":
+            self._print(
+                f"  {D}доступ {X}  {W}{PERMISSION_MODES[session.permission_mode]}{X}"
+                f"  {D}· /permissions{X}"
+            )
         self._print(f"  {D}проект {X}  {W}{pretty_path(session.cwd)}{X}")
         if session.session_id:
             self._print(
@@ -225,6 +283,7 @@ class CommandRouter:
             session.account = account
             session.model = account["default_model"]
             session.session_id = None
+            session.permission_mode = "account"
             self._print(f"{G}▸ аккаунт: {argument} · {account['provider']} (сессия сброшена){X}")
         else:
             self._print(f"{R}аккаунт '{argument}' не найден/выключен{X}")
@@ -263,6 +322,7 @@ class CommandRouter:
         session.model = session.account["default_model"]
         session.cwd = self.default_cwd(session.user_id)
         session.session_id = None
+        session.permission_mode = "account"
         self._print(f"{G}▸ теперь работает {session.user_name} (workspace и сессия — его){X}")
 
     def _print(self, text: str) -> None:

@@ -12,6 +12,10 @@
   аккаунтов и CRM;
 - многострочный ввод: Enter отправляет, Alt+Enter добавляет строку, ↑↓ открывают
   историю, а многострочная вставка сохраняется целиком;
+- фильтруемый каталог slash-команд: введите `/`, затем используйте Tab, Enter
+  или мышь;
+- `/permissions` для явного выбора профиля аккаунта, read-only или workspace
+  sandbox в Codex;
 - постановка курсора обычным кликом; для нативного выделения терминала используется
   `Shift+drag`, мягкие переносы не добавляют лишних переводов строк при копировании;
 - `HereAssistant · Git и деплой` внутри стандартной вкладки Source Control;
@@ -25,6 +29,12 @@
 Агент работает в обычном Integrated Terminal. Расширение запускает тот же
 `chat.py`, тот же provider account и тот же workspace, поэтому ответы, инструменты,
 hooks и provider session не расходятся с Telegram-режимом.
+
+Codex пока запускается через неинтерактивный `codex exec`. Поэтому режимы
+`/permissions read-only` и `/permissions workspace` безопасно отклоняют операцию
+за пределами sandbox, но не изображают нативное покомандное окно разрешений.
+Точные варианты «один раз / для префикса / отклонить» потребуют транспорта Codex
+app-server и в этой версии не заявляются.
 
 ## Установка
 
@@ -46,14 +56,14 @@ python3 scripts/package_vscode_extension.py
 Установить:
 
 ```bash
-code --install-extension dist/hereassistant-vscode-0.7.4.vsix --force
+code --install-extension dist/hereassistant-vscode-0.7.5.vsix --force
 ```
 
 Если `code` не добавлен в PATH на macOS:
 
 ```bash
 "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
-  --install-extension dist/hereassistant-vscode-0.7.4.vsix --force
+  --install-extension dist/hereassistant-vscode-0.7.5.vsix --force
 ```
 
 После перезапуска VS Code нажать `Here` в status bar → `Настроить` и выбрать

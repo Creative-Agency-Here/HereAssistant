@@ -8,9 +8,33 @@ from collections.abc import Callable
 from typing import TextIO
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
+
+
+class SlashCommandCompleter(Completer):
+    """Показывает каталог команд только в начале slash-запроса."""
+
+    def __init__(self, commands: tuple[tuple[str, str], ...]) -> None:
+        self._commands = commands
+
+    def get_completions(self, document: Document, complete_event):  # type: ignore[no-untyped-def]
+        before = document.text_before_cursor
+        if not before.startswith("/") or any(char.isspace() for char in before):
+            return
+        needle = before.lower()
+        for command, description in self._commands:
+            if command.startswith(needle):
+                yield Completion(
+                    command,
+                    start_position=-len(before),
+                    display=command,
+                    display_meta=description,
+                )
 
 
 class TerminalPrompt:
@@ -26,6 +50,7 @@ class TerminalPrompt:
         input_stream: TextIO = sys.stdin,
         output_stream: TextIO = sys.stdout,
         fallback: Callable[[str], str] | None = None,
+        commands: tuple[tuple[str, str], ...] = (),
     ) -> None:
         self._fallback = fallback
         self._interactive = bool(input_stream.isatty() and output_stream.isatty())
@@ -41,12 +66,23 @@ class TerminalPrompt:
             def newline(event) -> None:  # type: ignore[no-untyped-def]
                 event.current_buffer.insert_text("\n")
 
+            @bindings.add("tab")
+            def complete(event) -> None:  # type: ignore[no-untyped-def]
+                buffer = event.current_buffer
+                if buffer.complete_state is None:
+                    buffer.start_completion(select_first=True)
+                else:
+                    buffer.complete_next()
+
             self._session = PromptSession(
                 history=InMemoryHistory(),
                 key_bindings=bindings,
                 multiline=True,
                 mouse_support=True,
                 enable_history_search=True,
+                completer=SlashCommandCompleter(commands),
+                complete_while_typing=True,
+                auto_suggest=AutoSuggestFromHistory(),
             )
 
     async def read(self, prompt: str) -> str:

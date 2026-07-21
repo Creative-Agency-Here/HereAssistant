@@ -27,6 +27,7 @@ class CLIProvider:
         self.user_id = user_id
         self.boundary = ProcessBoundary(account, user_id)
         self.cli_home = Path(account["cli_home_path"])
+        self.permission_mode = "account"
         if not self.boundary.enabled:
             self.cli_home.mkdir(parents=True, exist_ok=True)
 
