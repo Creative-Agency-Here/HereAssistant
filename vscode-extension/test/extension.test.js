@@ -44,9 +44,12 @@ test('deploySnapshot distinguishes confirmed, partial and pending targets', () =
   assert.equal(extension.deploySnapshot(root, 'ffffffffffffffff').state, 'pending');
 });
 
-test('manifest contributes HereAssistant views to Activity Bar and Source Control', () => {
+test('manifest keeps terminal-first controls and Source Control delivery status', () => {
   const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-  assert.ok(packageJson.contributes.views.hereAssistant.some((item) => item.id === 'hereAssistant.sessions'));
+  assert.equal(packageJson.contributes.viewsContainers, undefined);
   assert.ok(packageJson.contributes.views.scm.some((item) => item.id === 'hereAssistant.delivery'));
+  assert.ok(packageJson.activationEvents.includes('onStartupFinished'));
+  assert.equal(packageJson.contributes.configuration.properties['hereAssistant.terminalLocation'].default, 'editor');
+  assert.ok(packageJson.contributes.commands.some((item) => item.command === 'hereAssistant.quickActions'));
   assert.ok(packageJson.contributes.commands.some((item) => item.command === 'hereAssistant.stop'));
 });

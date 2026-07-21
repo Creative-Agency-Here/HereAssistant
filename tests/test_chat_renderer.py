@@ -8,6 +8,7 @@ from chat_renderer import (
     finish_stream,
     format_run_summary,
     make_progress,
+    terminal_text,
 )
 
 
@@ -25,6 +26,14 @@ def test_unfinished_single_marker_is_flushed_literally_on_close() -> None:
 
     assert renderer.feed("text*") == "text"
     assert renderer.close().endswith("*")
+
+
+def test_terminal_text_preserves_copyable_lines_but_removes_control_bytes() -> None:
+    value = terminal_text("first\r\nsecond\rthird\x1b]0;hijack\x07")
+
+    assert value == "first\nsecond\nthird]0;hijack"
+    assert "\x1b" not in value
+    assert "\x07" not in value
 
 
 def test_headings_lists_inline_code_and_fences_are_rendered() -> None:

@@ -6,14 +6,13 @@
 
 The `creative-agency-here.hereassistant-vscode` extension adds:
 
-- a dedicated HereAssistant container in the Activity Bar;
-- **Session and tasks** with local session state, the active server task,
-  HereCRM counters, and MCP automation readiness;
-- **Work contours** with live Mac/server heartbeats and `Working`, `Open`, or
-  `Closed` states;
-- **Actions** for starting a task, opening the terminal, creating/resuming a
-  session, finishing a task, stopping work, managing accounts, and opening the
-  Web App;
+- terminal-editor tabs whose titles follow the current task and its
+  `working / completed / unfinished` state;
+- a compact status-bar item that opens all session, account, CRM, and stop
+  actions as a Quick Pick;
+- multiline editing with Enter to send, Alt+Enter for a new line, history, and
+  bracketed-paste support;
+- native VS Code mouse selection and copy-friendly soft wrapping;
 - **HereAssistant · Git and deploy** inside the standard Source Control view;
 - an animated status-bar item while work is running and a clear error marker
   when the terminal ended without completing its task.
@@ -33,19 +32,18 @@ python3 scripts/package_vscode_extension.py
 Install it:
 
 ```bash
-code --install-extension dist/hereassistant-vscode-0.6.0.vsix --force
+code --install-extension dist/hereassistant-vscode-0.7.0.vsix --force
 ```
 
 If `code` is not in `PATH` on macOS:
 
 ```bash
 "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
-  --install-extension dist/hereassistant-vscode-0.6.0.vsix --force
+  --install-extension dist/hereassistant-vscode-0.7.0.vsix --force
 ```
 
-After reloading VS Code, open the HereAssistant icon in the Activity Bar, run
-**Setup**, and select the HereAssistant installation directory containing
-`chat.py`.
+After reloading VS Code, click **Here** in the status bar, run **Setup**, and
+select the HereAssistant installation directory containing `chat.py`.
 
 ## Connection modes
 

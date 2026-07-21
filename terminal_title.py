@@ -37,21 +37,30 @@ class TerminalTitle:
         self._animation: asyncio.Task[None] | None = None
         self._prompt = ""
         self._count = 0
+        self._last_prompt = ""
 
     def set(self, value: str) -> None:
         if not self.enabled:
             return
         safe = compact_title(value, 80).replace("\a", "").replace("\x1b", "")
-        self.output.write(f"\033]0;{safe}\007")
+        # OSC 0 covers xterm/iTerm, OSC 2 is the explicit VS Code tab title.
+        # ST instead of BEL avoids an audible bell in strict terminals.
+        self.output.write(f"\033]0;{safe}\033\\\033]2;{safe}\033\\")
         self.output.flush()
 
     def idle(self, cwd: str, open_tasks: int = 0) -> None:
         project = Path(cwd).name or "HereAssistant"
         mark = "✕" if open_tasks else "✓"
-        self.set(f"{mark} Here · {open_tasks} {task_word(open_tasks)} · {project}")
+        if self._last_prompt:
+            count = f"{open_tasks} · " if open_tasks else ""
+            self.set(f"{mark} {count}{self._last_prompt}")
+        else:
+            count = f"{open_tasks} · " if open_tasks else ""
+            self.set(f"{mark} {count}{project}")
 
     def start(self, prompt: str, task_count: int) -> None:
         self._prompt = compact_title(prompt)
+        self._last_prompt = self._prompt
         self._count = max(1, task_count)
         if self.enabled:
             self._animation = asyncio.create_task(self._animate())
@@ -60,9 +69,7 @@ class TerminalTitle:
         index = 0
         try:
             while True:
-                self.set(
-                    f"{SPINNER[index % len(SPINNER)]} {self._count} {task_word(self._count)} · {self._prompt}"
-                )
+                self.set(f"{SPINNER[index % len(SPINNER)]} {self._count} · {self._prompt}")
                 index += 1
                 await asyncio.sleep(0.2)
         except asyncio.CancelledError:
@@ -79,6 +86,4 @@ class TerminalTitle:
         if completed:
             self.idle(cwd, open_tasks)
         else:
-            self.set(
-                f"✕ {self._count or 1} {task_word(self._count or 1)} · {self._prompt or 'Сессия не завершена'}"
-            )
+            self.set(f"✕ {self._count or 1} · {self._prompt or 'Сессия не завершена'}")

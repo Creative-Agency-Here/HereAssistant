@@ -28,6 +28,12 @@ X = _color("\033[0m")
 STEP_ICON = {"run": f"{Y}⏺{X}", "ok": f"{G}✓{X}", "err": f"{R}✗{X}"}
 
 
+def terminal_text(value: object) -> str:
+    """Remove terminal control bytes while preserving content and soft wrapping."""
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+    return "".join(char for char in text if char in "\n\t" or ord(char) >= 32)
+
+
 class MdStream:
     """Потоково преобразует ограниченный Markdown в ANSI без утечки токенов."""
 
@@ -50,7 +56,7 @@ class MdStream:
         return style
 
     def feed(self, chunk: str) -> str:
-        source = self.tail + chunk
+        source = self.tail + terminal_text(chunk)
         self.tail = ""
         output: list[str] = []
         index = 0
@@ -157,7 +163,7 @@ class ProgressRenderState:
 
 def make_progress(state: ProgressRenderState, *, output: TextIO = sys.stdout):
     async def progress(text: str, event_type: str, meta: Mapping[str, Any]) -> None:
-        thinking = str(meta.get("thinking") or "")
+        thinking = terminal_text(meta.get("thinking"))
         if len(thinking) > state.thinking_len:
             chunk = thinking[state.thinking_len :]
             state.thinking_len = len(thinking)
@@ -179,10 +185,10 @@ def make_progress(state: ProgressRenderState, *, output: TextIO = sys.stdout):
                 state.printed_tools.add(key)
                 flush_text(state, output=output)
                 icon = STEP_ICON.get(str(step.get("status")), f"{Y}⏺{X}")
-                output.write(f"\n{icon} {W}{step.get('desc')}{X}")
+                output.write(f"\n{icon} {W}{terminal_text(step.get('desc'))}{X}")
                 result = step.get("result")
                 if result:
-                    preview = str(result)
+                    preview = terminal_text(result)
                     if len(preview) > 400:
                         preview = preview[:400] + "…"
                     output.write(f"\n   {D}⎿ {preview}{X}")

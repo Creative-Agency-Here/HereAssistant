@@ -49,6 +49,7 @@ from chat_sessions import Session
 from chat_sessions import list_resumable as _list_resumable
 from core import config, crm_sync, db, integration_state, project_config
 from core.workspace_status import task_summary, workspace_overview
+from terminal_input import TerminalPrompt
 from terminal_title import TerminalTitle
 
 # Аккаунты читаем напрямую из БД, НЕ через handlers.repo: пакет handlers/__init__
@@ -241,6 +242,7 @@ async def _repl(sess: Session, integration_id: str | None = None):
         default_cwd=config.user_default_cwd,
         resumable=_list_resumable,
     )
+    terminal_prompt = TerminalPrompt()
     title = TerminalTitle()
     summary = task_summary(sess.cwd)
     title.idle(sess.cwd, summary["open"])
@@ -260,11 +262,10 @@ async def _repl(sess: Session, integration_id: str | None = None):
         f"{overview['repositoriesOnDisk']} на диске · свободно {overview['disk']['freeLabel']}{X}"
     )
     print(f"\n{D}/help — команды · /exit — выход{X}")
-    loop = asyncio.get_event_loop()
     while True:
         try:
             prompt_str = f"\n{B}{M}›{X} "
-            line = await loop.run_in_executor(None, lambda: input(prompt_str))
+            line = await terminal_prompt.read(prompt_str)
         except (EOFError, KeyboardInterrupt):
             _farewell()
             return

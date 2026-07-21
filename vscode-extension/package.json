@@ -2,7 +2,7 @@
   "name": "hereassistant-vscode",
   "displayName": "HereAssistant",
   "description": "Local VS Code workbench for HereAssistant sessions, CRM tasks, contours, Git and deployments.",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "creative-agency-here",
   "license": "MIT",
   "engines": {
@@ -13,10 +13,9 @@
   "main": "./extension.js",
   "extensionKind": ["workspace", "ui"],
   "activationEvents": [
-    "onView:hereAssistant.sessions",
-    "onView:hereAssistant.contours",
-    "onView:hereAssistant.actions",
+    "onStartupFinished",
     "onView:hereAssistant.delivery",
+    "onCommand:hereAssistant.quickActions",
     "onCommand:hereAssistant.setup",
     "onCommand:hereAssistant.start",
     "onCommand:hereAssistant.runTask"
@@ -24,8 +23,10 @@
   "contributes": {
     "commands": [
       { "command": "hereAssistant.setup", "title": "HereAssistant: Настроить подключение", "icon": "$(settings-gear)" },
+      { "command": "hereAssistant.quickActions", "title": "HereAssistant: Быстрое меню", "icon": "$(sparkle)" },
       { "command": "hereAssistant.refresh", "title": "HereAssistant: Обновить", "icon": "$(refresh)" },
       { "command": "hereAssistant.start", "title": "HereAssistant: Открыть терминал", "icon": "$(terminal)" },
+      { "command": "hereAssistant.newTerminal", "title": "HereAssistant: Новый терминал", "icon": "$(add)" },
       { "command": "hereAssistant.runTask", "title": "HereAssistant: Запустить задачу", "icon": "$(play)" },
       { "command": "hereAssistant.finishTask", "title": "HereAssistant: Завершить текущую задачу", "icon": "$(pass-filled)" },
       { "command": "hereAssistant.stop", "title": "HereAssistant: Прервать задачу", "icon": "$(debug-stop)" },
@@ -38,37 +39,14 @@
       { "command": "hereAssistant.setAccessKey", "title": "HereAssistant: Обновить ключ доступа", "icon": "$(key)" },
       { "command": "hereAssistant.manageAccounts", "title": "HereAssistant: Управление AI-аккаунтами", "icon": "$(account)" }
     ],
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "hereAssistant",
-          "title": "HereAssistant",
-          "icon": "media/here.svg"
-        }
-      ]
-    },
     "views": {
-      "hereAssistant": [
-        { "id": "hereAssistant.sessions", "name": "Сессия и задачи" },
-        { "id": "hereAssistant.contours", "name": "Рабочие контуры" },
-        { "id": "hereAssistant.actions", "name": "Действия" }
-      ],
       "scm": [
         { "id": "hereAssistant.delivery", "name": "HereAssistant · Git и деплой", "when": "hereAssistant.enabled" }
       ]
     },
-    "viewsWelcome": [
-      {
-        "view": "hereAssistant.sessions",
-        "contents": "Подключите HereAssistant, чтобы видеть задачи и сессии.\n[Настроить](command:hereAssistant.setup)",
-        "when": "!hereAssistant.configured"
-      }
-    ],
     "menus": {
       "view/title": [
-        { "command": "hereAssistant.refresh", "when": "view =~ /hereAssistant\\./", "group": "navigation@1" },
-        { "command": "hereAssistant.runTask", "when": "view == hereAssistant.sessions", "group": "navigation@2" },
-        { "command": "hereAssistant.stop", "when": "view == hereAssistant.sessions && hereAssistant.working", "group": "navigation@3" }
+        { "command": "hereAssistant.refresh", "when": "view == hereAssistant.delivery", "group": "navigation@1" }
       ]
     },
     "configuration": {
@@ -104,6 +82,17 @@
           "type": "string",
           "default": "",
           "description": "Предпочтительный AI-аккаунт; пусто — спросить при запуске."
+        },
+        "hereAssistant.terminalLocation": {
+          "type": "string",
+          "enum": ["editor", "panel"],
+          "default": "editor",
+          "description": "Открывать HereAssistant отдельной вкладкой редактора или в нижней панели."
+        },
+        "hereAssistant.newTerminalPerTask": {
+          "type": "boolean",
+          "default": true,
+          "description": "Открывать каждую новую задачу в собственной terminal-editor вкладке."
         },
         "hereAssistant.pollIntervalSeconds": {
           "type": "number",

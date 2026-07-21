@@ -29,8 +29,10 @@ async def test_title_animates_and_marks_unfinished_work() -> None:
     await title.finish(completed=False, cwd="/workspace/project", open_tasks=2)
 
     rendered = output.getvalue()
-    assert "2 задачи · Исправить синхронизацию" in rendered
-    assert "✕ 2 задачи" in rendered
+    assert "2 · Исправить синхронизацию" in rendered
+    assert "✕ 2 · Исправить синхронизацию" in rendered
+    assert rendered.count("\033]0;") >= 2
+    assert rendered.count("\033]2;") >= 2
 
 
 async def test_completed_title_keeps_cross_while_crm_tasks_are_open() -> None:
@@ -40,4 +42,4 @@ async def test_completed_title_keeps_cross_while_crm_tasks_are_open() -> None:
     title.start("Один шаг", 1)
     await title.finish(completed=True, cwd="/workspace/project", open_tasks=3)
 
-    assert "✕ Here · 3 задачи · project" in output.getvalue()
+    assert "✕ 3 · Один шаг" in output.getvalue()

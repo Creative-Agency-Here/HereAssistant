@@ -145,12 +145,12 @@ class Controller {
     this.lastError = '';
     this.lastConnectionAt = 0;
     this.terminal = null;
-    this.terminalStateMtime = 0;
+    this.terminals = new Map();
     this.timer = null;
     this.running = false;
     this.providers = new Map();
     this.status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 90);
-    this.status.command = 'hereAssistant.runTask';
+    this.status.command = 'hereAssistant.quickActions';
     this.status.name = 'HereAssistant';
     this.status.show();
   }
@@ -162,10 +162,12 @@ class Controller {
   contourLabel() {
     return cleanLine(this.configuration().get('contourName', ''), 80) || `VS Code · ${os.hostname()}`;
   }
-  integrationFile() {
+  integrationFile(integrationId = this.contourId()) {
     const root = this.installationPath();
-    return root ? path.join(root, '.runtime', 'state', 'integrations', `${this.contourId()}.json`) : '';
+    return root ? path.join(root, '.runtime', 'state', 'integrations', `${integrationId}.json`) : '';
   }
+
+  activeInfo() { return this.terminal ? this.terminals.get(this.terminal) : null; }
 
   async init() {
     if (!this.contourId()) {
@@ -173,19 +175,25 @@ class Controller {
     }
     const gitExtension = vscode.extensions.getExtension('vscode.git');
     if (gitExtension && !gitExtension.isActive) await gitExtension.activate();
-    for (const kind of ['sessions', 'contours', 'actions', 'delivery']) {
+    for (const kind of ['delivery']) {
       const provider = new SectionProvider(kind, this);
       this.providers.set(kind, provider);
       this.context.subscriptions.push(vscode.window.registerTreeDataProvider(`hereAssistant.${kind}`, provider));
     }
     this.context.subscriptions.push(this.status);
     this.context.subscriptions.push(vscode.window.onDidCloseTerminal((terminal) => {
-      if (terminal === this.terminal) {
-        this.terminal = null;
-        this.localState = { ...(this.localState || {}), state: 'closed', taskCount: 0 };
-        void this.heartbeat(true);
-        this.render();
-      }
+      if (!this.terminals.has(terminal)) return;
+      this.terminals.delete(terminal);
+      if (terminal === this.terminal) this.terminal = [...this.terminals.keys()].at(-1) || null;
+      this.localState = this.activeInfo()?.state || null;
+      void this.heartbeat(this.terminals.size === 0);
+      this.render();
+    }));
+    this.context.subscriptions.push(vscode.window.onDidChangeActiveTerminal((terminal) => {
+      if (!terminal || !this.terminals.has(terminal)) return;
+      this.terminal = terminal;
+      this.localState = this.activeInfo()?.state || this.localState;
+      this.render();
     }));
     this.context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('hereAssistant.pollIntervalSeconds')) this.schedule();
@@ -198,7 +206,7 @@ class Controller {
     if (!this.installationPath() && !this.context.globalState.get('hereAssistant.onboardingSeen')) {
       await this.context.globalState.update('hereAssistant.onboardingSeen', true);
       const selected = await vscode.window.showInformationMessage(
-        'HereAssistant готов к подключению: выберите установку, API и рабочий контур.',
+        'HereAssistant готов: настройте terminal-editor, API и рабочий контур.',
         'Настроить',
       );
       if (selected) await this.setup();
@@ -208,8 +216,10 @@ class Controller {
   registerCommands() {
     const commands = {
       setup: () => this.setup(),
+      quickActions: () => this.quickActions(),
       refresh: () => this.refresh(true),
       start: () => this.startTerminal(),
+      newTerminal: () => this.startTerminal(true),
       runTask: () => this.runTask(),
       finishTask: () => this.runTask('Проверь результат текущей работы, выполни необходимые проверки и переведи связанную HereCRM-задачу в статус «Завершено». Если задача не связана — явно сообщи об этом.'),
       stop: () => this.stop(),
@@ -233,18 +243,21 @@ class Controller {
     this.timer = setInterval(() => { void this.refresh(); }, seconds * 1000);
   }
 
-  async waitForTerminalReady(timeout = 10000) {
+  async waitForTerminalReady(terminal, timeout = 10000) {
+    const info = this.terminals.get(terminal);
+    if (!info) return false;
     const startedAt = Date.now();
     while (Date.now() - startedAt < timeout) {
-      const stateFile = this.integrationFile();
+      const stateFile = this.integrationFile(info.id);
       const state = readJson(stateFile);
       let mtime = 0;
       try { mtime = fs.statSync(stateFile).mtimeMs; } catch { /* State is not written yet. */ }
-      if (mtime > this.terminalStateMtime && state && ['open', 'working'].includes(state.state)) {
+      if (mtime > info.stateMtime && state && ['open', 'working'].includes(state.state)) {
+        info.state = state;
         this.localState = state;
         return true;
       }
-      if (!this.terminal || this.terminal.exitStatus !== undefined) return false;
+      if (terminal.exitStatus !== undefined) return false;
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
     return false;
@@ -282,6 +295,14 @@ class Controller {
     if (contourName) {
       await this.configuration().update('contourName', cleanLine(contourName, 80), vscode.ConfigurationTarget.Global);
     }
+    const accountLabel = await vscode.window.showInputBox({
+      title: 'AI-аккаунт по умолчанию',
+      prompt: 'Label из HereAssistant manage.py; его можно сменить в быстром меню',
+      value: this.configuration().get('accountLabel', '').trim(),
+    });
+    if (accountLabel) {
+      await this.configuration().update('accountLabel', cleanLine(accountLabel, 80), vscode.ConfigurationTarget.Global);
+    }
     if (apiBase) await this.setAccessKey();
     await vscode.commands.executeCommand('setContext', 'hereAssistant.configured', true);
     await this.refresh(true);
@@ -309,7 +330,12 @@ class Controller {
     if (this.running) return;
     this.running = true;
     try {
-      this.localState = readJson(this.integrationFile()) || this.localState;
+      for (const info of this.terminals.values()) {
+        info.state = readJson(this.integrationFile(info.id)) || info.state;
+      }
+      const active = this.activeInfo();
+      const working = [...this.terminals.values()].find((info) => info.state?.state === 'working');
+      this.localState = active?.state || working?.state || this.localState;
       if (this.apiBase()) {
         this.remoteNow = await this.api('/api/now');
         if (!this.connection || Date.now() - this.lastConnectionAt >= 15000) {
@@ -332,7 +358,10 @@ class Controller {
   async heartbeat(closed = false) {
     if (!this.apiBase()) return;
     const local = this.localState || {};
-    const state = closed ? 'closed' : local.state === 'working' ? 'working' : 'open';
+    const states = [...this.terminals.values()].map((info) => info.state).filter(Boolean);
+    const working = states.filter((item) => item.state === 'working').length;
+    const taskCount = Math.max(working, ...states.map((item) => Number(item.taskCount || 0)), 0);
+    const state = closed ? 'closed' : working || local.state === 'working' ? 'working' : 'open';
     try {
       await this.api(closed ? '/api/contours/close' : '/api/contours/heartbeat', {
         method: 'POST',
@@ -341,7 +370,7 @@ class Controller {
           label: this.contourLabel(),
           kind: this.configuration().get('contourKind', 'local'),
           state,
-          taskCount: Number(local.taskCount || 0),
+          taskCount,
         },
       });
     } catch {
@@ -350,54 +379,25 @@ class Controller {
   }
 
   render() {
-    const working = this.localState?.state === 'working' || Boolean(this.remoteNow?.active);
+    const localWorking = [...this.terminals.values()].filter((info) => info.state?.state === 'working').length;
+    const working = localWorking > 0 || Boolean(this.remoteNow?.active);
     const error = this.localState?.state === 'error';
     this.status.text = working
-      ? `$(sync~spin) Here · ${Math.max(1, Number(this.localState?.taskCount || 1))}`
+      ? `$(sync~spin) Here · ${Math.max(localWorking, Number(this.localState?.taskCount || 1))}`
       : error
         ? '$(error) Here · не завершено'
         : '$(check) Here';
-    this.status.tooltip = this.localState?.title || this.lastError || 'HereAssistant готов';
+    this.status.tooltip = [
+      this.localState?.title || 'HereAssistant готов',
+      `${this.terminals.size} терминалов · ${this.connection?.workspace?.tasks?.open || 0} задач HereCRM`,
+      this.lastError,
+    ].filter(Boolean).join('\n');
     void vscode.commands.executeCommand('setContext', 'hereAssistant.working', working);
     for (const provider of this.providers.values()) provider.refresh();
   }
 
   items(kind) {
-    if (kind === 'sessions') return this.sessionItems();
-    if (kind === 'contours') return this.contourItems();
-    if (kind === 'delivery') return this.deliveryItems();
-    return this.actionItems();
-  }
-
-  sessionItems() {
-    const local = this.localState;
-    const rows = [];
-    if (local) {
-      const state = { working: 'В работе', open: 'Открыта', error: 'Не завершена', closed: 'Закрыта' }[local.state] || local.state;
-      rows.push(new NodeItem(local.title || 'Локальная сессия', `${state} · ${local.taskCount || 0} задач`, local.state === 'working' ? 'sync~spin' : local.state === 'error' ? 'error' : 'terminal'));
-    } else {
-      rows.push(new NodeItem('Терминал не запущен', 'Открыть HereAssistant', 'terminal', { command: 'hereAssistant.start', title: 'Открыть' }));
-    }
-    if (this.remoteNow?.active) rows.push(new NodeItem(this.remoteNow.current_step || 'Удалённая задача', 'Telegram/сервер · выполняется', 'remote'));
-    const tasks = this.connection?.workspace?.tasks;
-    rows.push(new NodeItem('HereCRM', `${tasks?.open || 0} в работе`, tasks?.open ? 'issues' : 'pass'));
-    if (this.connection?.crm) {
-      const ready = this.connection.crm.taskAutomation === 'active';
-      rows.push(new NodeItem('CRM-автоматизация', ready ? 'MCP готов' : 'Нужен HERECRM_MCP_TOKEN', ready ? 'pass-filled' : 'warning'));
-    }
-    for (const title of (tasks?.titles || []).slice(0, 5)) rows.push(new NodeItem(title, 'CRM-задача', 'circle-large-outline'));
-    if (this.lastError) rows.push(new NodeItem('API недоступен', this.lastError, 'warning'));
-    return rows;
-  }
-
-  contourItems() {
-    const rows = (this.connection?.contours || []).map((item) => new NodeItem(
-      item.label,
-      `${item.state === 'working' ? 'Работает' : item.state === 'open' ? 'Открыт' : 'Закрыт'} · ${item.taskCount || 0} задач`,
-      item.state === 'working' ? 'sync~spin' : item.state === 'open' ? 'vm-active' : 'vm-outline',
-    ));
-    if (!rows.length) rows.push(new NodeItem(this.contourLabel(), 'Этот VS Code · локально', 'vm-active'));
-    return rows;
+    return kind === 'delivery' ? this.deliveryItems() : [];
   }
 
   deliveryItems() {
@@ -414,18 +414,19 @@ class Controller {
     return rows;
   }
 
-  actionItems() {
-    return [
-      new NodeItem('Запустить задачу', 'Новый запрос в терминал', 'play', { command: 'hereAssistant.runTask', title: 'Запустить' }),
-      new NodeItem('Открыть терминал', 'Полный поток агента', 'terminal', { command: 'hereAssistant.start', title: 'Открыть' }),
-      new NodeItem('Новая сессия', 'Сбросить provider context', 'add', { command: 'hereAssistant.newSession', title: 'Новая сессия' }),
-      new NodeItem('Продолжить сессию', 'Выбрать сохранённую', 'history', { command: 'hereAssistant.resume', title: 'Продолжить' }),
-      new NodeItem('Завершить задачу', 'Проверить результат и закрыть в CRM', 'pass-filled', { command: 'hereAssistant.finishTask', title: 'Завершить' }),
-      new NodeItem('Прервать', 'Локально и на сервере', 'debug-stop', { command: 'hereAssistant.stop', title: 'Прервать' }),
-      new NodeItem('AI-аккаунты', 'Добавить или перелогинить', 'account', { command: 'hereAssistant.manageAccounts', title: 'Аккаунты' }),
-      new NodeItem('Web App', 'Сессии и отчёты', 'globe', { command: 'hereAssistant.openWeb', title: 'Открыть Web App' }),
-      new NodeItem('Настройки', 'Контур, API и аккаунт', 'settings-gear', { command: 'hereAssistant.setup', title: 'Настроить' }),
-    ];
+  async quickActions() {
+    const localWorking = [...this.terminals.values()].filter((info) => info.state?.state === 'working').length;
+    const crmOpen = this.connection?.workspace?.tasks?.open || 0;
+    const selected = await vscode.window.showQuickPick([
+      { label: '$(play) Новая задача', description: 'Открыть отдельную terminal-editor вкладку', command: 'hereAssistant.runTask' },
+      { label: '$(terminal) Открыть текущий терминал', description: `${this.terminals.size} открыто`, command: 'hereAssistant.start' },
+      { label: '$(add) Новый пустой терминал', description: 'Независимая сессия HereAssistant', command: 'hereAssistant.newTerminal' },
+      { label: '$(debug-stop) Прервать текущую работу', description: `${localWorking} локально в работе`, command: 'hereAssistant.stop' },
+      { label: '$(issues) HereCRM', description: `${crmOpen} задач в работе`, command: 'hereAssistant.openWeb' },
+      { label: '$(account) AI-аккаунты', description: 'Добавить или перелогинить', command: 'hereAssistant.manageAccounts' },
+      { label: '$(settings-gear) Настройки', description: 'Терминал, контур, API и аккаунт', command: 'hereAssistant.setup' },
+    ], { title: 'HereAssistant · быстрые действия', placeHolder: this.localState?.title || 'Выберите действие' });
+    if (selected) await vscode.commands.executeCommand(selected.command);
   }
 
   async chooseAccount() {
@@ -435,9 +436,15 @@ class Controller {
     if (accounts.length === 1) return accounts[0].label;
     if (accounts.length > 1) {
       const selected = await vscode.window.showQuickPick(accounts.map((item) => ({ label: item.label, description: `${item.provider}${item.defaultModel ? ` · ${item.defaultModel}` : ''}` })), { title: 'AI-аккаунт HereAssistant' });
-      return selected?.label || '';
+      if (selected?.label) {
+        await this.configuration().update('accountLabel', selected.label, vscode.ConfigurationTarget.Global);
+        return selected.label;
+      }
+      return '';
     }
-    return await vscode.window.showInputBox({ title: 'Label AI-аккаунта', prompt: 'Посмотреть аккаунты: .venv/bin/python manage.py', value: configured }) || '';
+    const entered = await vscode.window.showInputBox({ title: 'Label AI-аккаунта', prompt: 'Посмотреть аккаунты: .venv/bin/python manage.py', value: configured }) || '';
+    if (entered) await this.configuration().update('accountLabel', cleanLine(entered, 80), vscode.ConfigurationTarget.Global);
+    return entered;
   }
 
   pythonCommand(root) {
@@ -446,8 +453,8 @@ class Controller {
     return fs.existsSync(bundled) ? bundled : process.platform === 'win32' ? 'python' : 'python3';
   }
 
-  async startTerminal() {
-    if (this.terminal && this.terminal.exitStatus === undefined) {
+  async startTerminal(forceNew = false) {
+    if (!forceNew && this.terminal && this.terminal.exitStatus === undefined) {
       this.terminal.show();
       return this.terminal;
     }
@@ -460,17 +467,22 @@ class Controller {
     if (!account) return null;
     const workspace = currentWorkspace() || this.installationPath();
     const userId = this.connection?.telegram?.user?.id;
+    const integrationId = `${this.contourId()}-${crypto.randomUUID().slice(0, 8)}`;
     const args = [
       shellQuote(this.pythonCommand(this.installationPath())),
       shellQuote(path.join(this.installationPath(), 'chat.py')),
       '-a', shellQuote(account),
       '--cwd', shellQuote(workspace),
-      '--integration-id', shellQuote(this.contourId()),
+      '--integration-id', shellQuote(integrationId),
     ];
     if (userId !== undefined && userId !== null) args.push('-u', shellQuote(String(userId)));
-    try { this.terminalStateMtime = fs.statSync(this.integrationFile()).mtimeMs; }
-    catch { this.terminalStateMtime = 0; }
-    this.terminal = vscode.window.createTerminal({ name: 'HereAssistant', cwd: workspace });
+    let stateMtime = 0;
+    try { stateMtime = fs.statSync(this.integrationFile(integrationId)).mtimeMs; } catch { /* New terminal. */ }
+    const location = this.configuration().get('terminalLocation', 'editor') === 'panel'
+      ? vscode.TerminalLocation.Panel
+      : vscode.TerminalLocation.Editor;
+    this.terminal = vscode.window.createTerminal({ name: `Here · ${path.basename(workspace)}`, cwd: workspace, location });
+    this.terminals.set(this.terminal, { id: integrationId, stateMtime, state: null });
     this.terminal.show();
     this.terminal.sendText(args.join(' '), true);
     return this.terminal;
@@ -479,15 +491,18 @@ class Controller {
   async runTask(predefinedPrompt = '') {
     const prompt = predefinedPrompt || await vscode.window.showInputBox({ title: 'Новая задача HereAssistant', prompt: 'Опишите одну самостоятельную задачу', ignoreFocusOut: true });
     if (!prompt?.trim()) return;
-    const existed = Boolean(this.terminal && this.terminal.exitStatus === undefined);
-    const terminal = await this.startTerminal();
+    const forceNew = !predefinedPrompt && this.configuration().get('newTerminalPerTask', true);
+    const existed = !forceNew && Boolean(this.terminal && this.terminal.exitStatus === undefined);
+    const terminal = await this.startTerminal(forceNew);
     if (!terminal) return;
-    if (!existed && !await this.waitForTerminalReady()) {
+    if (!existed && !await this.waitForTerminalReady(terminal)) {
       void vscode.window.showWarningMessage('HereAssistant не подтвердил готовность терминала. Запрос не отправлен.');
       return;
     }
     terminal.sendText(cleanLine(prompt, 2000), true);
     this.localState = { ...(this.localState || {}), state: 'working', title: cleanLine(prompt), taskCount: Math.max(1, Number(this.localState?.taskCount || 1)) };
+    const info = this.terminals.get(terminal);
+    if (info) info.state = this.localState;
     this.render();
     void this.heartbeat();
   }
@@ -515,6 +530,8 @@ class Controller {
       catch (error) { void vscode.window.showWarningMessage(`HereAssistant: ${cleanLine(error.message)}`); }
     }
     this.localState = { ...(this.localState || {}), state: 'error' };
+    const info = this.activeInfo();
+    if (info) info.state = this.localState;
     this.render();
   }
 

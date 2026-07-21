@@ -6,12 +6,13 @@
 
 Расширение `creative-agency-here.hereassistant-vscode` добавляет:
 
-- контейнер HereAssistant в Activity Bar;
-- `Сессия и задачи`: локальная сессия, серверная задача, HereCRM-счётчик и
-  готовность MCP-автоматизации;
-- `Рабочие контуры`: живые heartbeats Mac/сервера со статусами `Работает`,
-  `Открыт`, `Закрыт`;
-- `Действия`: запуск задачи, терминал, новая/resume/finish/stop, аккаунты и Web App;
+- terminal-editor вкладки, название которых показывает задачу и состояние
+  `работает / завершено / не завершено`;
+- компактный статус `Here`, открывающий быстрое меню сессий, аккаунтов, CRM и Stop;
+- многострочный ввод: Enter отправляет, Alt+Enter добавляет строку, ↑↓ открывают
+  историю, а многострочная вставка сохраняется целиком;
+- нативное выделение мышью и мягкие переносы VS Code без лишних переводов строк
+  при копировании;
 - `HereAssistant · Git и деплой` внутри стандартной вкладки Source Control;
 - status bar с анимацией `sync~spin` во время работы и ошибкой для явно
   незавершённого состояния.
@@ -31,17 +32,17 @@ python3 scripts/package_vscode_extension.py
 Установить:
 
 ```bash
-code --install-extension dist/hereassistant-vscode-0.6.0.vsix --force
+code --install-extension dist/hereassistant-vscode-0.7.0.vsix --force
 ```
 
 Если `code` не добавлен в PATH на macOS:
 
 ```bash
 "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
-  --install-extension dist/hereassistant-vscode-0.6.0.vsix --force
+  --install-extension dist/hereassistant-vscode-0.7.0.vsix --force
 ```
 
-После перезапуска VS Code нажать `H` в Activity Bar → `Настроить` и выбрать
+После перезапуска VS Code нажать `Here` в status bar → `Настроить` и выбрать
 папку установки HereAssistant (где находится `chat.py`).
 
 ## Режимы подключения

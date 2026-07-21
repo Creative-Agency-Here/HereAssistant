@@ -8,8 +8,9 @@
 текущей задаче, а Web App сводит локальный и серверный контуры, Git, диск и
 подтверждённое состояние деплоя.
 
-Нативное расширение VS Code добавляет собственную вкладку HereAssistant, живой
-status bar и блок Git/деплоя в стандартную вкладку Source Control.
+Нативное расширение VS Code открывает задачи отдельными terminal-editor вкладками
+с живыми названиями, добавляет быстрое меню в status bar и блок Git/деплоя в
+стандартную вкладку Source Control.
 
 **Privacy-first:** по умолчанию каждый проект `private` — содержимое сообщений и диффы не сохраняются, во внешние системы (CRM) ничего не уходит. Ослабляется только явным `.hereassistant/project.yml` в конкретном проекте — см. [docs/privacy.md](docs/privacy.md).
 
@@ -169,12 +170,12 @@ CRM-проекта, `/status` — Git push/pull и deploy-marker без дога
 
 ```bash
 python3 scripts/package_vscode_extension.py
-code --install-extension dist/hereassistant-vscode-0.6.0.vsix --force
+code --install-extension dist/hereassistant-vscode-0.7.0.vsix --force
 ```
 
-Расширение запускает существующий `chat.py` в текущем workspace, показывает
-CRM-задачи и контуры Mac/сервера, позволяет начать/прервать/завершить сессию и
-добавляет Pull/Push/подтверждённый деплой в Source Control.
+Расширение запускает существующий `chat.py` в текущем workspace, открывает каждую
+задачу отдельной вкладкой с динамическим названием, показывает CRM-задачи и
+контуры Mac/сервера, а Pull/Push/подтверждённый деплой оставляет в Source Control.
 
 Полная инструкция: [docs/vscode-workbench.ru.md](docs/vscode-workbench.ru.md).
 

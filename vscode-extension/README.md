@@ -4,9 +4,10 @@
 
 A local workbench for an existing HereAssistant installation:
 
-- a dedicated Activity Bar view for sessions, CRM tasks, and work contours;
-- a live status bar (`working / ready / unfinished`);
-- `chat.py` in the Integrated Terminal with the selected account and workspace;
+- task-named terminal-editor tabs with `working / ready / unfinished` state;
+- a live status bar that opens a compact Quick Pick control menu;
+- multiline `chat.py` input, history, bracketed paste, native selection, and
+  copy-friendly soft wrapping;
 - start, stop, new-session, resume, and finish-task actions;
 - **HereAssistant · Git and deploy** in the standard Source Control view;
 - Pull and Push through VS Code's built-in Git extension;
@@ -22,14 +23,14 @@ From the repository root:
 code --extensionDevelopmentPath="$PWD/vscode-extension" "$PWD"
 ```
 
-The command opens an Extension Development Host. Select the HereAssistant icon
-in the Activity Bar and run **HereAssistant: Setup connection**.
+The command opens an Extension Development Host. Click **Here** in the status
+bar and run **HereAssistant: Setup connection**.
 
 ## VSIX installation
 
 ```bash
 python3 scripts/package_vscode_extension.py
-code --install-extension dist/hereassistant-vscode-0.6.0.vsix
+code --install-extension dist/hereassistant-vscode-0.7.0.vsix
 ```
 
 Setup asks for:
