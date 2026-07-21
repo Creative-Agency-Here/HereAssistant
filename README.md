@@ -128,16 +128,32 @@ Full verified gallery and reproducible checks: [docs/mobile-activity-proof.md](d
 
 ## VS Code Workbench
 
-Build and install the dependency-free extension:
+<table>
+  <tr>
+    <td><img src="docs/img/vscode-workbench-terminal.png" alt="HereAssistant terminal task running in VS Code" width="560"></td>
+    <td><img src="docs/img/vscode-workbench-actions.png" alt="HereAssistant quick actions in VS Code" width="560"></td>
+  </tr>
+</table>
+
+Install HereAssistant and the dependency-free extension on macOS:
 
 ```bash
+git clone https://github.com/Creative-Agency-Here/HereAssistant.git
+cd HereAssistant
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
 python3 scripts/package_vscode_extension.py
-code --install-extension dist/hereassistant-vscode-0.7.2.vsix --force
+code --install-extension dist/hereassistant-vscode-0.7.3.vsix --force
 ```
 
-It keeps access keys in VS Code SecretStorage, launches the existing `chat.py`
-inside the active workspace, reports real local state through an atomic runtime
-file and adds Pull/Push/deploy visibility to Source Control.
+Reload VS Code, click the purple **Here** item in the status bar, choose
+**Set up connection**, and select this cloned folder. The menu starts or returns
+to terminal sessions, opens HereCRM, manages AI accounts, and can stop only the
+current response without deleting its terminal, files, session, or CRM task.
+
+The extension keeps access keys in VS Code SecretStorage, launches the existing
+`chat.py` inside the active workspace, reports real local state through an atomic
+runtime file and adds Pull/Push/deploy visibility to Source Control.
 
 Full setup and behavior: [docs/vscode-workbench.md](docs/vscode-workbench.md).
 

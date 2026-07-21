@@ -53,5 +53,9 @@ test('manifest keeps terminal-first controls and Source Control delivery status'
   assert.equal(packageJson.contributes.configurationDefaults['terminal.integrated.tabs.title'], '${sequence}');
   assert.equal(packageJson.contributes.configurationDefaults['terminal.integrated.tabs.enableAnimation'], true);
   assert.ok(packageJson.contributes.commands.some((item) => item.command === 'hereAssistant.quickActions'));
-  assert.ok(packageJson.contributes.commands.some((item) => item.command === 'hereAssistant.stop'));
+  const stop = packageJson.contributes.commands.find((item) => item.command === 'hereAssistant.stop');
+  assert.equal(stop.title, 'HereAssistant: Остановить текущий ответ');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  assert.match(source, /'\$\(sparkle\) Here'/);
+  assert.match(source, /терминал, сессия, файлы и CRM-задача сохраняются/);
 });

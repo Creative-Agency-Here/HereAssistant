@@ -168,10 +168,29 @@ CRM-проекта, `/status` — Git push/pull и deploy-marker без дога
 
 ## VS Code Workbench
 
+<table>
+  <tr>
+    <td><img src="docs/img/vscode-workbench-terminal.png" alt="HereAssistant выполняет задачу в терминале VS Code" width="560"></td>
+    <td><img src="docs/img/vscode-workbench-actions.png" alt="Быстрые действия HereAssistant в VS Code" width="560"></td>
+  </tr>
+</table>
+
+Установка HereAssistant и расширения на macOS:
+
 ```bash
+git clone https://github.com/Creative-Agency-Here/HereAssistant.git
+cd HereAssistant
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
 python3 scripts/package_vscode_extension.py
-code --install-extension dist/hereassistant-vscode-0.7.2.vsix --force
+code --install-extension dist/hereassistant-vscode-0.7.3.vsix --force
 ```
+
+Перезапустите VS Code, нажмите фиолетовый **Here** в status bar, выберите
+`Настроить подключение` и укажите клонированную папку. Быстрое меню запускает и
+возвращает терминальные сессии, открывает HereCRM, управляет AI-аккаунтами и может
+остановить только текущий ответ без удаления терминала, файлов, сессии или
+CRM-задачи.
 
 Расширение запускает существующий `chat.py` в текущем workspace, открывает каждую
 задачу отдельной вкладкой с динамическим названием, показывает CRM-задачи и

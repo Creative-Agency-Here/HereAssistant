@@ -8,7 +8,8 @@
 
 - terminal-editor вкладки, название которых показывает задачу и состояние
   `работает / завершено / не завершено`;
-- компактный статус `Here`, открывающий быстрое меню сессий, аккаунтов, CRM и Stop;
+- компактный фиолетовый статус `Here`, открывающий быстрое меню сессий,
+  аккаунтов, CRM и остановки ответа;
 - многострочный ввод: Enter отправляет, Alt+Enter добавляет строку, ↑↓ открывают
   историю, а многострочная вставка сохраняется целиком;
 - постановка курсора обычным кликом; для нативного выделения терминала используется
@@ -27,6 +28,15 @@ hooks и provider session не расходятся с Telegram-режимом.
 
 ## Установка
 
+Сначала клонировать репозиторий и установить Python-окружение:
+
+```bash
+git clone https://github.com/Creative-Agency-Here/HereAssistant.git
+cd HereAssistant
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
 Собрать VSIX без внешних упаковщиков:
 
 ```bash
@@ -36,14 +46,14 @@ python3 scripts/package_vscode_extension.py
 Установить:
 
 ```bash
-code --install-extension dist/hereassistant-vscode-0.7.2.vsix --force
+code --install-extension dist/hereassistant-vscode-0.7.3.vsix --force
 ```
 
 Если `code` не добавлен в PATH на macOS:
 
 ```bash
 "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
-  --install-extension dist/hereassistant-vscode-0.7.2.vsix --force
+  --install-extension dist/hereassistant-vscode-0.7.3.vsix --force
 ```
 
 После перезапуска VS Code нажать `Here` в status bar → `Настроить` и выбрать
@@ -97,7 +107,7 @@ credentials.
 
 ## Остановка
 
-Команда `Прервать` одновременно:
+Команда `Остановить текущий ответ` одновременно:
 
 1. отправляет Ctrl+C локальному HereAssistant terminal;
 2. создаёт user-scoped stop request через API;
@@ -105,6 +115,10 @@ credentials.
    этого пользователя.
 
 Web App использует тот же endpoint — прежняя кнопка-заглушка заменена рабочей.
+
+Терминал, provider-сессия, изменённые файлы и связанная CRM-задача при этом не
+закрываются и не удаляются. Статус остаётся незавершённым, пока работу явно не
+продолжат или не завершат.
 
 ## Разработка
 

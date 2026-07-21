@@ -283,7 +283,7 @@ wheels = [
 
 [[package]]
 name = "hereassistant"
-version = "0.7.2"
+version = "0.7.3"
 source = { virtual = "." }
 dependencies = [
     { name = "aiogram" },

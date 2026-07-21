@@ -395,7 +395,8 @@ class Controller {
       ? `$(sync~spin) Here · ${Math.max(localWorking, Number(this.localState?.taskCount || 1))}`
       : error
         ? '$(error) Here · не завершено'
-        : '$(check) Here';
+        : '$(sparkle) Here';
+    this.status.color = working || error ? undefined : '#AB60F6';
     this.status.tooltip = [
       this.localState?.title || 'HereAssistant готов',
       `${this.terminals.size} терминалов · ${this.connection?.workspace?.tasks?.open || 0} задач HereCRM`,
@@ -445,7 +446,12 @@ class Controller {
         detail: 'Создаёт независимый терминал HereAssistant; задачу можно написать уже внутри.',
         command: 'hereAssistant.newTerminal',
       },
-      { label: '$(debug-stop) Прервать текущую работу', description: `${localWorking} локально в работе`, command: 'hereAssistant.stop' },
+      {
+        label: '$(debug-stop) Остановить текущий ответ',
+        description: `${localWorking} локально в работе`,
+        detail: 'Отправляет Ctrl+C активному агенту; терминал, сессия, файлы и CRM-задача сохраняются.',
+        command: 'hereAssistant.stop',
+      },
       { label: '$(issues) Открыть HereCRM', description: `${crmOpen} задач в работе`, command: 'hereAssistant.openWeb' },
       {
         label: '$(account) Управлять AI-аккаунтами',

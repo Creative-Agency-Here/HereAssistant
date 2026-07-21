@@ -8,8 +8,8 @@ The `creative-agency-here.hereassistant-vscode` extension adds:
 
 - terminal-editor tabs whose titles follow the current task and its
   `working / completed / unfinished` state;
-- a compact status-bar item that opens all session, account, CRM, and stop
-  actions as a Quick Pick;
+- a compact purple Here status-bar item that opens all session, account, CRM,
+  and stop actions as a Quick Pick;
 - multiline editing with Enter to send, Alt+Enter for a new line, history, and
   bracketed-paste support;
 - click-to-position editing; hold Shift while dragging for native terminal
@@ -28,6 +28,15 @@ sessions stay identical to the terminal and Telegram workflows.
 
 ## Installation
 
+Clone the repository and install the Python runtime first:
+
+```bash
+git clone https://github.com/Creative-Agency-Here/HereAssistant.git
+cd HereAssistant
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
 Build the VSIX without an external packager:
 
 ```bash
@@ -37,14 +46,14 @@ python3 scripts/package_vscode_extension.py
 Install it:
 
 ```bash
-code --install-extension dist/hereassistant-vscode-0.7.2.vsix --force
+code --install-extension dist/hereassistant-vscode-0.7.3.vsix --force
 ```
 
 If `code` is not in `PATH` on macOS:
 
 ```bash
 "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
-  --install-extension dist/hereassistant-vscode-0.7.2.vsix --force
+  --install-extension dist/hereassistant-vscode-0.7.3.vsix --force
 ```
 
 After reloading VS Code, click **Here** in the status bar, run **Setup**, and
@@ -97,13 +106,17 @@ always requires modal confirmation. Deployment state comes from
 
 ## Stopping work
 
-**Stop** performs both operations:
+**Stop current response** performs both operations:
 
 1. sends Ctrl+C to the local HereAssistant terminal;
 2. creates a user-scoped stop request through the API.
 
 The bot process consumes the request through shared SQLite and cancels active
 work only for that user. The Web App uses the same endpoint.
+
+It does not close or delete the terminal, provider session, changed files, or
+linked CRM task. The unfinished marker remains visible until work is resumed or
+finished deliberately.
 
 ## Development
 
