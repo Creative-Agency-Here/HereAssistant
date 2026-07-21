@@ -12,6 +12,7 @@ from manage_process import login_markers, login_state, npm_install_argv, run_vis
         ("claude_code", ".credentials.json"),
         ("codex", "auth.json"),
         ("gemini", ".gemini/oauth_creds.json"),
+        ("qwen_code", ".qwen/settings.json"),
     ],
 )
 def test_login_state_detects_provider_auth_marker(

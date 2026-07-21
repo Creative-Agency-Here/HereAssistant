@@ -165,5 +165,5 @@ export function channelLabel(channel: SessionChannel | null): string {
 }
 
 export function providerLabel(provider: string | null): string {
-  return ({ claude_code: 'Claude Code', codex: 'Codex', gemini: 'Gemini' } as Record<string, string>)[provider || ''] || provider || 'AI'
+  return ({ claude_code: 'Claude Code', codex: 'Codex', gemini: 'Gemini', qwen_code: 'Qwen Code' } as Record<string, string>)[provider || ''] || provider || 'AI'
 }

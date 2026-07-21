@@ -78,6 +78,8 @@ def login_markers(provider_key: str, cli_home: Path) -> tuple[Path, ...]:
             cli_home / ".gemini" / "oauth_creds.json",
             cli_home / ".gemini" / "credentials.json",
         )
+    if provider_key == "qwen_code":
+        return (cli_home / ".qwen" / "settings.json",)
     return ()
 
 

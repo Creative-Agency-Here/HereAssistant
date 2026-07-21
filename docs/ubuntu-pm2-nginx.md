@@ -31,7 +31,7 @@ bash scripts/bootstrap_ubuntu.sh
 
 ## 3. CLI-провайдеры
 
-Установи и авторизуй хотя бы один CLI: `claude`, `codex`, `gemini` —
+Установи и авторизуй хотя бы один CLI: `claude`, `codex`, `gemini`, `qwen` —
 см. `docs/providers.md`. Аккаунты добавляются через бота (`python manage.py`
 или команды бота), auth-файлы живут в `.runtime/cli_homes/<аккаунт>/`.
 

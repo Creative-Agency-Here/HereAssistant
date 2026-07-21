@@ -2,7 +2,7 @@
 
 🌐 **[hereassistant.hereagency.ru](https://hereassistant.hereagency.ru)** · 🇷🇺 [Русская версия](README.ru.md)
 
-A personal Telegram bot that bridges you to CLI coding agents — **Claude Code, Codex CLI and Gemini CLI** — running on your own machine. Write code, run tasks and manage projects from any device through Telegram, powered by your existing AI subscriptions (no per-token API costs).
+A personal Telegram bot that bridges you to CLI coding agents — **Claude Code, Codex CLI, Gemini CLI and Qwen Code** — running on your own machine. Write code, run tasks and manage projects from any device through Telegram, powered by your existing AI subscriptions or coding plans.
 
 ![HereAssistant terminal chat — live demo](docs/img/terminal-demo.gif)
 
@@ -12,10 +12,10 @@ A personal Telegram bot that bridges you to CLI coding agents — **Claude Code,
 
 ## Features
 
-- **Multiple providers, one chat** — Claude Code, Codex, Gemini as isolated CLI subprocesses; switch accounts and models with inline buttons.
+- **Multiple providers, one chat** — Claude Code, Codex, Gemini and Qwen Code as isolated CLI subprocesses; switch accounts and models with inline buttons.
 - **Terminal chat (`python chat.py`)** — an interactive REPL right in your console, like the native `claude`: a prompt, full live output, slash-command suggestions, `/resume`, safe Codex sandbox modes through `/permissions`, and a live terminal title with the task name/count, working animation and an explicit `✕` while work remains unfinished. Runs on the same subscription accounts as the bot.
 - **Team access, managed from the bot** — newcomers file an access request; the owner approves with one tap (`✅ / 👑 admin / ⛔`). Access modes via `/access` (open / approve / admins-only), roles and member search via `/users` — everything lives in the DB, no `.env` editing or restarts to add teammates.
-- **Account isolation** — each subscription has an explicit owner or shared flag and lives in its own auth home (`CLAUDE_CONFIG_DIR` / `CODEX_HOME` / `HOME`); users never fall back to another owner's profile.
+- **Account isolation** — each subscription has an explicit owner or shared flag and lives in its own auth home (`CLAUDE_CONFIG_DIR` / `CODEX_HOME` / `HOME` / `QWEN_HOME`); users never fall back to another owner's profile.
 - **User-scoped repositories** — clone only from allowlisted Git hosts, switch registered projects, create isolated branch worktrees, inspect/pull, and confirm pushes from Telegram.
 - **Live progress** — streaming progress message in chat while the agent works; interrupt by sending a new message.
 - **Rich Messages (Bot API 10.1)** — final answers via `sendRichMessage` with native tables, headings, code blocks and math; answer text streams as an animated `sendRichMessageDraft` preview. Automatic fallback to the classic HTML path.
@@ -57,7 +57,7 @@ The service token authenticates an external system but **does not bypass** proje
 ## Architecture
 
 ```
-Telegram ──▶ bot.py (aiogram) ──▶ providers/* (CLI subprocess: claude/codex/gemini)
+Telegram ──▶ bot.py (aiogram) ──▶ providers/* (CLI: claude/codex/gemini/qwen)
                  │                        │ per-account auth homes (.runtime/cli_homes)
                  ▼                        ▼
            bridge.sqlite3 ◀── privacy gates (core/project_config.py)
@@ -77,7 +77,7 @@ webapp/front (Nuxt static, nginx) ──▶ webapp/api (aiohttp, 127.0.0.1:8200)
 ## Terminal chat
 
 A console REPL over the same subscription accounts as the bot — like the native `claude`, but for
-Claude / Codex / Gemini behind one prompt.
+Claude / Codex / Gemini / Qwen behind one prompt.
 
 ![Terminal chat](docs/img/terminal-chat.png)
 

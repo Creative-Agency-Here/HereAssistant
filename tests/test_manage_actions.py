@@ -44,6 +44,25 @@ def test_gemini_login_isolates_both_home_variables(
     assert env["USERPROFILE"] == str(tmp_path)
 
 
+def test_qwen_login_isolates_qwen_home_and_opens_tui(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[list[str], dict[str, str]]] = []
+    monkeypatch.setattr(
+        manage_actions,
+        "run_visible",
+        lambda argv, env: calls.append((argv, env)) or 0,
+    )
+    monkeypatch.setattr(manage_actions, "is_logged_in", lambda *_args: (False, ""))
+
+    do_login(PROVIDERS["4"], tmp_path)
+
+    argv, env = calls[0]
+    assert argv == ["qwen"]
+    assert env["QWEN_HOME"] == str(tmp_path / ".qwen")
+    assert env["QWEN_RUNTIME_DIR"] == str(tmp_path / ".qwen")
+
+
 def test_start_bot_refuses_missing_token(monkeypatch: pytest.MonkeyPatch) -> None:
     process = MagicMock()
     monkeypatch.setattr(manage_actions, "bot_process_state", lambda _path: BotProcessState(False))

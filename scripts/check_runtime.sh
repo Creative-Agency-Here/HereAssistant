@@ -12,7 +12,7 @@ bad()  { echo "  ❌ $1"; FAIL=1; }
 
 echo "== CLI-провайдеры (нужен хотя бы один)"
 FOUND_CLI=0
-for cli in claude codex gemini; do
+for cli in claude codex gemini qwen; do
   if command -v "$cli" >/dev/null 2>&1; then
     ok "$cli: $(command -v "$cli")"
     FOUND_CLI=1
@@ -20,7 +20,7 @@ for cli in claude codex gemini; do
     warn "$cli не найден в PATH"
   fi
 done
-[ "$FOUND_CLI" = "1" ] || bad "не найден ни один CLI-провайдер (claude/codex/gemini)"
+[ "$FOUND_CLI" = "1" ] || bad "не найден ни один CLI-провайдер (claude/codex/gemini/qwen)"
 
 echo "== Python и зависимости"
 if [ -x .venv/bin/python ]; then

@@ -2,7 +2,7 @@
 
 🌐 **[hereassistant.hereagency.ru](https://hereassistant.hereagency.ru)** · 🇬🇧 [English version](README.md)
 
-Личный Telegram-бот → несколько CLI-ассистентов (Claude Code, Codex, Gemini). Явные владельцы/shared-аккаунты, изоляция проектов, переключение моделей, статистика, самоперезапуск. Работает на твоих подписках (без потокенной оплаты API).
+Личный Telegram-бот → несколько CLI-ассистентов (Claude Code, Codex, Gemini, Qwen Code). Явные владельцы/shared-аккаунты, изоляция проектов, переключение моделей, статистика, самоперезапуск. Работает на подписках и coding-планах провайдеров.
 
 Первый экран предлагает режим работы кнопками, Terminal CLI меняет заголовок по
 текущей задаче, а Web App сводит локальный и серверный контуры, Git, диск и
@@ -36,7 +36,7 @@ Windows-запуск (`start_bot.bat`) поддерживается как legac
 python3 manage.py
 ```
 
-Меню: **2** — добавить аккаунт и залогинить провайдера (Claude/Codex/Gemini),
+Меню: **2** — добавить аккаунт и залогинить провайдера (Claude/Codex/Gemini/Qwen),
 **1** — показать аккаунты, **7** — открыть `.env`, **8** — запустить бота.
 
 Если бот развёрнут на удалённом сервере под пользователем `here` в
@@ -76,7 +76,8 @@ HereAssistant/
 │   ├── base.py         # CLIProvider, _exec (с фиксом .cmd для Windows)
 │   ├── claude_code.py
 │   ├── codex.py
-│   └── gemini.py
+│   ├── gemini.py
+│   └── qwen_code.py
 │
 ├── handlers/           # Telegram-роутеры
 │   ├── admin_claim.py  # /start + claim

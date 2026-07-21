@@ -44,4 +44,17 @@ PROVIDERS: dict[str, ProviderSpec] = {
         "default_model": "gemini-2.5-pro",
         "login_hint": "В TUI пройди /auth и авторизуйся в Google-аккаунте. Затем /exit.",
     },
+    "4": {
+        "key": "qwen_code",
+        "title": "Qwen Code",
+        "subtitle": "Alibaba Cloud Model Studio",
+        "bin": "qwen",
+        "npm_pkg": "@qwen-code/qwen-code@latest",
+        "env_var": "QWEN_HOME",
+        "default_model": "qwen3.7-plus",
+        "login_hint": (
+            "В TUI выполни /auth → Alibaba ModelStudio → Token Plan или Coding Plan, "
+            "введи plan-specific ключ и затем /exit."
+        ),
+    },
 }

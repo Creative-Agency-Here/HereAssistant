@@ -93,6 +93,7 @@ include = [
     "providers/claude_code.py",
     "providers/codex.py",
     "providers/gemini.py",
+    "providers/qwen_code.py",
     "providers/models.py",
     "providers/parsers",
     "providers/process.py",

@@ -20,6 +20,13 @@ POPULAR_MODELS = {
     ],
     "codex": ["gpt-5", "gpt-5-codex", "o3"],
     "gemini": ["gemini-2.5-pro", "gemini-2.5-flash"],
+    "qwen_code": [
+        "qwen3.7-plus",
+        "qwen3.6-plus",
+        "kimi-k2.5",
+        "glm-5",
+        "MiniMax-M2.5",
+    ],
 }
 
 

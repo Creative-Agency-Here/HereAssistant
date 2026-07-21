@@ -10,7 +10,7 @@
 # СТАТУС ПРОЕКТА: ПУБЛИЧНЫЙ ОПЕНСОРС
 
 Это **флагманский открытый продукт агентства** (MIT): self-hosted Telegram-шлюз
-к CLI-кодинг-агентам (Claude Code / Codex / Gemini). Мы развиваем его как
+к CLI-кодинг-агентам (Claude Code / Codex / Gemini / Qwen Code). Мы развиваем его как
 топовый опенсорс-ресурс: код, доки и лендинг — витрина инженерной культуры.
 
 - GitHub (публичный): https://github.com/Creative-Agency-Here/HereAssistant

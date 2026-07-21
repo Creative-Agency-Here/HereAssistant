@@ -158,6 +158,11 @@ def do_login(prov: ProviderSpec, cli_home: Path) -> None:
     if prov["key"] == "gemini":
         env_extra["HOME"] = str(cli_home)
         env_extra["USERPROFILE"] = str(cli_home)
+    elif prov["key"] == "qwen_code":
+        qwen_home = cli_home / ".qwen"
+        qwen_home.mkdir(parents=True, exist_ok=True)
+        env_extra["QWEN_HOME"] = str(qwen_home)
+        env_extra["QWEN_RUNTIME_DIR"] = str(qwen_home)
 
     if prov["key"] == "codex":
         argv = [prov["bin"], "login"]

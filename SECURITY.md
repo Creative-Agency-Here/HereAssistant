@@ -2,7 +2,7 @@
 
 ## Модель угроз: это шлюз удалённого выполнения кода
 
-HereAssistant по замыслу — мост «Telegram → CLI-агент (claude/codex/gemini) на
+HereAssistant по замыслу — мост «Telegram → CLI-агент (claude/codex/gemini/qwen) на
 твоей машине». Агент читает и правит файлы, запускает команды. Любой, кто
 получил доступ к боту, получает возможности агента на хосте. Относись к
 развёртыванию соответственно.
@@ -12,7 +12,7 @@ HereAssistant по замыслу — мост «Telegram → CLI-агент (cl
 - **Доступ к Telegram-боту.** `ADMIN_IDS` — единственный список допущенных.
   Токен бота (`TELEGRAM_BOT_TOKEN`) = возможность перехватить управление.
 - **Auth-файлы провайдеров.** `.runtime/cli_homes/<аккаунт>/` содержит
-  OAuth-креды подписок Claude/OpenAI/Google. Не копируй, не коммить, бэкапь
+  OAuth-креды и API-ключи планов Claude/OpenAI/Google/Alibaba. Не копируй, не коммить, бэкапь
   только шифрованно.
 - **`WEBAPP_ACCESS_KEY`.** Полный доступ владельца к WebApp из браузера без
   Telegram. Генерируй длинный случайный (`openssl rand -hex 32`), не логируй,
@@ -28,6 +28,8 @@ HereAssistant по замыслу — мост «Telegram → CLI-агент (cl
   хранение выключено (см. `docs/privacy.md`).
 - **Права CLI.** `CLAUDE_PERMISSION_MODE=bypassPermissions` не используем:
   авто-одобрение Bash/Write превращает любой prompt-injection в RCE.
+  Для Qwen по той же причине запрещён `QWEN_APPROVAL_MODE=yolo`; дефолт —
+  classifier-driven `auto`.
 
 ## Рекомендации по развёртыванию
 

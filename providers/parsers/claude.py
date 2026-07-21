@@ -58,8 +58,8 @@ class ClaudeStreamParser:
         self.events_seen[event_type] = self.events_seen.get(event_type, 0) + 1
 
         if event_type == "system":
-            if evt.get("subtype") == "init":
-                self.session_id = _string(evt.get("session_id")) or self.session_id
+            # Claude называет старт `init`, Qwen Code — `session_start`.
+            self.session_id = _string(evt.get("session_id")) or self.session_id
             return []
 
         if event_type == "assistant":
@@ -199,11 +199,12 @@ class ClaudeStreamParser:
             block = _mapping(event.get("content_block"))
             if block.get("type") == "tool_use":
                 name = _string(block.get("name"), "?")
+                tool_input = _mapping(block.get("input"))
+                tool_id = self._tool_id(block.get("id"))
                 self.current_tool = name
                 self.tool_uses.append(name)
-                self._record_tool_call(
-                    name, _mapping(block.get("input")), self._tool_id(block.get("id"))
-                )
+                self._record_tool_call(name, tool_input, tool_id)
+                self._record_edit(name, tool_input, tool_id)
                 return ["tool_start"]
             if block.get("type") == "text":
                 self._ensure_break()
@@ -254,6 +255,10 @@ class ClaudeStreamParser:
             error = event.get("result") or event.get("error")
             if isinstance(error, str) and error.strip():
                 self.error_text = error.strip()[:500]
+            elif isinstance(error, Mapping):
+                message = _string(error.get("message"))
+                if message.strip():
+                    self.error_text = message.strip()[:500]
         elif not self.text:
             self.text = _string(event.get("result") or event.get("text"))
         self.session_id = _string(event.get("session_id")) or self.session_id
@@ -291,19 +296,41 @@ class ClaudeStreamParser:
             step.result = preview
 
     def _record_edit(self, name: str, tool_input: dict[str, Any], tool_id: str | None) -> None:
-        if name not in ("Edit", "Write", "MultiEdit", "NotebookEdit") or not tool_input:
+        if name not in (
+            "Edit",
+            "Write",
+            "MultiEdit",
+            "NotebookEdit",
+            "edit",
+            "edit_file",
+            "write_file",
+            "notebook_edit",
+        ) or not tool_input:
             return
         if tool_id and tool_id in self._edit_ids:
             return
-        old = _string(tool_input.get("old_string") or tool_input.get("oldString"))
+        old = _string(
+            tool_input.get("old_string")
+            or tool_input.get("oldString")
+            or tool_input.get("oldText")
+        )
         new = _string(
-            tool_input.get("new_string") or tool_input.get("newString") or tool_input.get("content")
+            tool_input.get("new_string")
+            or tool_input.get("newString")
+            or tool_input.get("newText")
+            or tool_input.get("content")
         )
         added = new.count("\n") + (1 if new and not new.endswith("\n") else 0)
         removed = old.count("\n") + (1 if old and not old.endswith("\n") else 0)
         if not old and new:
             removed = 0
-        file_name = _string(tool_input.get("file_path") or tool_input.get("filePath"), "?")
+        file_name = _string(
+            tool_input.get("file_path")
+            or tool_input.get("filePath")
+            or tool_input.get("path")
+            or tool_input.get("absolute_path"),
+            "?",
+        )
         self.edits.append(FileEdit(name, file_name, added, removed, old, new))
         if tool_id:
             self._edit_ids.add(tool_id)

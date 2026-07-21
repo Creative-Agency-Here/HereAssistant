@@ -211,6 +211,7 @@
   .session-provider-claude_code { @apply border-[#d77757]/25 bg-[#d77757]/10 text-[#e18a6d]; }
   .session-provider-codex { @apply border-ok/25 bg-ok/10 text-ok; }
   .session-provider-gemini { @apply border-[#5e8eff]/25 bg-[#5e8eff]/10 text-[#79a0ff]; }
+  .session-provider-qwen_code { @apply border-[#7f67ff]/25 bg-[#7f67ff]/10 text-[#9a88ff]; }
   .session-card-title { @apply truncate text-[15px] font-semibold text-text; }
   .session-connection-line { @apply mt-1 flex min-w-0 items-center gap-1.5 text-xs text-text-dim; }
   .connection-glyph { @apply text-text-soft; }

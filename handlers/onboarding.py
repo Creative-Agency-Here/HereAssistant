@@ -137,7 +137,7 @@ async def choose_accounts(query: CallbackQuery) -> None:
         "Добавить AI-аккаунт безопасно можно на том контуре, где он будет работать:\n\n"
         "  .venv/bin/python manage.py\n"
         "  → «Добавить аккаунт»\n"
-        "  → выбрать Claude, Codex или Gemini и пройти вход у провайдера\n\n"
+        "  → выбрать Claude, Codex, Gemini или Qwen и пройти вход у провайдера\n\n"
         "Токены и пароли в Telegram отправлять не нужно. После входа вернись в /accounts."
     )
     await query.answer()

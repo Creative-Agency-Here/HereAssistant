@@ -2,7 +2,7 @@
 
 Точка входа. Логика разнесена по модулям:
     core/       — конфиг, БД, логи, события, версия
-    providers/  — обёртки над CLI (Claude Code, Codex, Gemini)
+    providers/  — обёртки над CLI (Claude Code, Codex, Gemini, Qwen Code)
     handlers/   — Telegram-роутеры (один файл = одна группа команд)
     utils/      — markdown, скачивание файлов, локи
 """

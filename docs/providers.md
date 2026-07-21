@@ -1,7 +1,7 @@
-# Провайдеры: Claude Code / Codex / Gemini CLI
+# Провайдеры: Claude Code / Codex / Gemini CLI / Qwen Code
 
 HereAssistant запускает агентов как **CLI-subprocess'ы** (не API): ты платишь
-подпиской (Claude Pro/Max, ChatGPT Plus, Gemini), а не за токены, и получаешь
+подпиской или coding-планом провайдера, а не прямым Python API, и получаешь
 полноценные агентные возможности CLI.
 
 ## Установка CLI
@@ -15,6 +15,9 @@ npm i -g @openai/codex
 
 # Gemini CLI
 npm i -g @google/gemini-cli
+
+# Qwen Code (Node.js 22+)
+npm i -g @qwen-code/qwen-code@latest
 ```
 
 Достаточно любого одного. Проверка: `bash scripts/check_runtime.sh`.
@@ -23,7 +26,7 @@ npm i -g @google/gemini-cli
 
 Каждый добавленный в бота аккаунт живёт в собственном каталоге
 `.runtime/cli_homes/<provider>__<label>/` — провайдеру подсовывается свой
-`CLAUDE_CONFIG_DIR` / `CODEX_HOME` / `HOME`, поэтому:
+`CLAUDE_CONFIG_DIR` / `CODEX_HOME` / `HOME` / `QWEN_HOME`, поэтому:
 
 - можно держать несколько подписок одного провайдера и переключаться между ними;
 - логин одного аккаунта не затирает другой;
@@ -54,9 +57,41 @@ CLAUDE_CONFIG_DIR=$PWD/.runtime/cli_homes/claude_code__main claude
 
 Дальше аккаунт добавляется в бота (метка = имя каталога) и работает headless.
 
+### Qwen Code: Token Plan и Coding Plan
+
+В `manage.py` выбери `Qwen Code`, затем в открывшемся TUI выполни `/auth`:
+
+1. `Alibaba ModelStudio`;
+2. `Token Plan` для командного Token Plan Pro либо `Coding Plan` для персонального тарифа;
+3. международный регион и plan-specific ключ формата `sk-sp-…`;
+4. `/exit` после успешной проверки.
+
+Ключ сохраняется только в gitignored auth-home
+`.runtime/cli_homes/qwen_code__<label>/.qwen/`. Не записывай его в `.env`, Git,
+Telegram или документацию. HereAssistant передаёт Qwen отдельные `QWEN_HOME` и
+`QWEN_RUNTIME_DIR`, поэтому настройки и история не смешиваются с пользовательским
+`~/.qwen` и другими аккаунтами.
+Наследуемые из service-процесса provider API-переменные удаляются, а телеметрия
+Qwen отключается, чтобы глобальный ключ не мог незаметно подменить выбранный
+аккаунт.
+
+Адрес выбирает сам Qwen Code по типу плана. Для диагностики: международный
+Token Plan использует
+`https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1`, а
+Coding Plan — `https://coding-intl.dashscope.aliyuncs.com/v1`. Менять Gemini CLI
+для этого не требуется.
+
+Дефолтная модель `qwen3.7-plus` поддерживается обоими планами. Доступные модели
+переключаются командой `/model`; имя должно точно совпадать со списком тарифа.
+`qwen3.8-max-preview` в текущем официальном allowlist отсутствует.
+
+Qwen запускается в approval mode `auto`: безопасные операции оценивает встроенный
+классификатор, а рискованные блокируются. Допустимые переопределения:
+`QWEN_APPROVAL_MODE=plan|default|auto-edit|auto`; `yolo` намеренно запрещён.
+
 ## Резюме сессий
 
-`claude` умеет `--resume <session_id>` — бот хранит `provider_session_id` в
+`claude` и `qwen` умеют `--resume <session_id>` — бот хранит `provider_session_id` в
 диалоге и продолжает нативную сессию. Codex/Gemini продолжаются через краткий
 контекст из локальной истории (если политика проекта разрешает её хранить —
 см. `docs/privacy.md`; для private-проектов контекст держит только сам CLI).
@@ -67,4 +102,5 @@ CLAUDE_CONFIG_DIR=$PWD/.runtime/cli_homes/claude_code__main claude
 |---|---|
 | `CLI_TIMEOUT_SEC` | лимит одного запроса (дефолт 1800с) |
 | `CLAUDE_PERMISSION_MODE` | `acceptEdits` (дефолт) / `default`; `bypassPermissions` запрещён |
-| `CLAUDE_DEBUG_STREAM`, `GEMINI_DEBUG_STREAM` | дамп сырого stream-json в логи |
+| `CLAUDE_DEBUG_STREAM`, `GEMINI_DEBUG_STREAM`, `QWEN_DEBUG_STREAM` | дамп сырого stream-json в логи |
+| `QWEN_APPROVAL_MODE` | `auto` (дефолт) / `auto-edit` / `default` / `plan`; `yolo` запрещён |

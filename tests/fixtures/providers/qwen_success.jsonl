@@ -1,0 +1,6 @@
+{"type":"system","subtype":"session_start","session_id":"qwen-session","model":"qwen3.7-plus"}
+{"type":"stream_event","event":{"type":"content_block_start","content_block":{"type":"tool_use","id":"tool-1","name":"write_file","input":{"file_path":"/tmp/demo.py","content":"print('ok')\n"}}}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool-1","content":"готово"}]}}
+{"type":"stream_event","event":{"type":"content_block_delta","delta":{"text":"Готово"}}}
+{"type":"assistant","session_id":"qwen-session","message":{"content":[{"type":"text","text":"Готово"}]}}
+{"type":"result","subtype":"success","session_id":"qwen-session","is_error":false,"result":"Готово","usage":{"input_tokens":80,"output_tokens":12}}
