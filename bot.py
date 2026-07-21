@@ -20,7 +20,6 @@ from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 from core import access, config, control, crm_sync, db, logging_setup, version
 from handlers import ALL_ROUTERS
 from handlers.deploy import post_restart_report, startup_notification
-from utils.memory_link import ensure_memory_links
 from utils.single_instance import ensure_single_instance
 
 RESTART_REQUEST_FILE = config.RESTART_REQUEST_FILE
@@ -183,6 +182,7 @@ COMMANDS = [
     BotCommand(command="reset", description="Очистить историю чата"),
     BotCommand(command="delete", description="Удалить беседу (БД + топик)"),
     BotCommand(command="status", description="Что сейчас активно"),
+    BotCommand(command="memory", description="Общая память Claude/Codex"),
     BotCommand(command="stats", description="Статистика использования"),
     BotCommand(command="rtk", description="Экономия токенов RTK"),
     BotCommand(command="log", description="Последние события"),
@@ -201,14 +201,6 @@ async def main():
     log = logging_setup.setup()
     ensure_single_instance()  # выйдет с понятным сообщением, если уже запущен
     db.init()
-
-    # Объединить auto-memory всех CLI-аккаунтов в HereAssistant\memory через junction
-    try:
-        stats = ensure_memory_links()
-        if any(stats.values()):
-            log.info("memory links: %s", stats)
-    except Exception as e:
-        log.warning("ensure_memory_links failed: %s", e)
 
     if not config.TELEGRAM_TOKEN:
         log.error("TELEGRAM_BOT_TOKEN не задан в .env. Останов.")

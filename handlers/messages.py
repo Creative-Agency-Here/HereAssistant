@@ -16,7 +16,16 @@ from aiogram.types import (
 )
 
 import providers
-from core import changes, config, crm_sync, events, project_config
+from core import (
+    agent_hooks,
+    agent_memory,
+    changes,
+    config,
+    crm_sync,
+    events,
+    project_config,
+    projects,
+)
 from utils import rich
 from utils.files import download_attachment
 from utils.markdown import html_escape
@@ -269,6 +278,55 @@ async def _process_message(
             prompt = user_text
         else:
             prompt = repo.build_prompt_with_history(conv, user_text)
+
+        memory_context = agent_memory.MemoryContext("", ())
+        memory_directory = None
+        hooks_state = "native"
+        if conv["project_id"]:
+            project = projects.get_accessible_project(user_id, int(conv["project_id"]))
+            if project and project_config.can_use_agent_memory(policy):
+                memory_directory = agent_memory.shared_directory(project["root_path"])
+                sync_stats = agent_memory.sync_markdown_directory(
+                    user_id=user_id,
+                    project_id=int(conv["project_id"]),
+                    directory=memory_directory,
+                )
+                if sync_stats.skipped:
+                    log.warning(
+                        "agent memory skipped unsafe files | user=%s project=%s count=%s",
+                        user_id,
+                        conv["project_id"],
+                        sync_stats.skipped,
+                    )
+            if project and policy.agent_profile == "unified":
+                hooks_state = agent_hooks.readiness(project["root_path"], account["provider"]).state
+            memory_context = agent_memory.select(
+                user_id=user_id,
+                project_id=int(conv["project_id"]),
+                query=user_text,
+                policy=policy,
+            )
+            prompt = agent_memory.augment_prompt(
+                prompt,
+                memory_context,
+                writable_directory=memory_directory,
+            )
+        if policy.agent_profile == "unified":
+            events.log(
+                "agent_context",
+                user_id=user_id,
+                chat_id=chat_id,
+                thread_id=thread_id,
+                account_label=account["label"],
+                provider=account["provider"],
+                model=conv["model"],
+                payload={
+                    "project_id": conv["project_id"],
+                    "memory_items": len(memory_context.selected),
+                    "resumed": bool(conv["provider_session_id"]),
+                    "hooks": hooks_state,
+                },
+            )
 
         # Содержимое сообщений пишем только с разрешения политики проекта.
         if project_config.can_store_messages(policy):

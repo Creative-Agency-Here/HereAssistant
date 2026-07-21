@@ -48,6 +48,10 @@ class ProjectPolicy:
     save_history: bool = False
     save_messages: bool = False
     save_file_changes: bool = False
+    agent_profile: str = "native"
+    memory_enabled: bool = False
+    memory_max_items: int = 6
+    memory_max_chars: int = 12000
 
 
 # Политика по умолчанию — полный запрет.
@@ -73,6 +77,13 @@ def _as_bool(v) -> bool:
     return False
 
 
+def _bounded_int(value: object, *, default: int, minimum: int, maximum: int) -> int:
+    """Принимает только настоящий YAML int и удерживает ресурсные лимиты."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return default
+    return max(minimum, min(maximum, value))
+
+
 def _parse(raw: dict) -> ProjectPolicy:
     mode = str(raw.get("mode", "private")).strip().lower()
     if mode not in ("private", "local", "crm"):
@@ -80,10 +91,19 @@ def _parse(raw: dict) -> ProjectPolicy:
 
     sync = raw.get("sync") or {}
     storage = raw.get("storage") or {}
+    agent = raw.get("agent") or {}
     if not isinstance(sync, dict):
         sync = {}
     if not isinstance(storage, dict):
         storage = {}
+    if not isinstance(agent, dict):
+        agent = {}
+    memory = agent.get("memory") or {}
+    if not isinstance(memory, dict):
+        memory = {}
+    agent_profile = str(agent.get("profile", "native")).strip().lower()
+    if agent_profile not in ("native", "unified"):
+        agent_profile = "native"
 
     crm_project_id = raw.get("crm_project_id") or None
     crm_task_id = raw.get("crm_task_id") or None
@@ -102,6 +122,12 @@ def _parse(raw: dict) -> ProjectPolicy:
         save_history=_as_bool(storage.get("save_history")),
         save_messages=_as_bool(storage.get("save_messages")),
         save_file_changes=_as_bool(storage.get("save_file_changes")),
+        agent_profile=agent_profile,
+        memory_enabled=_as_bool(memory.get("enabled")),
+        memory_max_items=_bounded_int(memory.get("max_items"), default=6, minimum=1, maximum=12),
+        memory_max_chars=_bounded_int(
+            memory.get("max_context_chars"), default=12000, minimum=2000, maximum=30000
+        ),
     )
 
 
@@ -163,6 +189,11 @@ def can_store_messages(policy: ProjectPolicy) -> bool:
 def can_store_file_changes(policy: ProjectPolicy) -> bool:
     """Можно ли писать полные диффы правок в журнал."""
     return policy.save_file_changes
+
+
+def can_use_agent_memory(policy: ProjectPolicy) -> bool:
+    """Общая память — отдельный локальный opt-in, не связанный с CRM sync."""
+    return policy.memory_enabled
 
 
 def can_sync_to_crm(policy: ProjectPolicy, data_type: str) -> bool:

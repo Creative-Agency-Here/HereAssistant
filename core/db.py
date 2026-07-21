@@ -82,6 +82,25 @@ CREATE TABLE IF NOT EXISTS project_members (
 CREATE INDEX IF NOT EXISTS idx_project_members_user
     ON project_members(user_id, project_id);
 
+-- Личная память агента. Один и тот же проект может иметь независимую память
+-- каждого участника; содержимое никогда не попадает в CRM outbox автоматически.
+CREATE TABLE IF NOT EXISTS agent_memory (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         INTEGER NOT NULL,
+    project_id      INTEGER NOT NULL,
+    source          TEXT NOT NULL,
+    source_id       TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    content         TEXT NOT NULL,
+    content_sha256  TEXT NOT NULL,
+    active          INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL,
+    UNIQUE (user_id, project_id, source, source_id)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_memory_scope
+    ON agent_memory(user_id, project_id, active, updated_at);
+
 -- Git identity metadata. Raw OAuth/PAT credentials никогда не хранятся в SQLite:
 -- vault_ref — только opaque-ссылка на секрет внутри отдельного Git broker.
 CREATE TABLE IF NOT EXISTS git_connections (

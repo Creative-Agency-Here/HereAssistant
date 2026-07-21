@@ -10,6 +10,12 @@ A personal Telegram bot that bridges you to CLI coding agents — **Claude Code,
 
 **Privacy-first by design:** every project is `private` by default — message contents, diffs and tool logs are **not stored**, and nothing is ever sent to external systems (CRM). This can only be relaxed per project via an explicit `.hereassistant/project.yml` file — see [docs/privacy.md](docs/privacy.md).
 
+Projects may explicitly enable a unified owner/project-scoped Markdown memory for Claude,
+Codex and other CLI providers. Only the index and query-relevant notes are injected; memory is
+never sent to CRM implicitly. See the unified runtime guide for the configuration and rollout.
+
+[Unified agent runtime](docs/unified-agent-runtime.md)
+
 ## Features
 
 - **Multiple providers, one chat** — Claude Code, Codex, Gemini and Qwen Code as isolated CLI subprocesses; switch accounts and models with inline buttons.

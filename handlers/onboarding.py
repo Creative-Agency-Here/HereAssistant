@@ -20,6 +20,7 @@ COMMAND_CATALOG = """HereAssistant · все команды
 /project — рабочий проект
 /cwd — папка
 /status — сессия, задачи, Git, диск и деплой
+/memory — единая память Claude/Codex
 /web — открыть Web App
 
 Сессия

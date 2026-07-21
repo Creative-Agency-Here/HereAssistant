@@ -11,6 +11,7 @@ from core.project_config import (
     can_store_history,
     can_store_messages,
     can_sync_to_crm,
+    can_use_agent_memory,
     is_crm_visible,
     policy_for,
 )
@@ -246,6 +247,52 @@ def test_storage_flags_are_disabled_by_default(tmp_path: Path) -> None:
     assert not can_store_history(policy)
     assert not can_store_messages(policy)
     assert not can_store_file_changes(policy)
+    assert not can_use_agent_memory(policy)
+
+
+def test_unified_agent_memory_requires_explicit_opt_in(tmp_path: Path) -> None:
+    write_config(
+        tmp_path,
+        """
+mode: private
+agent:
+  profile: unified
+  memory:
+    enabled: true
+    max_items: 8
+    max_context_chars: 9000
+""",
+    )
+
+    policy = policy_for(tmp_path)
+
+    assert policy.agent_profile == "unified"
+    assert can_use_agent_memory(policy)
+    assert policy.memory_max_items == 8
+    assert policy.memory_max_chars == 9000
+    assert not can_store_messages(policy)
+    assert not is_crm_visible(policy)
+
+
+def test_agent_memory_limits_are_bounded_and_invalid_profile_is_native(tmp_path: Path) -> None:
+    write_config(
+        tmp_path,
+        """
+mode: local
+agent:
+  profile: arbitrary-command
+  memory:
+    enabled: true
+    max_items: 999
+    max_context_chars: 1
+""",
+    )
+
+    policy = policy_for(tmp_path)
+
+    assert policy.agent_profile == "native"
+    assert policy.memory_max_items == 12
+    assert policy.memory_max_chars == 2000
 
 
 def test_private_mode_can_enable_only_explicit_local_storage(tmp_path: Path) -> None:

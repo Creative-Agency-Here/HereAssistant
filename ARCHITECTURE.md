@@ -138,6 +138,7 @@ SQLite, файл `bridge.sqlite3` в корне. Контекст-менедже
 - **`conversations`** — `(chat_id, thread_id)` UNIQUE, account_id, model, **provider_session_id** (нативный id сессии CLI для `--resume`), cwd, project_name.
 - **`messages`** — `(conversation_id, role, content, provider, model, created_at)`. Используется для контекста при смене провайдера (`build_prompt_with_history`).
 - **`events`** — структурированный лог: `event_type` (`message_in`/`message_out`/`error`/...), tokens_in/out, duration_ms, payload (JSON, может содержать edits/tool_uses).
+- **`agent_memory`** — owner/project-scoped индекс общей Markdown-памяти; уникальность по пользователю, проекту, источнику и source ID.
 
 Миграции — простые, через `PRAGMA table_info` + `ALTER TABLE ADD COLUMN` (см. `MIGRATIONS` в `db.py`).
 
@@ -145,22 +146,19 @@ SQLite, файл `bridge.sqlite3` в корне. Контекст-менедже
 
 ---
 
-## 5. Память (Claude Code) и junction'ы
+## 5. Единая память CLI-агентов
 
-Claude Code ведёт свою auto-memory: `MEMORY.md` (индекс) + отдельные `.md` (user_*, feedback_*, project_*, reference_*) в `cli_homes/<account>/projects/<encoded-cwd>/memory/`. **`encoded-cwd`** — это путь с заменой `\` и `:` на `-` (например, `C--Users-Administrator`).
+Память включается только явным `agent.memory.enabled: true` в
+`.hereassistant/project.yml`. Источник истины — локальный каталог конкретного проекта
+`.hereassistant/memory/*.md`; глобальной папки всех аккаунтов больше нет.
 
-Проблема: каждый Claude-аккаунт ведёт свою отдельную папку памяти. Хочется одну общую.
+`core/agent_memory.py` индексирует безопасные Markdown-файлы в `agent_memory`, разделяя
+данные по `Telegram user + project`. На каждый запрос выбираются `MEMORY.md` и только
+релевантные тематические заметки в пределах лимита. Claude native memory можно связать с
+каталогом проекта через `scripts/link_claude_memory.py`; Codex получает тот же контекст из
+gateway. Symlink-файлы, слишком большие заметки и потенциальные секреты не индексируются.
 
-Решение в `utils/memory_link.py::ensure_memory_links()` (запускается при старте бота):
-
-1. Создаёт общую папку `HereAssistant/memory/`.
-2. Для каждой `cli_homes/<account>/projects/<cwd>/memory/`:
-   - Уже **NTFS junction** на общую → пропуск.
-   - Обычная папка с файлами → файлы (которых ещё нет в общей) копируются в общую, исходная удаляется, на её месте создаётся junction (`cmd /c mklink /J ...`).
-   - Папки нет → сразу junction.
-3. Junction'ы не требуют админ-прав и для CLI выглядят как обычные папки — Claude пишет в `memory/`, а физически файлы лежат в `HereAssistant/memory/`.
-
-Это работает только на Windows и только для NTFS. Если перенос на Linux — нужны симлинки и проверка прав.
+Полный контракт — `docs/unified-agent-runtime.ru.md`.
 
 ---
 

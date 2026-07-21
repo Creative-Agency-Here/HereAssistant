@@ -14,7 +14,7 @@
   orchestration boundaries; каждый catch должен логировать либо давать fallback.
 - `providers/claude_code.py`, `gemini.py`, `process.py` — subprocess/stream cleanup
   boundaries; parser invariants вынесены в pure modules без broad catches.
-- `utils/files.py`, `memory_link.py`, `rich.py`, `single_instance.py`,
+- `utils/files.py`, `rich.py`, `single_instance.py`,
   `table_render.py` — optional filesystem/rendering/platform boundaries.
 - `webapp/api/routes/status.py`, `ws.py` — read-only status/WebSocket delivery
   boundaries; service auth/privacy/task scope broad catches не содержит.

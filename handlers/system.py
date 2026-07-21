@@ -13,7 +13,19 @@ from aiogram.types import (
     WebAppInfo,
 )
 
-from core import access, config, crm_sync, db, git_connections, rtk, version
+from core import (
+    access,
+    agent_hooks,
+    agent_memory,
+    config,
+    crm_sync,
+    db,
+    git_connections,
+    project_config,
+    projects,
+    rtk,
+    version,
+)
 from core.workspace_status import workspace_overview
 
 from . import repo
@@ -161,6 +173,54 @@ async def cmd_status(message: Message):
         f"🏷 Версия: {v['short']} ({v['mtime']})",
     ]
     await message.answer("\n".join(lines))
+
+
+@router.message(Command("memory"))
+async def cmd_memory(message: Message):
+    if not is_allowed(message) or not message.from_user:
+        return
+    conv = repo.get_or_create_conv(
+        message.chat.id, message.message_thread_id or 0, message.from_user.id
+    )
+    project = (
+        projects.get_accessible_project(message.from_user.id, int(conv["project_id"]))
+        if conv["project_id"]
+        else None
+    )
+    policy = project_config.policy_for(project["root_path"] if project else conv["cwd"])
+    if not project or not project_config.can_use_agent_memory(policy):
+        await message.answer(
+            "Общая память этого проекта выключена.\n"
+            "Включается явно в .hereassistant/project.yml:\n\n"
+            "agent:\n  profile: unified\n  memory:\n    enabled: true"
+        )
+        return
+    directory = agent_memory.shared_directory(project["root_path"])
+    sync = agent_memory.sync_markdown_directory(
+        user_id=message.from_user.id,
+        project_id=int(project["id"]),
+        directory=directory,
+    )
+    current = agent_memory.stats(user_id=message.from_user.id, project_id=int(project["id"]))
+    account = (
+        repo.get_account(conv["account_id"], message.from_user.id) if conv["account_id"] else None
+    )
+    hooks = agent_hooks.readiness(project["root_path"], account["provider"] if account else "")
+    hook_labels = {
+        "ready": "готовы",
+        "template-only": "шаблон есть, Claude install не выполнен",
+        "missing": "не настроены",
+        "native": "нативный профиль провайдера",
+    }
+    await message.answer(
+        "Общая память HereAssistant\n"
+        f"Проект: {project['name']}\n"
+        f"Профиль: {policy.agent_profile}\n"
+        f"Заметок: {current['items']} · источников: {current['sources']}\n"
+        f"Markdown: найдено {sync.found} · обновлено {sync.changed} · пропущено {sync.skipped}\n"
+        f"Контекст: до {policy.memory_max_items} заметок / {policy.memory_max_chars} символов\n"
+        f"Hooks: {hook_labels.get(hooks.state, hooks.state)}"
+    )
 
 
 @router.message(Command("version"))

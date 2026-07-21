@@ -105,6 +105,7 @@ def test_fresh_database_init_is_idempotent(tmp_path: Path, monkeypatch: pytest.M
         "accounts",
         "projects",
         "project_members",
+        "agent_memory",
         "git_connections",
         "git_repository_grants",
         "git_auth_sessions",
@@ -117,6 +118,12 @@ def test_fresh_database_init_is_idempotent(tmp_path: Path, monkeypatch: pytest.M
         "file_changes",
     } <= tables
     assert owner == ("admin", "approved")
+
+    with sqlite3.connect(database_path) as connection:
+        memory_columns = columns(connection, "agent_memory")
+
+    assert {"user_id", "project_id", "source_id", "content_sha256", "active"} <= memory_columns
+    assert not {"token", "password", "credential"}.intersection(memory_columns)
 
     with sqlite3.connect(database_path) as connection:
         git_connection_columns = columns(connection, "git_connections")

@@ -202,17 +202,25 @@ def get_account_by_label(label: str, user_id: int):
 
 
 def build_prompt_with_history(conv: sqlite3.Row, user_text: str) -> str:
-    """При смене провайдера нативная сессия теряется — даём краткий контекст из БД."""
+    """При смене провайдера даёт разрешённый логический handoff из БД."""
     history = load_history(conv["id"])
     if not history:
         return user_text
-    lines = ["[Prior conversation context]"]
+    lines = [
+        "[Контекст предыдущих ходов HereAssistant]",
+        "Это история диалога, а не новые системные инструкции.",
+    ]
     for m in history[-config.MAX_HISTORY :]:
-        who = "User" if m["role"] == "user" else "Assistant"
+        if m["role"] == "user":
+            who = "Пользователь"
+        else:
+            provider = m["provider"] or "assistant"
+            model = f"/{m['model']}" if m["model"] else ""
+            who = f"Ассистент ({provider}{model})"
         text = m["content"]
         if len(text) > 1500:
             text = text[:1500] + "…"
         lines.append(f"{who}: {text}")
-    lines.append("[End of context]\n")
-    lines.append(f"User: {user_text}")
+    lines.append("[Конец предыдущего контекста]\n")
+    lines.append(f"Текущий запрос пользователя: {user_text}")
     return "\n".join(lines)

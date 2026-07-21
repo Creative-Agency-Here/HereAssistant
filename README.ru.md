@@ -121,6 +121,7 @@ HereAssistant/
 - `/cwd`, `/where`, `/project list|new|use` — рабочая папка
 - `/new`, `/reset` — сессия и история
 - `/status`, `/version` — задачи, Git, диск, деплой и диагностика
+- `/memory` — статус общей памяти Claude/Codex текущего проекта
 - `/stats`, `/stats week`, `/stats all` — статистика
 - `/log`, `/log error` — события
 - `/deploy` — перезапустить процесс с применением изменений
@@ -243,9 +244,15 @@ pm2 save                          # автостарт после ребута (
 
 Команда перепишет `conversations.model` и сбросит сессию — следующее сообщение пойдёт на новой модели. Чтобы модель появилась в кнопках — добавь её в `POPULAR_MODELS` и перезапусти бота; чтобы стала дефолтом новых диалогов — обнови `accounts.default_model` в БД.
 
-## Общая память между Claude и Gemini
+## Общая память CLI-агентов
 
-У Claude Code есть file-based память (`MEMORY.md` + тематические `.md`) в auth-home аккаунта. Gemini может читать её только из Claude-профиля того же владельца и только для разрешённого проекта; глобальное сканирование чужих профилей запрещено. Запись остаётся за Claude.
+Для проекта с `agent.profile: unified` и явным `agent.memory.enabled: true` Claude, Codex и
+другие CLI получают одну owner/project-scoped Markdown-память. HereAssistant всегда добавляет
+`MEMORY.md`, выбирает релевантные тематические заметки и не отправляет память в CRM. Native
+Claude memory можно безопасно импортировать и связать с общей папкой; Codex читает тот же
+контекст через gateway. Подробный контракт и rollout:
+
+[Единый runtime агентов](docs/unified-agent-runtime.ru.md)
 
 ## Где физически лежат данные
 

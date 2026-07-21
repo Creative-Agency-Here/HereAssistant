@@ -22,7 +22,7 @@ IGNORED_PARTS = {
 
 # Зафиксированный debt после аудита 2026-07-11. Уменьшать можно, увеличивать нельзя.
 ALLOWANCE = {
-    "bot.py": 11,
+    "bot.py": 10,
     "chat.py": 2,
     "core/changes.py": 3,
     "core/version.py": 7,
@@ -44,7 +44,6 @@ ALLOWANCE = {
     "restart_bot.py": 2,
     "scripts/setup_assistant.py": 1,
     "utils/files.py": 1,
-    "utils/memory_link.py": 3,
     "utils/rich.py": 1,
     "utils/single_instance.py": 4,
     "utils/table_render.py": 2,

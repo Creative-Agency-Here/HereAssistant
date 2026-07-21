@@ -78,7 +78,28 @@ storage:
   save_history: true
   save_messages: true
   save_file_changes: true
+agent:
+  profile: unified
+  memory:
+    enabled: true
+    max_items: 6
+    max_context_chars: 12000
 ```
+
+## Единый агентский профиль и память
+
+`agent.profile: unified` включает единый контекст HereAssistant для сменных CLI-провайдеров.
+Память остаётся локальной и включается отдельно через `agent.memory.enabled: true`; она не
+попадает в CRM outbox и не включает `storage.save_messages` автоматически.
+
+Общие Markdown-файлы лежат в `<project>/.hereassistant/memory/`. HereAssistant индексирует
+только прямые `.md`-файлы размером до 1 МБ, не следует по symlink и пропускает заметки с
+похожими на секреты значениями. В SQLite индекс разделён по `Telegram user + project`, поэтому
+участники общего репозитория не получают личную память друг друга.
+
+`max_items` ограничен диапазоном 1–12, `max_context_chars` — 2 000–30 000. В prompt попадают
+индекс `MEMORY.md` и только заметки, совпавшие с текущим запросом; весь архив целиком не
+подставляется.
 
 CRM-проект (метаданные — да, содержимое — нет):
 
