@@ -86,6 +86,7 @@ def test_env_isolates_qwen_config_and_runtime(
     assert environment["QWEN_HOME"] == expected
     assert environment["QWEN_RUNTIME_DIR"] == expected
     assert environment["QWEN_TELEMETRY_ENABLED"] == "false"
+    assert environment["HEREASSISTANT_PROVIDER"] == "qwen_code"
     assert "BAILIAN_CODING_PLAN_API_KEY" not in environment
     assert "OPENAI_BASE_URL" not in environment
 

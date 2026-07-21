@@ -89,6 +89,14 @@ Qwen запускается в approval mode `auto`: безопасные опе
 классификатор, а рискованные блокируются. Допустимые переопределения:
 `QWEN_APPROVAL_MODE=plan|default|auto-edit|auto`; `yolo` намеренно запрещён.
 
+Начиная с Qwen Code 0.15 поддерживаются project lifecycle hooks. HereAssistant проверяет
+пять обязательных событий в `<project>/.qwen/settings.json`: `SessionStart`,
+`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`. После добавления конфигурации открой
+Qwen интерактивно в проекте, подтверди каталог через `/trust` и проверь `/hooks list`.
+Если проект содержит `mcpServers.herecrm`, передай личный `HERECRM_MCP_TOKEN` процессу
+HereAssistant до запуска Qwen и проверь соединение командой `/mcp`. Project-конфиг может
+ссылаться на `${HERECRM_MCP_TOKEN}`, но не должен содержать сам bearer token.
+
 ## Резюме сессий
 
 `claude` и `qwen` умеют `--resume <session_id>` — бот хранит `provider_session_id` в

@@ -1,8 +1,8 @@
-# Unified Claude and Codex runtime
+# Unified Claude, Codex and Qwen runtime
 
 ## Goal
 
-HereAssistant exposes one logical conversation while Claude Code and Codex remain
+HereAssistant exposes one logical conversation while Claude Code, Codex and Qwen remain
 interchangeable engines. Native session IDs are never mixed. Cross-provider context is built
 from explicitly allowed conversation history, repository rules, and owner/project-scoped
 memory.
@@ -59,7 +59,8 @@ existing data is never deleted automatically.
 
 Project hooks stay with the repository because only the repository knows its Git and deploy
 rules. Codex loads trusted `.codex/hooks.json`; Claude uses the matching
-`.claude/hooks.template.json` merged into gitignored `.claude/settings.local.json`. Shared
+`.claude/hooks.template.json` merged into gitignored `.claude/settings.local.json`; Qwen loads
+trusted project hooks from `.qwen/settings.json`. Shared
 account pinning, secret scanning, CRM session tasks, Git ownership, session sync, and handoff
 implementations remain in the target repository's `scripts/hooks/` directory.
 
@@ -70,8 +71,11 @@ pnpm hooks:status
 pnpm hooks:install
 ```
 
-Codex still requires a one-time `/hooks` review and trust action in every server clone. The
-gateway must not bypass this consent by writing trust state automatically.
+Codex still requires a one-time `/hooks` review and trust action in every server clone. Qwen
+requires `/trust` for the project folder and `/hooks list` for verification. The gateway must
+not bypass this consent by writing trust state automatically.
+When `.qwen/settings.json` enables HereCRM MCP, pass the personal `HERECRM_MCP_TOKEN` to the
+HereAssistant process through the environment only and verify the server through Qwen's `/mcp`.
 
 ## Provider switching
 

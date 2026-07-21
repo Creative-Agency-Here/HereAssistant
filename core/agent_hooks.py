@@ -47,4 +47,7 @@ def readiness(project_root: str | Path, provider: str) -> HookReadiness:
         if set(template_events) == EXPECTED_EVENTS:
             return HookReadiness("template-only", template_events)
         return HookReadiness("missing", local_events or template_events)
+    if provider == "qwen_code":
+        events = _events(root / ".qwen" / "settings.json")
+        return HookReadiness("ready" if set(events) == EXPECTED_EVENTS else "missing", events)
     return HookReadiness("native")

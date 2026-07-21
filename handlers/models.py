@@ -23,6 +23,10 @@ POPULAR_MODELS = {
     "qwen_code": [
         "qwen3.7-plus",
         "qwen3.6-plus",
+        "qwen3.5-plus",
+        "qwen3-coder-plus",
+        "qwen3-coder-next",
+        "qwen3-max-2026-01-23",
         "kimi-k2.5",
         "glm-5",
         "MiniMax-M2.5",

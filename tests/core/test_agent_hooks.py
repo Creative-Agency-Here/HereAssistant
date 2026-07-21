@@ -38,4 +38,13 @@ def test_partial_or_invalid_hook_config_is_missing(tmp_path: Path) -> None:
 
     assert readiness(tmp_path, "codex").state == "missing"
     assert readiness(tmp_path, "claude_code").state == "missing"
-    assert readiness(tmp_path, "qwen_code").state == "native"
+    assert readiness(tmp_path, "qwen_code").state == "missing"
+
+
+def test_qwen_requires_complete_trusted_project_settings(tmp_path: Path) -> None:
+    write_hooks(tmp_path / ".qwen" / "settings.json", set(EXPECTED_EVENTS))
+
+    result = readiness(tmp_path, "qwen_code")
+
+    assert result.state == "ready"
+    assert set(result.events) == EXPECTED_EVENTS

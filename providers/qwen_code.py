@@ -76,6 +76,11 @@ class QwenCodeProvider(CLIProvider):
         environment["QWEN_HOME"] = str(qwen_home)
         environment["QWEN_RUNTIME_DIR"] = str(qwen_home)
         environment["QWEN_TELEMETRY_ENABLED"] = "false"
+        # Проектные Qwen hooks видят, что runtime запущен HereAssistant, но не
+        # получают label аккаунта, ключ тарифа или другие auth-данные.
+        environment["HEREASSISTANT_PROVIDER"] = "qwen_code"
+        if self.user_id is not None:
+            environment["HEREASSISTANT_USER_ID"] = str(self.user_id)
         return environment
 
     async def run(
@@ -159,9 +164,7 @@ class QwenCodeProvider(CLIProvider):
                         proc.stdout.readline(), timeout=config.CLI_TIMEOUT
                     )
                 except asyncio.TimeoutError as error:
-                    raise RuntimeError(
-                        f"CLI stream timeout after {config.CLI_TIMEOUT}s"
-                    ) from error
+                    raise RuntimeError(f"CLI stream timeout after {config.CLI_TIMEOUT}s") from error
                 if not line:
                     break
                 _maybe_dump_event(line)
