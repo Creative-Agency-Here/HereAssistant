@@ -51,7 +51,7 @@ PROVIDERS: dict[str, ProviderSpec] = {
         "bin": "qwen",
         "npm_pkg": "@qwen-code/qwen-code@latest",
         "env_var": "QWEN_HOME",
-        "default_model": "qwen3.7-plus",
+        "default_model": "qwen3.8-max-preview",
         "login_hint": (
             "В TUI выполни /auth → Alibaba ModelStudio → Token Plan или Coding Plan, "
             "введи plan-specific ключ и затем /exit."

@@ -9,6 +9,10 @@ from manage_config import PROVIDERS
 from manage_process import BotProcessState
 
 
+def test_qwen_token_plan_uses_current_preview_model_by_default() -> None:
+    assert PROVIDERS["4"]["default_model"] == "qwen3.8-max-preview"
+
+
 def test_codex_login_uses_isolated_home_and_login_subcommand(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

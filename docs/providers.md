@@ -81,9 +81,12 @@ Token Plan использует
 Coding Plan — `https://coding-intl.dashscope.aliyuncs.com/v1`. Менять Gemini CLI
 для этого не требуется.
 
-Дефолтная модель `qwen3.7-plus` поддерживается обоими планами. Доступные модели
-переключаются командой `/model`; имя должно точно совпадать со списком тарифа.
-`qwen3.8-max-preview` в текущем официальном allowlist отсутствует.
+Для Qwen Cloud Token Plan Personal дефолтная модель — `qwen3.8-max-preview`; также
+доступны `qwen3.7-max`, `qwen3.7-plus`, `qwen3.6-flash`, `glm-5.2` и
+`deepseek-v4-pro`. Для Coding Plan используется отдельный allowlist, поэтому модель
+нужно выбирать строго из списка своего тарифа через `/model`. Ключ Token Plan имеет
+префикс `sk-sp-` и работает только с Token Plan Base URL; обычный Qwen Cloud или
+Coding Plan ключ его не заменяет.
 
 Qwen запускается в approval mode `auto`: безопасные операции оценивает встроенный
 классификатор, а рискованные блокируются. Допустимые переопределения:

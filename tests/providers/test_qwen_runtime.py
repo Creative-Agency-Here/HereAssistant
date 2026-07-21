@@ -80,6 +80,7 @@ def test_env_isolates_qwen_config_and_runtime(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("BAILIAN_CODING_PLAN_API_KEY", "foreign-key")
+    monkeypatch.setenv("BAILIAN_TOKEN_PLAN_API_KEY", "foreign-token-plan-key")
     monkeypatch.setenv("OPENAI_BASE_URL", "https://foreign.invalid/v1")
     environment = make_provider(tmp_path).env()
     expected = str(tmp_path / "qwen-home" / ".qwen")
@@ -88,6 +89,7 @@ def test_env_isolates_qwen_config_and_runtime(
     assert environment["QWEN_TELEMETRY_ENABLED"] == "false"
     assert environment["HEREASSISTANT_PROVIDER"] == "qwen_code"
     assert "BAILIAN_CODING_PLAN_API_KEY" not in environment
+    assert "BAILIAN_TOKEN_PLAN_API_KEY" not in environment
     assert "OPENAI_BASE_URL" not in environment
 
 
