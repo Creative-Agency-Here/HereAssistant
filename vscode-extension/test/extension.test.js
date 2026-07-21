@@ -50,6 +50,7 @@ test('manifest keeps terminal-first controls and Source Control delivery status'
   assert.ok(packageJson.contributes.views.scm.some((item) => item.id === 'hereAssistant.delivery'));
   assert.ok(packageJson.activationEvents.includes('onStartupFinished'));
   assert.equal(packageJson.contributes.configuration.properties['hereAssistant.terminalLocation'].default, 'editor');
+  assert.equal(packageJson.contributes.configurationDefaults['terminal.integrated.tabs.title'], '${sequence}');
   assert.ok(packageJson.contributes.commands.some((item) => item.command === 'hereAssistant.quickActions'));
   assert.ok(packageJson.contributes.commands.some((item) => item.command === 'hereAssistant.stop'));
 });

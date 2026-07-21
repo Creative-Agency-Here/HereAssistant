@@ -418,13 +418,38 @@ class Controller {
     const localWorking = [...this.terminals.values()].filter((info) => info.state?.state === 'working').length;
     const crmOpen = this.connection?.workspace?.tasks?.open || 0;
     const selected = await vscode.window.showQuickPick([
-      { label: '$(play) Новая задача', description: 'Открыть отдельную terminal-editor вкладку', command: 'hereAssistant.runTask' },
-      { label: '$(terminal) Открыть текущий терминал', description: `${this.terminals.size} открыто`, command: 'hereAssistant.start' },
-      { label: '$(add) Новый пустой терминал', description: 'Независимая сессия HereAssistant', command: 'hereAssistant.newTerminal' },
+      {
+        label: '$(play) Запустить задачу по промпту',
+        description: 'Сначала спросит текст задачи',
+        detail: 'Затем откроет отдельный терминал HereAssistant и сразу отправит текст агенту.',
+        command: 'hereAssistant.runTask',
+      },
+      {
+        label: '$(terminal) Вернуться в текущий терминал',
+        description: `${this.terminals.size} терминалов открыто`,
+        detail: 'Ничего не создаёт и не отправляет — только показывает текущий чат.',
+        command: 'hereAssistant.start',
+      },
+      {
+        label: '$(add) Открыть новый пустой чат',
+        description: 'Без автоматического промпта',
+        detail: 'Создаёт независимый терминал HereAssistant; задачу можно написать уже внутри.',
+        command: 'hereAssistant.newTerminal',
+      },
       { label: '$(debug-stop) Прервать текущую работу', description: `${localWorking} локально в работе`, command: 'hereAssistant.stop' },
-      { label: '$(issues) HereCRM', description: `${crmOpen} задач в работе`, command: 'hereAssistant.openWeb' },
-      { label: '$(account) AI-аккаунты', description: 'Добавить или перелогинить', command: 'hereAssistant.manageAccounts' },
-      { label: '$(settings-gear) Настройки', description: 'Терминал, контур, API и аккаунт', command: 'hereAssistant.setup' },
+      { label: '$(issues) Открыть HereCRM', description: `${crmOpen} задач в работе`, command: 'hereAssistant.openWeb' },
+      {
+        label: '$(account) Управлять AI-аккаунтами',
+        description: 'Открыть мастер аккаунтов',
+        detail: 'Добавление, вход, перелогин и выбор Claude / Codex / Gemini; это не новый чат.',
+        command: 'hereAssistant.manageAccounts',
+      },
+      {
+        label: '$(settings-gear) Настроить подключение',
+        description: 'Пошаговая настройка расширения',
+        detail: 'Папка HereAssistant, локальный/серверный контур, Web API и аккаунт по умолчанию.',
+        command: 'hereAssistant.setup',
+      },
     ], { title: 'HereAssistant · быстрые действия', placeHolder: this.localState?.title || 'Выберите действие' });
     if (selected) await vscode.commands.executeCommand(selected.command);
   }
@@ -518,7 +543,7 @@ class Controller {
       await this.setup();
       if (!this.installationPath()) return;
     }
-    const terminal = vscode.window.createTerminal({ name: 'HereAssistant · Аккаунты', cwd: this.installationPath() });
+    const terminal = vscode.window.createTerminal({ name: 'Here · Управление AI-аккаунтами', cwd: this.installationPath() });
     terminal.show();
     terminal.sendText(`${shellQuote(this.pythonCommand(this.installationPath()))} ${shellQuote(path.join(this.installationPath(), 'manage.py'))}`, true);
   }

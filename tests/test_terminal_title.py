@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from io import StringIO
 
-from terminal_title import TerminalTitle, compact_title, task_word
+from terminal_title import TerminalActivity, TerminalTitle, compact_title, task_word
 
 
 def test_compact_title_and_russian_task_word() -> None:
@@ -43,3 +43,17 @@ async def test_completed_title_keeps_cross_while_crm_tasks_are_open() -> None:
     await title.finish(completed=True, cwd="/workspace/project", open_tasks=3)
 
     assert "✕ 3 · Один шаг" in output.getvalue()
+
+
+async def test_activity_animates_and_clears_non_streaming_wait() -> None:
+    output = StringIO()
+    activity = TerminalActivity(output, enabled=True)
+
+    activity.start()
+    await asyncio.sleep(0)
+    await activity.stop()
+
+    rendered = output.getvalue()
+    assert "working (00:00)" in rendered
+    assert "Ctrl+C — остановить" in rendered
+    assert rendered.endswith("\r\033[2K")

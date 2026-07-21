@@ -12,10 +12,14 @@ The `creative-agency-here.hereassistant-vscode` extension adds:
   actions as a Quick Pick;
 - multiline editing with Enter to send, Alt+Enter for a new line, history, and
   bracketed-paste support;
-- native VS Code mouse selection and copy-friendly soft wrapping;
+- click-to-position editing; hold Shift while dragging for native terminal
+  selection, with copy-friendly soft wrapping;
 - **HereAssistant · Git and deploy** inside the standard Source Control view;
 - an animated status-bar item while work is running and a clear error marker
   when the terminal ended without completing its task.
+
+During a non-streaming Codex run, a `working (00:00)` heartbeat appears
+immediately and updates until the response is ready.
 
 The agent runs in the standard Integrated Terminal. The extension launches the
 existing `chat.py`, provider account, and workspace, so hooks and provider
@@ -32,14 +36,14 @@ python3 scripts/package_vscode_extension.py
 Install it:
 
 ```bash
-code --install-extension dist/hereassistant-vscode-0.7.0.vsix --force
+code --install-extension dist/hereassistant-vscode-0.7.1.vsix --force
 ```
 
 If `code` is not in `PATH` on macOS:
 
 ```bash
 "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
-  --install-extension dist/hereassistant-vscode-0.7.0.vsix --force
+  --install-extension dist/hereassistant-vscode-0.7.1.vsix --force
 ```
 
 After reloading VS Code, click **Here** in the status bar, run **Setup**, and

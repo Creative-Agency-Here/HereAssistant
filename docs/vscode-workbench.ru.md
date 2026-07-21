@@ -11,11 +11,14 @@
 - компактный статус `Here`, открывающий быстрое меню сессий, аккаунтов, CRM и Stop;
 - многострочный ввод: Enter отправляет, Alt+Enter добавляет строку, ↑↓ открывают
   историю, а многострочная вставка сохраняется целиком;
-- нативное выделение мышью и мягкие переносы VS Code без лишних переводов строк
-  при копировании;
+- постановка курсора обычным кликом; для нативного выделения терминала используется
+  `Shift+drag`, мягкие переносы не добавляют лишних переводов строк при копировании;
 - `HereAssistant · Git и деплой` внутри стандартной вкладки Source Control;
 - status bar с анимацией `sync~spin` во время работы и ошибкой для явно
   незавершённого состояния.
+
+Во время непотокового запуска Codex сразу появляется строка
+`working (00:00)`, её таймер обновляется до готового ответа.
 
 Агент работает в обычном Integrated Terminal. Расширение запускает тот же
 `chat.py`, тот же provider account и тот же workspace, поэтому ответы, инструменты,
@@ -32,14 +35,14 @@ python3 scripts/package_vscode_extension.py
 Установить:
 
 ```bash
-code --install-extension dist/hereassistant-vscode-0.7.0.vsix --force
+code --install-extension dist/hereassistant-vscode-0.7.1.vsix --force
 ```
 
 Если `code` не добавлен в PATH на macOS:
 
 ```bash
 "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
-  --install-extension dist/hereassistant-vscode-0.7.0.vsix --force
+  --install-extension dist/hereassistant-vscode-0.7.1.vsix --force
 ```
 
 После перезапуска VS Code нажать `Here` в status bar → `Настроить` и выбрать

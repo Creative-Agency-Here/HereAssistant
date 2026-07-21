@@ -1,4 +1,4 @@
-"""Multiline terminal input that keeps native selection and soft wrapping."""
+"""Multiline terminal input with click-to-position and soft wrapping."""
 
 from __future__ import annotations
 
@@ -16,9 +16,8 @@ from prompt_toolkit.key_binding import KeyBindings
 class TerminalPrompt:
     """Claude-like editor: Enter sends, Alt+Enter adds a line, paste stays multiline.
 
-    Mouse reporting deliberately remains disabled. VS Code/xterm therefore owns
-    click-drag selection and copies soft-wrapped output without artificial line
-    breaks.
+    Mouse reporting lets a click move the caret inside the editable prompt.
+    VS Code still exposes native terminal selection while Shift is held.
     """
 
     def __init__(
@@ -46,7 +45,7 @@ class TerminalPrompt:
                 history=InMemoryHistory(),
                 key_bindings=bindings,
                 multiline=True,
-                mouse_support=False,
+                mouse_support=True,
                 enable_history_search=True,
             )
 
@@ -60,6 +59,7 @@ class TerminalPrompt:
             prompt_continuation=lambda width, _line, _soft: " " * max(0, width - 2) + "· ",
             wrap_lines=True,
             bottom_toolbar=ANSI(
-                "\x1b[2m Enter — отправить · Alt+Enter — новая строка · ↑↓ — история \x1b[0m"
+                "\x1b[2m клик — курсор · Enter — отправить · Alt+Enter — новая строка"
+                " · Shift+drag — выделить \x1b[0m"
             ),
         )

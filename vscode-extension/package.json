@@ -2,7 +2,7 @@
   "name": "hereassistant-vscode",
   "displayName": "HereAssistant",
   "description": "Local VS Code workbench for HereAssistant sessions, CRM tasks, contours, Git and deployments.",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "publisher": "creative-agency-here",
   "license": "MIT",
   "engines": {
@@ -21,6 +21,9 @@
     "onCommand:hereAssistant.runTask"
   ],
   "contributes": {
+    "configurationDefaults": {
+      "terminal.integrated.tabs.title": "${sequence}"
+    },
     "commands": [
       { "command": "hereAssistant.setup", "title": "HereAssistant: Настроить подключение", "icon": "$(settings-gear)" },
       { "command": "hereAssistant.quickActions", "title": "HereAssistant: Быстрое меню", "icon": "$(sparkle)" },

@@ -50,7 +50,7 @@ from chat_sessions import list_resumable as _list_resumable
 from core import config, crm_sync, db, integration_state, project_config
 from core.workspace_status import task_summary, workspace_overview
 from terminal_input import TerminalPrompt
-from terminal_title import TerminalTitle
+from terminal_title import TerminalActivity, TerminalTitle
 
 # Аккаунты читаем напрямую из БД, НЕ через handlers.repo: пакет handlers/__init__
 # тянет все telegram-хендлеры (aiogram) — лишняя тяжёлая зависимость для CLI, и
@@ -166,15 +166,23 @@ def _pick_user(preselect: str | None):
 async def _run_prompt(sess: Session, prompt: str) -> bool:
     state = ProgressRenderState()
     prov = providers.make(sess.account, user_id=sess.user_id)
+    activity = TerminalActivity()
+    if sess.provider == "codex":
+        activity.start()
     t0 = time.time()
     try:
-        text, new_session, meta = await prov.run(
-            prompt,
-            sess.cwd,
-            sess.session_id,
-            sess.model,
-            progress=make_progress(state),
-        )
+        try:
+            text, new_session, meta = await prov.run(
+                prompt,
+                sess.cwd,
+                sess.session_id,
+                sess.model,
+                progress=make_progress(state),
+            )
+        finally:
+            # Codex CLI currently returns one completed response instead of
+            # progress events, so clear its local heartbeat before rendering.
+            await activity.stop()
     except Exception as e:
         print(f"\n{R}✗ Ошибка: {e}{X}")
         return False
