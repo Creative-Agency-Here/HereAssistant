@@ -8,7 +8,7 @@ A local workbench for an existing HereAssistant installation:
 - a live status bar that opens a compact Quick Pick control menu;
 - multiline `chat.py` input, history, bracketed paste, native selection, and
   copy-friendly soft wrapping;
-- start, stop, new-session, resume, and finish-task actions;
+- start, new-session, resume, and finish-task actions;
 - **HereAssistant · Git and deploy** in the standard Source Control view;
 - Pull and Push through VS Code's built-in Git extension;
 - deployment only through an explicit command and modal confirmation;
@@ -30,7 +30,7 @@ bar and run **HereAssistant: Setup connection**.
 
 ```bash
 python3 scripts/package_vscode_extension.py
-code --install-extension dist/hereassistant-vscode-0.7.3.vsix
+code --install-extension dist/hereassistant-vscode-0.7.4.vsix
 ```
 
 Setup asks for:

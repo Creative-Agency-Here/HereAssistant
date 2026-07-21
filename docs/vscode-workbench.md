@@ -8,8 +8,8 @@ The `creative-agency-here.hereassistant-vscode` extension adds:
 
 - terminal-editor tabs whose titles follow the current task and its
   `working / completed / unfinished` state;
-- a compact purple Here status-bar item that opens all session, account, CRM,
-  and stop actions as a Quick Pick;
+- a compact purple Here status-bar item that opens session, account, and CRM
+  actions as a Quick Pick;
 - multiline editing with Enter to send, Alt+Enter for a new line, history, and
   bracketed-paste support;
 - click-to-position editing; hold Shift while dragging for native terminal
@@ -46,14 +46,14 @@ python3 scripts/package_vscode_extension.py
 Install it:
 
 ```bash
-code --install-extension dist/hereassistant-vscode-0.7.3.vsix --force
+code --install-extension dist/hereassistant-vscode-0.7.4.vsix --force
 ```
 
 If `code` is not in `PATH` on macOS:
 
 ```bash
 "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
-  --install-extension dist/hereassistant-vscode-0.7.3.vsix --force
+  --install-extension dist/hereassistant-vscode-0.7.4.vsix --force
 ```
 
 After reloading VS Code, click **Here** in the status bar, run **Setup**, and
@@ -104,19 +104,11 @@ credentials.
 always requires modal confirmation. Deployment state comes from
 `.hereassistant/deploy-state.json`; a Git push is never treated as a deployment.
 
-## Stopping work
+## Interrupting one terminal
 
-**Stop current response** performs both operations:
-
-1. sends Ctrl+C to the local HereAssistant terminal;
-2. creates a user-scoped stop request through the API.
-
-The bot process consumes the request through shared SQLite and cancels active
-work only for that user. The Web App uses the same endpoint.
-
-It does not close or delete the terminal, provider session, changed files, or
-linked CRM task. The unfinished marker remains visible until work is resumed or
-finished deliberately.
+The global Quick Pick intentionally has no stop action: with several sessions it
+would be unclear which response is being interrupted. Focus the required terminal
+and use its regular `Ctrl+C`; other sessions remain untouched.
 
 ## Development
 

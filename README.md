@@ -143,13 +143,13 @@ cd HereAssistant
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 python3 scripts/package_vscode_extension.py
-code --install-extension dist/hereassistant-vscode-0.7.3.vsix --force
+code --install-extension dist/hereassistant-vscode-0.7.4.vsix --force
 ```
 
 Reload VS Code, click the purple **Here** item in the status bar, choose
 **Set up connection**, and select this cloned folder. The menu starts or returns
-to terminal sessions, opens HereCRM, manages AI accounts, and can stop only the
-current response without deleting its terminal, files, session, or CRM task.
+to terminal sessions, opens HereCRM, and manages AI accounts. To interrupt a
+specific response, focus its terminal and use the terminal's regular `Ctrl+C`.
 
 The extension keeps access keys in VS Code SecretStorage, launches the existing
 `chat.py` inside the active workspace, reports real local state through an atomic

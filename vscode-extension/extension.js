@@ -222,7 +222,6 @@ class Controller {
       newTerminal: () => this.startTerminal(true),
       runTask: () => this.runTask(),
       finishTask: () => this.runTask('Проверь результат текущей работы, выполни необходимые проверки и переведи связанную HereCRM-задачу в статус «Завершено». Если задача не связана — явно сообщи об этом.'),
-      stop: () => this.stop(),
       newSession: () => this.sendSlash('/new'),
       resume: () => this.sendSlash('/resume'),
       gitPull: () => vscode.commands.executeCommand('git.pull'),
@@ -425,7 +424,6 @@ class Controller {
   }
 
   async quickActions() {
-    const localWorking = [...this.terminals.values()].filter((info) => info.state?.state === 'working').length;
     const crmOpen = this.connection?.workspace?.tasks?.open || 0;
     const selected = await vscode.window.showQuickPick([
       {
@@ -445,12 +443,6 @@ class Controller {
         description: 'Без автоматического промпта',
         detail: 'Создаёт независимый терминал HereAssistant; задачу можно написать уже внутри.',
         command: 'hereAssistant.newTerminal',
-      },
-      {
-        label: '$(debug-stop) Остановить текущий ответ',
-        description: `${localWorking} локально в работе`,
-        detail: 'Отправляет Ctrl+C активному агенту; терминал, сессия, файлы и CRM-задача сохраняются.',
-        command: 'hereAssistant.stop',
       },
       { label: '$(issues) Открыть HereCRM', description: `${crmOpen} задач в работе`, command: 'hereAssistant.openWeb' },
       {
@@ -563,18 +555,6 @@ class Controller {
     const terminal = vscode.window.createTerminal({ name: 'Here · Управление AI-аккаунтами', cwd: this.installationPath() });
     terminal.show();
     terminal.sendText(`${shellQuote(this.pythonCommand(this.installationPath()))} ${shellQuote(path.join(this.installationPath(), 'manage.py'))}`, true);
-  }
-
-  async stop() {
-    if (this.terminal && this.terminal.exitStatus === undefined) this.terminal.sendText('\x03', false);
-    if (this.apiBase()) {
-      try { await this.api('/api/control/stop', { method: 'POST', body: {} }); }
-      catch (error) { void vscode.window.showWarningMessage(`HereAssistant: ${cleanLine(error.message)}`); }
-    }
-    this.localState = { ...(this.localState || {}), state: 'error' };
-    const info = this.activeInfo();
-    if (info) info.state = this.localState;
-    this.render();
   }
 
   async deploy() {

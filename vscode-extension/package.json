@@ -2,7 +2,7 @@
   "name": "hereassistant-vscode",
   "displayName": "HereAssistant",
   "description": "Local VS Code workbench for HereAssistant sessions, CRM tasks, contours, Git and deployments.",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "publisher": "creative-agency-here",
   "license": "MIT",
   "engines": {
@@ -33,7 +33,6 @@
       { "command": "hereAssistant.newTerminal", "title": "HereAssistant: Новый терминал", "icon": "$(add)" },
       { "command": "hereAssistant.runTask", "title": "HereAssistant: Запустить задачу", "icon": "$(play)" },
       { "command": "hereAssistant.finishTask", "title": "HereAssistant: Завершить текущую задачу", "icon": "$(pass-filled)" },
-      { "command": "hereAssistant.stop", "title": "HereAssistant: Остановить текущий ответ", "icon": "$(debug-stop)" },
       { "command": "hereAssistant.newSession", "title": "HereAssistant: Новая сессия", "icon": "$(add)" },
       { "command": "hereAssistant.resume", "title": "HereAssistant: Продолжить сессию", "icon": "$(history)" },
       { "command": "hereAssistant.gitPull", "title": "HereAssistant: Git Pull", "icon": "$(cloud-download)" },
