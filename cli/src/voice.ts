@@ -1,10 +1,13 @@
-import { execSync, spawnSync } from 'node:child_process';
+import { execSync, spawnSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 const RECORD_SECONDS = 15;
 const SAMPLE_RATE = 16000;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const VOICE_RT_BIN = path.join(__dirname, '..', 'bin', 'voice_rt');
 
 /** Проверяет доступность ffmpeg для записи. */
 export function canRecord(): boolean {
@@ -66,7 +69,6 @@ export function voiceToText(seconds = RECORD_SECONDS): string | null {
   const tmpWav = path.join(os.tmpdir(), `ha-voice-${Date.now()}.wav`);
 
   try {
-    // Запись
     process.stderr.write(`\x1b[33m🎙 запись ${seconds}с… говорите\x1b[0m\n`);
     if (!recordAudio(tmpWav, seconds)) {
       process.stderr.write('\x1b[31m✗ запись не удалась (проверьте доступ к микрофону)\x1b[0m\n');
@@ -76,7 +78,6 @@ export function voiceToText(seconds = RECORD_SECONDS): string | null {
     const size = fs.statSync(tmpWav).size;
     process.stderr.write(`\x1b[32m✓ записано ${(size / 1024).toFixed(0)}KB, транскрибирую…\x1b[0m\n`);
 
-    // Транскрипция
     const text = transcribe(tmpWav);
     if (text) {
       process.stderr.write(`\x1b[32m✓ распознано: ${text.slice(0, 80)}${text.length > 80 ? '…' : ''}\x1b[0m\n`);
@@ -87,4 +88,42 @@ export function voiceToText(seconds = RECORD_SECONDS): string | null {
   } finally {
     try { fs.unlinkSync(tmpWav); } catch { /* ignore */ }
   }
+}
+
+/** Проверяет доступность real-time voice (Swift binary). */
+export function canRealtimeVoice(): boolean {
+  return fs.existsSync(VOICE_RT_BIN);
+}
+
+/** Real-time голосовой ввод через SFSpeechRecognizer (macOS native).
+ *  Вызывает onPartial при каждом обновлении и onFinal при завершении фразы. */
+export function voiceRealtime(
+  seconds: number,
+  onPartial: (text: string) => void,
+  onFinal: (text: string) => void,
+): { kill: () => void } {
+  const child = spawn(VOICE_RT_BIN, [String(seconds)], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  let buffer = '';
+  child.stdout?.on('data', (data: Buffer) => {
+    buffer += data.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const obj = JSON.parse(line);
+        if (obj.final) onFinal(obj.text);
+        else onPartial(obj.text);
+      } catch { /* skip */ }
+    }
+  });
+
+  child.stderr?.on('data', (data: Buffer) => {
+    process.stderr.write(data);
+  });
+
+  return { kill: () => { child.kill('SIGINT'); } };
 }
