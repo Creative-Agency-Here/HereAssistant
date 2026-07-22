@@ -1,23 +1,34 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
-import TextInput from 'ink-text-input';
 import Spinner from 'ink-spinner';
 import type { Account, ChatMessage, StreamEvent, ToolCall } from '../types.js';
 import { makeProvider } from '../providers/index.js';
 import { ToolCallBlock } from './ToolCallBlock.js';
+import { ChatInput } from './ChatInput.js';
+import { StatusBar } from './StatusBar.js';
+import { RunSummary } from './RunSummary.js';
 import { renderMarkdown } from './markdown.js';
+import { handleCommand, type CommandContext } from '../commands.js';
+import { startWorkingTitle, setIdleTitle, stopWorkingTitle } from '../terminal-title.js';
 
 function makeId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
-export function Chat({ account, cwd }: { account: Account; cwd: string }) {
+export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: string }) {
   const { exit } = useApp();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
-  const [model] = useState(account.default_model || '');
+  const [account, setAccount] = useState(initialAccount);
+  const [model, setModel] = useState(initialAccount.default_model || '');
+  const [tokensIn, setTokensIn] = useState(0);
+  const [tokensOut, setTokensOut] = useState(0);
+  const [lastDuration, setLastDuration] = useState(0);
+  const [lastTokensIn, setLastTokensIn] = useState(0);
+  const [lastTokensOut, setLastTokensOut] = useState(0);
+  const [thinking, setThinking] = useState('');
   const sessionIdRef = useRef<string | null>(null);
+  const project = cwd.split('/').pop() ?? cwd;
 
   const addMessage = useCallback((msg: ChatMessage) => {
     setMessages((prev) => [...prev, msg]);
@@ -33,31 +44,49 @@ export function Chat({ account, cwd }: { account: Account; cwd: string }) {
     });
   }, []);
 
+  const doExit = useCallback(() => {
+    stopWorkingTitle();
+    exit();
+  }, [exit]);
+
   const handleSubmit = useCallback(async (value: string) => {
     const text = value.trim();
     if (!text) return;
-    setInput('');
 
-    if (text === '/exit' || text === '/quit') { exit(); return; }
-    if (text === '/new') {
-      sessionIdRef.current = null;
-      addMessage({ id: makeId(), role: 'system', text: 'Новая сессия — контекст очищен.', toolCalls: [], timestamp: Date.now(), streaming: false });
-      return;
+    // Slash commands
+    if (text.startsWith('/')) {
+      const ctx: CommandContext = {
+        account, model, sessionId: sessionIdRef.current, cwd,
+        tokensIn, tokensOut,
+        setModel: (m) => setModel(m),
+        setAccount: (a) => { setAccount(a); setModel(a.default_model || ''); },
+        resetSession: () => { sessionIdRef.current = null; },
+        print: (t) => addMessage({ id: makeId(), role: 'system', text: t, toolCalls: [], timestamp: Date.now(), streaming: false }),
+        exit: doExit,
+      };
+      if (handleCommand(text, ctx)) return;
     }
 
     addMessage({ id: makeId(), role: 'user', text, toolCalls: [], timestamp: Date.now(), streaming: false });
-
     const assistantMsg: ChatMessage = {
       id: makeId(), role: 'assistant', text: '', toolCalls: [], timestamp: Date.now(), streaming: true,
     };
     addMessage(assistantMsg);
     setBusy(true);
+    setThinking('');
+    setLastDuration(0);
+    setLastTokensIn(0);
+    setLastTokensOut(0);
+    startWorkingTitle(project, 1);
+    const t0 = Date.now();
 
     try {
       const provider = makeProvider(account);
       const result = await provider.run(text, cwd, sessionIdRef.current, model || null, (event: StreamEvent) => {
         if (event.type === 'text' && typeof event.text === 'string') {
           updateLastAssistant((m) => ({ ...m, text: m.text + (event.text as string) }));
+        } else if (event.type === 'thinking' && typeof event.text === 'string') {
+          setThinking((prev) => prev + (event.text as string));
         } else if (event.type === 'tool_start' && event.tool) {
           const tool = event.tool as ToolCall;
           updateLastAssistant((m) => ({ ...m, toolCalls: [...m.toolCalls, { ...tool }] }));
@@ -74,9 +103,14 @@ export function Chat({ account, cwd }: { account: Account; cwd: string }) {
         }
       });
 
+      const duration = Date.now() - t0;
       if (result.sessionId) sessionIdRef.current = result.sessionId;
+      if (result.tokensIn) { setTokensIn((p) => p + result.tokensIn!); setLastTokensIn(result.tokensIn); }
+      if (result.tokensOut) { setTokensOut((p) => p + result.tokensOut!); setLastTokensOut(result.tokensOut); }
+      setLastDuration(duration);
       updateLastAssistant((m) => ({ ...m, text: result.text || m.text, streaming: false }));
     } catch (err) {
+      setLastDuration(Date.now() - t0);
       updateLastAssistant((m) => ({
         ...m,
         text: `✗ Ошибка: ${err instanceof Error ? err.message : String(err)}`,
@@ -84,34 +118,38 @@ export function Chat({ account, cwd }: { account: Account; cwd: string }) {
       }));
     } finally {
       setBusy(false);
+      setThinking('');
+      setIdleTitle(project, 1);
     }
-  }, [account, cwd, model, addMessage, updateLastAssistant, exit]);
+  }, [account, cwd, model, tokensIn, tokensOut, project, addMessage, updateLastAssistant, doExit]);
 
   useInput((input, key) => {
-    if (key.ctrl && input === 'c') exit();
+    if (key.ctrl && input === 'c') doExit();
   });
 
   return (
     <Box flexDirection="column" height="100%">
-      <Box borderStyle="single" borderBottom={false} borderLeft={false} borderRight={false} paddingX={1}>
-        <Text bold color="magenta">HereAssistant</Text>
-        <Text dimColor> · {account.label}</Text>
-        <Text dimColor> · {model || 'default'}</Text>
-        <Text dimColor> · {cwd.split('/').pop()}</Text>
-        {sessionIdRef.current && <Text dimColor> · сессия {sessionIdRef.current.slice(0, 8)}</Text>}
-      </Box>
+      <StatusBar
+        account={account.label}
+        model={model || account.default_model || 'default'}
+        sessionId={sessionIdRef.current}
+        tokensIn={tokensIn}
+        tokensOut={tokensOut}
+        cwd={cwd}
+      />
 
       <Box flexDirection="column" flexGrow={1} overflow="hidden">
         {messages.map((msg) => (
           <Box key={msg.id} flexDirection="column" marginBottom={1}>
             {msg.role === 'user' && (
-              <Box>
-                <Text color="cyan" bold>› </Text>
-                <Text>{msg.text}</Text>
-              </Box>
+              <Box><Text color="cyan" bold>› </Text><Text>{msg.text}</Text></Box>
             )}
             {msg.role === 'system' && (
-              <Box><Text dimColor italic>{msg.text}</Text></Box>
+              <Box flexDirection="column">
+                {msg.text.split('\n').map((line, i) => (
+                  <Text key={i} dimColor>{line}</Text>
+                ))}
+              </Box>
             )}
             {msg.role === 'assistant' && (
               <Box flexDirection="column">
@@ -130,26 +168,22 @@ export function Chat({ account, cwd }: { account: Account; cwd: string }) {
                     <Box><Text color="yellow"><Spinner type="dots" /> думаю…</Text></Box>
                   )
                 )}
+                {!msg.streaming && msg.role === 'assistant' && lastDuration > 0 && (
+                  <RunSummary durationMs={lastDuration} tokensIn={lastTokensIn} tokensOut={lastTokensOut} />
+                )}
               </Box>
             )}
           </Box>
         ))}
-      </Box>
-
-      <Box borderTop borderStyle="single" paddingX={1}>
-        {busy ? (
-          <Text dimColor><Spinner type="dots" /> агент работает…</Text>
-        ) : (
-          <Box>
-            <Text color="magenta" bold>› </Text>
-            <TextInput
-              value={input}
-              onChange={setInput}
-              onSubmit={handleSubmit}
-              placeholder="сообщение… (/new /exit)"
-            />
+        {thinking && (
+          <Box marginLeft={1}>
+            <Text dimColor italic>💭 {thinking.slice(-200)}</Text>
           </Box>
         )}
+      </Box>
+
+      <Box borderTop borderStyle="single">
+        <ChatInput onSubmit={handleSubmit} disabled={busy} />
       </Box>
     </Box>
   );
