@@ -17,6 +17,9 @@ export function useMouse(handler: MouseHandler, enabled = true) {
   const { stdin, setRawMode } = useStdin();
 
   useEffect(() => {
+    // Mouse reporting отключён — не парсим stdin
+    return;
+    // eslint-disable-next-line no-unreachable
     if (!enabled || !stdin) return;
 
     const parseBuffer = (data: Buffer) => {

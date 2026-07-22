@@ -651,6 +651,7 @@ class Controller {
     this.terminal = vscode.window.createTerminal({ cwd: workspace, location, env });
     this.terminals.set(this.terminal, { id: integrationId, stateMtime, state: null });
     this.terminal.show();
+    this.terminal.sendText('clear', true);
     this.terminal.sendText(args.join(' '), true);
     return this.terminal;
   }
