@@ -157,92 +157,86 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
     if (disabled) return;
 
     // Пробел = печатает пробел ИЛИ включает голос при зажатии (как Claude Code)
-    // Логика: каждый пробел сразу печатается. Если повторы сыпятся (hold) —
-    // через 3 повтора включается голос и лишние пробелы стираются.
     if (input === ' ' && !key.ctrl && !key.meta && !key.shift) {
       if (recording) {
-        // В режиме записи: пробел = стоп (короткое нажатие)
-        // Игнорируем key repeat во время записи
-        if (spaceHoldRef.current) clearTimeout(spaceHoldRef.current);
-        spaceHoldRef.current = setTimeout(() => {
-          // 200ms без повторов = короткое нажатие = стоп
+        // Во время записи: игнорируем key repeat, стоп только по одиночному нажатию
+        const now = Date.now();
+        const lastRecSpace = (spaceHoldRef.current as unknown as number) || 0;
+        if (now - lastRecSpace > 300) {
+          // Одиночное нажатие (не repeat) = стоп
           voiceRef.current?.kill();
           voiceRef.current = null;
           setRecording(false);
           spaceHoldRef.current = null;
           if (voiceText.trim()) {
-            const current = text;
-            const sep = current && !current.endsWith(' ') ? ' ' : '';
-            setText(current + sep + voiceText.trim());
+            const col = Math.min(cursorCol, currentLine.length);
+            const newLines = [...lines];
+            const insert = (currentLine.length > 0 && col > 0 && currentLine[col - 1] !== ' ' ? ' ' : '') + voiceText.trim();
+            newLines[cursorLine] = currentLine.slice(0, col) + insert + currentLine.slice(col);
+            setLines(newLines);
+            setCursorCol(col + insert.length);
             setVoiceText('');
           }
-        }, 200);
+        }
+        (spaceHoldRef.current as unknown as number) = now;
         return;
       }
 
-      // Печатаем пробел СРАЗУ (как обычно)
+      // Печатаем пробел СРАЗУ
       const col = Math.min(cursorCol, currentLine.length);
       const newLines = [...lines];
       newLines[cursorLine] = currentLine.slice(0, col) + ' ' + currentLine.slice(col);
       setLines(newLines);
       setCursorCol(col + 1);
 
-      // Трекаем повторы для hold detection
+      // Hold detection: трекаем повторы
       const now = Date.now();
       const lastSpace = (spaceHoldRef.current as unknown as number) || 0;
-      if (now - lastSpace < 150) {
-        // Повторный пробел в течение 150ms = key repeat (зажатие)
-        const count = ((spaceHoldRef as unknown as Record<string, number>)._count || 0) + 1;
-        (spaceHoldRef as unknown as Record<string, number>)._count = count;
-        if (count >= 3 && canRealtimeVoice()) {
-          // 3+ повтора = зажал → стираем лишние пробелы и включаем голос
-          const removeCount = count + 1; // все пробелы из hold
-          const line = newLines[cursorLine];
-          const removeStart = Math.max(0, col + 1 - removeCount);
-          newLines[cursorLine] = line.slice(0, removeStart) + line.slice(col + 1);
-          setLines(newLines);
-          setCursorCol(removeStart);
-          // Включаем запись
-          setRecording(true);
-          setVoiceText('');
-          (spaceHoldRef as unknown as Record<string, number>)._count = 0;
-          voiceRef.current = voiceRealtime(120, (partial) => {
-            setVoiceText(partial);
-          }, (final) => {
-            setVoiceText(final);
-          });
-        }
-      } else {
-        (spaceHoldRef as unknown as Record<string, number>)._count = 1;
-      }
+      const cnt = ((spaceHoldRef as unknown as Record<string, number>)._count || 0) + 1;
+      (spaceHoldRef as unknown as Record<string, number>)._count = cnt;
       (spaceHoldRef.current as unknown as number) = now;
-      // Сброс счётчика через 300ms без повторов
-      setTimeout(() => {
+
+      if (cnt >= 3 && canRealtimeVoice()) {
+        // Зажал → стираем пробелы из hold и включаем голос
+        const removeCount = cnt;
+        const line = newLines[cursorLine];
+        const removeStart = Math.max(0, col + 1 - removeCount);
+        newLines[cursorLine] = line.slice(0, removeStart) + line.slice(col + 1);
+        setLines(newLines);
+        setCursorCol(removeStart);
+        setRecording(true);
+        setVoiceText('');
         (spaceHoldRef as unknown as Record<string, number>)._count = 0;
-      }, 300);
+        (spaceHoldRef.current as unknown as number) = 0;
+        voiceRef.current = voiceRealtime(120, (partial) => {
+          setVoiceText(partial);
+        }, (final) => {
+          setVoiceText(final);
+        });
+      }
+      setTimeout(() => { (spaceHoldRef as unknown as Record<string, number>)._count = 0; }, 300);
       return;
     }
 
-    // Ctrl+M = тоже toggle голос (альтернатива)
+    // Ctrl+M = toggle голос (альтернатива)
     if (key.ctrl && input === 'm') {
       if (recording) {
         voiceRef.current?.kill();
         voiceRef.current = null;
         setRecording(false);
         if (voiceText.trim()) {
-          const current = text;
-          const sep = current && !current.endsWith(' ') ? ' ' : '';
-          setText(current + sep + voiceText.trim());
+          const col = Math.min(cursorCol, currentLine.length);
+          const newLines = [...lines];
+          const insert = (col > 0 && currentLine[col - 1] !== ' ' ? ' ' : '') + voiceText.trim();
+          newLines[cursorLine] = currentLine.slice(0, col) + insert + currentLine.slice(col);
+          setLines(newLines);
+          setCursorCol(col + insert.length);
           setVoiceText('');
         }
       } else if (canRealtimeVoice()) {
         setRecording(true);
         setVoiceText('');
-        voiceRef.current = voiceRealtime(120, (partial) => {
-          setVoiceText(partial);
-        }, (final) => {
-          setVoiceText(final);
-        });
+        voiceRef.current = voiceRealtime(120, (p) => setVoiceText(p), (f) => setVoiceText(f));
       }
       return;
     }
@@ -356,16 +350,25 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       return;
     }
 
-    // Ctrl+V — вставка изображения или текста из clipboard
-    if ((key.ctrl && (input === 'v' || input === '\x16')) || (key.meta && input === 'v')) {
+    // Ctrl+V / Cmd+V — вставка изображения inline или текста
+    if ((key.ctrl || key.meta) && (input === 'v' || input === '\x16')) {
+      // Пробуем изображение
       if (onImagePaste) {
         const imgPath = pasteImageFromClipboard();
         if (imgPath) {
+          const imgIdx = attachments.length + 1;
+          const tag = `[Image #${imgIdx}]`;
+          const col = Math.min(cursorCol, currentLine.length);
+          const newLines = [...lines];
+          const sep = col > 0 && currentLine[col - 1] !== ' ' ? ' ' : '';
+          newLines[cursorLine] = currentLine.slice(0, col) + sep + tag + ' ' + currentLine.slice(col);
+          setLines(newLines);
+          setCursorCol(col + sep.length + tag.length + 1);
           onImagePaste(imgPath);
           return;
         }
       }
-      // Fallback: вставить текст из clipboard
+      // Fallback: текст из clipboard
       try {
         const clipText = execSync('pbpaste 2>/dev/null', { encoding: 'utf-8', timeout: 2000 }).trim();
         if (clipText) {
@@ -375,7 +378,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
           setLines(newLines);
           setCursorCol(col + clipText.length);
         }
-      } catch { /* clipboard empty or inaccessible */ }
+      } catch { /* empty */ }
       return;
     }
 
@@ -472,14 +475,22 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
           <Text dimColor> Backspace — удалить</Text>
         </Box>
       )}
-      <Box paddingX={1}>
-        {recording ? (
+      <Box paddingX={1} flexDirection="column">
+        {recording && (
           <Box>
             <Text color="red" bold>{REC_FRAMES[recFrame]} </Text>
             <Text color="red">{WAVE_FRAMES[recFrame % WAVE_FRAMES.length]} </Text>
             <Text color="red">{voiceText || 'слушаю…'}</Text>
             <Text color="red"> ▌</Text>
-            <Text dimColor>  {recSeconds}с · [пробел — стоп]</Text>
+            <Text dimColor>  {recSeconds}с · пробел — стоп</Text>
+          </Box>
+        )}
+        {recording ? (
+          <Box>
+            <Text color="magenta" bold>› </Text>
+            <Text>{text}</Text>
+            <Text color="red">{voiceText ? ' ' + voiceText : ''}</Text>
+            <Text color="red">▌</Text>
           </Box>
         ) : text ? (
           <Box>
