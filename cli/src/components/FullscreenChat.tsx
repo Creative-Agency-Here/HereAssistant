@@ -149,6 +149,10 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
             addMessage({ id: makeId(), role: 'system', text: '✗ нет ответа для копирования', toolCalls: [], timestamp: Date.now(), streaming: false });
           }
         },
+        insertAtCursor: (t) => {
+          // Через глобальный ref — ChatInput читает и вставляет
+          (globalThis as Record<string, unknown>).__ha_insert = t;
+        },
         print: (t) => addMessage({ id: makeId(), role: 'system', text: t, toolCalls: [], timestamp: Date.now(), streaming: false }),
         exit: doExit,
         attachImage: (p) => setAttachments((prev) => [...prev, p]),

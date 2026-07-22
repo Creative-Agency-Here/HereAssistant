@@ -8,12 +8,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { MouseEvent } from '../hooks/useMouse.js';
 
+// DEBUG: логируем все клавиши в /tmp/ha-keys.log
+const DEBUG_LOG = '/tmp/ha-keys.log';
+function dbg(msg: string) {
+  try { fs.appendFileSync(DEBUG_LOG, `${new Date().toISOString()} ${msg}\n`); } catch {}
+}
+
 const REC_FRAMES = ['●', '◉', '◎', '◉'];
 const WAVE_FRAMES = ['▁▃▅▇', '▃▅▇▅', '▅▇▅▃', '▇▅▃▁', '▅▃▁▃', '▃▁▃▅'];
 
 const SLASH_COMMANDS = [
   '/help', '/model', '/account', '/status', '/resume', '/rename', '/fork', '/search', '/bg',
-  '/theme', '/archive', '/delete', '/mcp', '/copy', '/image', '/diff', '/new', '/compact', '/exit',
+  '/theme', '/archive', '/delete', '/mcp', '/copy', '/img', '/image', '/diff', '/new', '/compact', '/exit',
 ];
 
 interface Props {
@@ -43,6 +49,26 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
   const voiceRef = useRef<{ kill: () => void } | null>(null);
   const holdRef = useRef({ count: 0, lastTime: 0, recLastSpace: 0 });
   const recordingRef = useRef(false);
+
+  // Глобальный insert (от /img команды)
+  useEffect(() => {
+    const check = setInterval(() => {
+      const pending = (globalThis as Record<string, unknown>).__ha_insert as string | undefined;
+      if (pending) {
+        (globalThis as Record<string, unknown>).__ha_insert = undefined;
+        setLines((prev) => {
+          const newLines = [...prev];
+          const line = newLines[cursorLine] ?? '';
+          const col = Math.min(cursorCol, line.length);
+          const sep = col > 0 && line[col - 1] !== ' ' ? ' ' : '';
+          newLines[cursorLine] = line.slice(0, col) + sep + pending + ' ' + line.slice(col);
+          setCursorCol(col + sep.length + pending.length + 1);
+          return newLines;
+        });
+      }
+    }, 100);
+    return () => clearInterval(check);
+  }, [cursorLine, cursorCol]);
 
   // Анимация записи + sync ref
   useEffect(() => {
@@ -158,92 +184,37 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
   useInput((input, key) => {
     if (disabled) return;
 
-    // Пробел = печатает пробел + hold detection через refs (без stale closure)
-    if (input === ' ' && !key.ctrl && !key.meta && !key.shift) {
-      const h = holdRef.current;
-      const now = Date.now();
+    // DEBUG: логируем каждую клавишу
+    dbg(`input=${JSON.stringify(input)} charCode=${input?.charCodeAt(0)} ctrl=${key.ctrl} meta=${key.meta} shift=${key.shift} return=${key.return} recording=${recordingRef.current}`);
 
-      if (recordingRef.current) {
-        // Во время записи: repeat игнорим, стоп по одиночному нажатию
-        if (now - h.recLastSpace > 300) {
-          // Одиночное = стоп
-          voiceRef.current?.kill();
-          voiceRef.current = null;
-          setRecording(false);
-          h.recLastSpace = 0;
-          // Дописываем voiceText в позицию курсора
-          setVoiceText((vt) => {
-            if (vt.trim()) {
-              setLines((prev) => {
-                const newLines = [...prev];
-                const line = newLines[cursorLine] ?? '';
-                const col = Math.min(cursorCol, line.length);
-                const insert = (col > 0 && line[col - 1] !== ' ' ? ' ' : '') + vt.trim();
-                newLines[cursorLine] = line.slice(0, col) + insert + line.slice(col);
-                setCursorCol(col + insert.length);
-                return newLines;
-              });
-            }
-            return '';
-          });
-        } else {
-          h.recLastSpace = now; // repeat — игнорим
-        }
-        return;
-      }
+    // Пробел = всегда пробел (голос через Ctrl+M)
+    // Hold-space detection убрана — ненадёжна без интерактивного теста
 
-      // Печатаем пробел через functional update (видит актуальный state)
-      setLines((prev) => {
-        const newLines = [...prev];
-        const line = newLines[cursorLine] ?? '';
-        const col = Math.min(cursorCol, line.length);
-        newLines[cursorLine] = line.slice(0, col) + ' ' + line.slice(col);
-        setCursorCol(col + 1);
-
-        // Hold detection
-        if (now - h.lastTime < 150) {
-          h.count++;
-        } else {
-          h.count = 1;
-        }
-        h.lastTime = now;
-
-        if (h.count >= 4 && canRealtimeVoice()) {
-          // Зажал → убираем пробелы hold из ТЕКУЩЕЙ newLines
-          const removeEnd = col + 1;
-          const removeStart = Math.max(0, removeEnd - h.count);
-          newLines[cursorLine] = newLines[cursorLine].slice(0, removeStart) + newLines[cursorLine].slice(removeEnd);
-          setCursorCol(removeStart);
-          h.count = 0;
-          h.recLastSpace = 0;
-          setRecording(true);
-          setVoiceText('');
-          voiceRef.current = voiceRealtime(120, (p) => setVoiceText(p), (f) => setVoiceText(f));
-        }
-        return newLines;
-      });
-      // Сброс счётчика
-      setTimeout(() => { h.count = 0; }, 300);
-      return;
-    }
-
-    // Ctrl+M = toggle голос (альтернатива)
+    // Ctrl+M = toggle голос (простой надёжный toggle)
     if (key.ctrl && input === 'm') {
+      dbg(`Ctrl+M pressed, recording=${recordingRef.current}`);
       if (recordingRef.current) {
         voiceRef.current?.kill();
         voiceRef.current = null;
         setRecording(false);
-        if (voiceText.trim()) {
-          const col = Math.min(cursorCol, currentLine.length);
-          const newLines = [...lines];
-          const insert = (col > 0 && currentLine[col - 1] !== ' ' ? ' ' : '') + voiceText.trim();
-          newLines[cursorLine] = currentLine.slice(0, col) + insert + currentLine.slice(col);
-          setLines(newLines);
-          setCursorCol(col + insert.length);
-          setVoiceText('');
-        }
+        recordingRef.current = false;
+        setVoiceText((vt) => {
+          if (vt.trim()) {
+            setLines((prev) => {
+              const newLines = [...prev];
+              const line = newLines[cursorLine] ?? '';
+              const col = Math.min(cursorCol, line.length);
+              const insert = (col > 0 && line[col - 1] !== ' ' ? ' ' : '') + vt.trim();
+              newLines[cursorLine] = line.slice(0, col) + insert + line.slice(col);
+              setCursorCol(col + insert.length);
+              return newLines;
+            });
+          }
+          return '';
+        });
       } else if (canRealtimeVoice()) {
         setRecording(true);
+        recordingRef.current = true;
         setVoiceText('');
         voiceRef.current = voiceRealtime(120, (p) => setVoiceText(p), (f) => setVoiceText(f));
       }
@@ -532,7 +503,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
         ) : (
           <Box>
             <Text color="magenta" bold>› </Text>
-            <Text dimColor>{placeholder ?? 'сообщение… (зажми пробел — голос, Ctrl+I — фото, ! shell)'}</Text>
+            <Text dimColor>{placeholder ?? 'сообщение… (Ctrl+M — голос, /img — фото, ! shell)'}</Text>
           </Box>
         )}
       </Box>

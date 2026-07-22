@@ -26,6 +26,7 @@ export interface CommandContext {
   voiceInput: (text: string) => void;
   togglePlain: () => void;
   copyLast: () => void;
+  insertAtCursor: (text: string) => void;
   print: (text: string) => void;
   exit: () => void;
   attachImage: (path: string) => void;
@@ -46,7 +47,7 @@ const HELP = `Команды:
   /delete [id]       удалить сессию
   /mcp [list|add|rm] управление MCP-серверами
   /copy              скопировать последний ответ в clipboard
-  /image             вставить фото из clipboard (Ctrl+V)
+  /img               вставить фото из clipboard в текст
   /diff              показать git diff
   /new               новая сессия (очистить контекст)
   /compact           сжать контекст (заглушка)
@@ -283,6 +284,17 @@ export function handleCommand(line: string, ctx: CommandContext): boolean {
     case '/copy':
       ctx.copyLast();
       return true;
+
+    case '/img': {
+      const imgPath = pasteImageFromClipboard();
+      if (imgPath) {
+        ctx.attachImage(imgPath);
+        ctx.insertAtCursor(`[Image]`);
+      } else {
+        ctx.print('✗ в clipboard нет изображения');
+      }
+      return true;
+    }
 
     case '/image': {
       const imgPath = pasteImageFromClipboard();
