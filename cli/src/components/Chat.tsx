@@ -92,6 +92,10 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
           child.unref();
           addMessage({ id: makeId(), role: 'system', text: `🔄 фоновый агент запущен (PID ${child.pid})`, toolCalls: [], timestamp: Date.now(), streaming: false });
         },
+        voiceInput: (text) => {
+          // Голосовой текст вставляется как пользовательское сообщение и отправляется
+          handleSubmit(text);
+        },
         print: (t) => addMessage({ id: makeId(), role: 'system', text: t, toolCalls: [], timestamp: Date.now(), streaming: false }),
         exit: doExit,
         attachImage: (p) => setAttachments((prev) => [...prev, p]),
