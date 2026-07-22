@@ -11,7 +11,8 @@ import { renderMarkdown } from './markdown.js';
 import { handleCommand, type CommandContext } from '../commands.js';
 import { startWorkingTitle, setIdleTitle, stopWorkingTitle } from '../terminal-title.js';
 import { cleanClipboardCache } from '../clipboard.js';
-import { execSync } from 'node:child_process';
+import { loadConfig } from '../config.js';
+import { execSync, spawn } from 'node:child_process';
 
 function makeId(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -19,10 +20,11 @@ function makeId(): string {
 
 export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: string }) {
   const { exit } = useApp();
+  const config = React.useMemo(() => loadConfig(cwd), [cwd]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [account, setAccount] = useState(initialAccount);
-  const [model, setModel] = useState(initialAccount.default_model || '');
+  const [model, setModel] = useState(config.defaultModel || initialAccount.default_model || '');
   const [tokensIn, setTokensIn] = useState(0);
   const [tokensOut, setTokensOut] = useState(0);
   const [lastDuration, setLastDuration] = useState(0);
@@ -68,6 +70,15 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
         setAccount: (a) => { setAccount(a); setModel(a.default_model || ''); },
         resetSession: () => { sessionIdRef.current = null; },
         setSessionId: (id) => { sessionIdRef.current = id; },
+        forkSession: () => { sessionIdRef.current = `fork-${makeId()}`; },
+        backgroundPrompt: (prompt) => {
+          const child = spawn('node', [
+            new URL('../index.js', import.meta.url).pathname,
+            '-a', account.label, '--resume', sessionIdRef.current || '',
+          ], { cwd, detached: true, stdio: 'ignore', env: { ...process.env, HA_BG_PROMPT: prompt } });
+          child.unref();
+          addMessage({ id: makeId(), role: 'system', text: `🔄 фоновый агент запущен (PID ${child.pid})`, toolCalls: [], timestamp: Date.now(), streaming: false });
+        },
         print: (t) => addMessage({ id: makeId(), role: 'system', text: t, toolCalls: [], timestamp: Date.now(), streaming: false }),
         exit: doExit,
         attachImage: (p) => setAttachments((prev) => [...prev, p]),

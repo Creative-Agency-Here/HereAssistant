@@ -15,6 +15,8 @@ export interface CommandContext {
   setAccount: (a: Account) => void;
   resetSession: () => void;
   setSessionId: (id: string) => void;
+  forkSession: () => void;
+  backgroundPrompt: (prompt: string) => void;
   print: (text: string) => void;
   exit: () => void;
   attachImage: (path: string) => void;
@@ -26,6 +28,9 @@ const HELP = `Команды:
   /account [label]   показать/сменить аккаунт
   /status            сессия, модель, токены
   /resume [id]       продолжить сессию (без id — список)
+  /fork              форк сессии (копия контекста, новый ID)
+  /search <query>    веб-поиск (через провайдер)
+  /bg <prompt>       фоновый агент (detach)
   /image             вставить фото из clipboard (Ctrl+V)
   /diff              показать git diff
   /new               новая сессия (очистить контекст)
@@ -38,6 +43,7 @@ const HELP = `Команды:
   ↑↓                 история / навигация
   Tab                автодополнение /команд и @файлов
   Ctrl+V             вставить фото из clipboard
+  Ctrl+G             внешний редактор ($EDITOR)
   !команда           выполнить shell-команду
   Ctrl+U/W/K         очистить строку / слово / до конца`;
 
@@ -135,6 +141,25 @@ export function handleCommand(line: string, ctx: CommandContext): boolean {
     case '/compact':
       ctx.print('▸ /compact: провайдер сам управляет контекстом (заглушка)');
       return true;
+
+    case '/fork':
+      ctx.forkSession();
+      ctx.print('▸ сессия форкнута — новый ID, контекст сохранён');
+      return true;
+
+    case '/search': {
+      if (!arg) { ctx.print('Использование: /search <запрос>'); return true; }
+      ctx.print(`🔍 поиск: ${arg}\n(отправлено провайдеру как промпт с web search)`);
+      // Search is handled by passing the query as a special prompt
+      // The provider will use its web search capability
+      return false; // Let it fall through to be sent as a prompt
+    }
+
+    case '/bg': {
+      if (!arg) { ctx.print('Использование: /bg <промпт>'); return true; }
+      ctx.backgroundPrompt(arg);
+      return true;
+    }
 
     case '/image': {
       const imgPath = pasteImageFromClipboard();

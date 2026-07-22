@@ -1,11 +1,13 @@
 import React, { useState, useRef } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { pasteImageFromClipboard } from '../clipboard.js';
+import { openInEditor } from '../editor.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
 const SLASH_COMMANDS = [
-  '/help', '/model', '/account', '/status', '/resume', '/image', '/diff', '/new', '/compact', '/exit',
+  '/help', '/model', '/account', '/status', '/resume', '/fork', '/search', '/bg',
+  '/image', '/diff', '/new', '/compact', '/exit',
 ];
 
 interface Props {
@@ -194,6 +196,13 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, disabled = f
       return;
     }
 
+    // Ctrl+G — внешний редактор
+    if (key.ctrl && input === 'g') {
+      const edited = openInEditor(text);
+      if (edited !== null) setText(edited);
+      return;
+    }
+
     // Ctrl+V — вставка изображения из clipboard (как в Claude Code)
     if (key.ctrl && input === 'v') {
       if (onImagePaste) {
@@ -269,7 +278,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, disabled = f
             ))}
           </Box>
         ) : (
-          <Text dimColor>{placeholder ?? 'сообщение… (Alt+Enter — строка, Ctrl+V — фото)'}</Text>
+          <Text dimColor>{placeholder ?? 'сообщение… (Ctrl+G редактор, Ctrl+V фото, ! shell)'}</Text>
         )}
       </Box>
     </Box>
