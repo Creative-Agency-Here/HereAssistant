@@ -41,7 +41,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
   const [recSeconds, setRecSeconds] = useState(0);
   const draftRef = useRef<string | null>(null);
   const voiceRef = useRef<{ kill: () => void } | null>(null);
-  const spaceHoldRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdRef = useRef({ count: 0, lastTime: 0, recLastSpace: 0 });
 
   // Анимация записи
   useEffect(() => {
@@ -156,65 +156,72 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
   useInput((input, key) => {
     if (disabled) return;
 
-    // Пробел = печатает пробел ИЛИ включает голос при зажатии (как Claude Code)
+    // Пробел = печатает пробел + hold detection через refs (без stale closure)
     if (input === ' ' && !key.ctrl && !key.meta && !key.shift) {
+      const h = holdRef.current;
+      const now = Date.now();
+
       if (recording) {
-        // Во время записи: игнорируем key repeat, стоп только по одиночному нажатию
-        const now = Date.now();
-        const lastRecSpace = (spaceHoldRef.current as unknown as number) || 0;
-        if (now - lastRecSpace > 300) {
-          // Одиночное нажатие (не repeat) = стоп
+        // Во время записи: repeat игнорим, стоп по одиночному нажатию
+        if (now - h.recLastSpace > 300) {
+          // Одиночное = стоп
           voiceRef.current?.kill();
           voiceRef.current = null;
           setRecording(false);
-          spaceHoldRef.current = null;
-          if (voiceText.trim()) {
-            const col = Math.min(cursorCol, currentLine.length);
-            const newLines = [...lines];
-            const insert = (currentLine.length > 0 && col > 0 && currentLine[col - 1] !== ' ' ? ' ' : '') + voiceText.trim();
-            newLines[cursorLine] = currentLine.slice(0, col) + insert + currentLine.slice(col);
-            setLines(newLines);
-            setCursorCol(col + insert.length);
-            setVoiceText('');
-          }
+          h.recLastSpace = 0;
+          // Дописываем voiceText в позицию курсора
+          setVoiceText((vt) => {
+            if (vt.trim()) {
+              setLines((prev) => {
+                const newLines = [...prev];
+                const line = newLines[cursorLine] ?? '';
+                const col = Math.min(cursorCol, line.length);
+                const insert = (col > 0 && line[col - 1] !== ' ' ? ' ' : '') + vt.trim();
+                newLines[cursorLine] = line.slice(0, col) + insert + line.slice(col);
+                setCursorCol(col + insert.length);
+                return newLines;
+              });
+            }
+            return '';
+          });
+        } else {
+          h.recLastSpace = now; // repeat — игнорим
         }
-        (spaceHoldRef.current as unknown as number) = now;
         return;
       }
 
-      // Печатаем пробел СРАЗУ
-      const col = Math.min(cursorCol, currentLine.length);
-      const newLines = [...lines];
-      newLines[cursorLine] = currentLine.slice(0, col) + ' ' + currentLine.slice(col);
-      setLines(newLines);
-      setCursorCol(col + 1);
+      // Печатаем пробел через functional update (видит актуальный state)
+      setLines((prev) => {
+        const newLines = [...prev];
+        const line = newLines[cursorLine] ?? '';
+        const col = Math.min(cursorCol, line.length);
+        newLines[cursorLine] = line.slice(0, col) + ' ' + line.slice(col);
+        setCursorCol(col + 1);
 
-      // Hold detection: трекаем повторы
-      const now = Date.now();
-      const lastSpace = (spaceHoldRef.current as unknown as number) || 0;
-      const cnt = ((spaceHoldRef as unknown as Record<string, number>)._count || 0) + 1;
-      (spaceHoldRef as unknown as Record<string, number>)._count = cnt;
-      (spaceHoldRef.current as unknown as number) = now;
+        // Hold detection
+        if (now - h.lastTime < 150) {
+          h.count++;
+        } else {
+          h.count = 1;
+        }
+        h.lastTime = now;
 
-      if (cnt >= 3 && canRealtimeVoice()) {
-        // Зажал → стираем пробелы из hold и включаем голос
-        const removeCount = cnt;
-        const line = newLines[cursorLine];
-        const removeStart = Math.max(0, col + 1 - removeCount);
-        newLines[cursorLine] = line.slice(0, removeStart) + line.slice(col + 1);
-        setLines(newLines);
-        setCursorCol(removeStart);
-        setRecording(true);
-        setVoiceText('');
-        (spaceHoldRef as unknown as Record<string, number>)._count = 0;
-        (spaceHoldRef.current as unknown as number) = 0;
-        voiceRef.current = voiceRealtime(120, (partial) => {
-          setVoiceText(partial);
-        }, (final) => {
-          setVoiceText(final);
-        });
-      }
-      setTimeout(() => { (spaceHoldRef as unknown as Record<string, number>)._count = 0; }, 300);
+        if (h.count >= 4 && canRealtimeVoice()) {
+          // Зажал → убираем пробелы hold из ТЕКУЩЕЙ newLines
+          const removeEnd = col + 1;
+          const removeStart = Math.max(0, removeEnd - h.count);
+          newLines[cursorLine] = newLines[cursorLine].slice(0, removeStart) + newLines[cursorLine].slice(removeEnd);
+          setCursorCol(removeStart);
+          h.count = 0;
+          h.recLastSpace = 0;
+          setRecording(true);
+          setVoiceText('');
+          voiceRef.current = voiceRealtime(120, (p) => setVoiceText(p), (f) => setVoiceText(f));
+        }
+        return newLines;
+      });
+      // Сброс счётчика
+      setTimeout(() => { h.count = 0; }, 300);
       return;
     }
 
@@ -326,10 +333,23 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       }
       const col = Math.min(cursorCol, currentLine.length);
       if (col > 0) {
+        // Проверяем: курсор после [Image #N] — удаляем тег целиком
+        const before = currentLine.slice(0, col);
+        const tagMatch = before.match(/\[Image #\d+\]\s?$/);
         const newLines = [...lines];
-        newLines[cursorLine] = currentLine.slice(0, col - 1) + currentLine.slice(col);
+        if (tagMatch) {
+          const removeLen = tagMatch[0].length;
+          newLines[cursorLine] = currentLine.slice(0, col - removeLen) + currentLine.slice(col);
+          setCursorCol(col - removeLen);
+          // Удаляем соответствующий аттачмент
+          if (onRemoveAttachment && attachments.length > 0) {
+            onRemoveAttachment(attachments.length - 1);
+          }
+        } else {
+          newLines[cursorLine] = currentLine.slice(0, col - 1) + currentLine.slice(col);
+          setCursorCol(col - 1);
+        }
         setLines(newLines);
-        setCursorCol(col - 1);
       } else if (cursorLine > 0) {
         const newLines = [...lines];
         const prevLen = newLines[cursorLine - 1].length;
@@ -461,20 +481,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
           ))}
         </Box>
       )}
-      {/* Attachment chips */}
-      {attachments.length > 0 && (
-        <Box paddingX={1} flexWrap="wrap">
-          {attachments.map((p, i) => (
-            <Box key={i} marginRight={1}>
-              <Text color="cyan">[Image #{i + 1}</Text>
-              <Text dimColor> {p.split('/').pop()}</Text>
-              <Text color="red"> ✕</Text>
-              <Text color="cyan">]</Text>
-            </Box>
-          ))}
-          <Text dimColor> Backspace — удалить</Text>
-        </Box>
-      )}
+      {/* Attachment chips убраны — теги inline в тексте */}
       <Box paddingX={1} flexDirection="column">
         {recording && (
           <Box>
@@ -498,11 +505,20 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
             <Box flexDirection="column">
               {lines.map((line, i) => {
                 const col = i === cursorLine ? Math.min(cursorCol, line.length) : line.length;
+                const before = line.slice(0, col);
+                const after = line.slice(col);
+                // Подсветка [Image #N] синим
+                const renderWithTags = (s: string) => {
+                  const parts = s.split(/(\[Image #\d+\])/g);
+                  return parts.map((p, j) =>
+                    p.startsWith('[Image') ? <Text key={j} color="cyan" bold>{p}</Text> : <Text key={j}>{p}</Text>
+                  );
+                };
                 return (
                   <Text key={i}>
-                    {line.slice(0, col)}
+                    {renderWithTags(before)}
                     {i === cursorLine && <Text color="magenta">▌</Text>}
-                    {line.slice(col)}
+                    {renderWithTags(after)}
                   </Text>
                 );
               })}
