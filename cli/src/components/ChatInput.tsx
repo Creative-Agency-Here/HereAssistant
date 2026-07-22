@@ -13,7 +13,7 @@ const WAVE_FRAMES = ['▁▃▅▇', '▃▅▇▅', '▅▇▅▃', '▇▅▃�
 
 const SLASH_COMMANDS = [
   '/help', '/model', '/account', '/status', '/resume', '/rename', '/fork', '/search', '/bg',
-  '/theme', '/archive', '/delete', '/mcp', '/plain', '/image', '/diff', '/new', '/compact', '/exit',
+  '/theme', '/archive', '/delete', '/mcp', '/copy', '/image', '/diff', '/new', '/compact', '/exit',
 ];
 
 interface Props {
@@ -348,8 +348,32 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       const newLines = [...lines];
       newLines[cursorLine] = currentLine.replace(/\S+\s*$/, '');
       setLines(newLines);
+      setCursorCol(newLines[cursorLine].length);
       return;
     }
+
+    // Left/Right arrows — перемещение курсора
+    if (key.leftArrow) {
+      if (cursorCol > 0) {
+        setCursorCol(cursorCol - 1);
+      } else if (cursorLine > 0) {
+        setCursorLine(cursorLine - 1);
+        setCursorCol((lines[cursorLine - 1] ?? '').length);
+      }
+      return;
+    }
+    if (key.rightArrow) {
+      if (cursorCol < currentLine.length) {
+        setCursorCol(cursorCol + 1);
+      } else if (cursorLine < lines.length - 1) {
+        setCursorLine(cursorLine + 1);
+        setCursorCol(0);
+      }
+      return;
+    }
+    // Home/End — начало/конец строки
+    if (key.ctrl && input === 'a') { setCursorCol(0); return; }
+    if (key.ctrl && input === 'e') { setCursorCol(currentLine.length); return; }
 
     // Regular character input — вставка в cursorCol
     if (input && !key.ctrl && !key.meta && input !== '\r' && input !== '\n') {

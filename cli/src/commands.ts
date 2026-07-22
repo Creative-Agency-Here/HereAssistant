@@ -25,6 +25,7 @@ export interface CommandContext {
   backgroundPrompt: (prompt: string) => void;
   voiceInput: (text: string) => void;
   togglePlain: () => void;
+  copyLast: () => void;
   print: (text: string) => void;
   exit: () => void;
   attachImage: (path: string) => void;
@@ -44,7 +45,7 @@ const HELP = `Команды:
   /archive [id]      архивировать сессию
   /delete [id]       удалить сессию
   /mcp [list|add|rm] управление MCP-серверами
-  /plain             режим без ANSI (для копирования)
+  /copy              скопировать последний ответ в clipboard
   /image             вставить фото из clipboard (Ctrl+V)
   /diff              показать git diff
   /new               новая сессия (очистить контекст)
@@ -277,6 +278,10 @@ export function handleCommand(line: string, ctx: CommandContext): boolean {
 
     case '/plain':
       ctx.togglePlain();
+      return true;
+
+    case '/copy':
+      ctx.copyLast();
       return true;
 
     case '/image': {

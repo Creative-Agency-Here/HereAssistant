@@ -103,6 +103,15 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
             return next;
           });
         },
+        copyLast: () => {
+          const last = [...messages].reverse().find((m) => m.role === 'assistant' && m.text);
+          if (last?.text) {
+            try {
+              execSync(`printf '%s' ${JSON.stringify(last.text)} | pbcopy`, { timeout: 3000 });
+              addMessage({ id: makeId(), role: 'system', text: '📋 скопировано в clipboard', toolCalls: [], timestamp: Date.now(), streaming: false });
+            } catch { /* ignore */ }
+          }
+        },
         print: (t) => addMessage({ id: makeId(), role: 'system', text: t, toolCalls: [], timestamp: Date.now(), streaming: false }),
         exit: doExit,
         attachImage: (p) => setAttachments((prev) => [...prev, p]),

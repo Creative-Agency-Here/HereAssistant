@@ -136,6 +136,19 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
         },
         voiceInput: (t) => { handleSubmit(t); },
         togglePlain: () => { setPlainMode((p) => !p); },
+        copyLast: () => {
+          const last = [...messages].reverse().find((m) => m.role === 'assistant' && m.text);
+          if (last?.text) {
+            try {
+              execSync(`printf '%s' ${JSON.stringify(last.text)} | pbcopy`, { timeout: 3000 });
+              addMessage({ id: makeId(), role: 'system', text: '📋 скопировано в clipboard', toolCalls: [], timestamp: Date.now(), streaming: false });
+            } catch {
+              addMessage({ id: makeId(), role: 'system', text: '✗ не удалось скопировать', toolCalls: [], timestamp: Date.now(), streaming: false });
+            }
+          } else {
+            addMessage({ id: makeId(), role: 'system', text: '✗ нет ответа для копирования', toolCalls: [], timestamp: Date.now(), streaming: false });
+          }
+        },
         print: (t) => addMessage({ id: makeId(), role: 'system', text: t, toolCalls: [], timestamp: Date.now(), streaming: false }),
         exit: doExit,
         attachImage: (p) => setAttachments((prev) => [...prev, p]),
