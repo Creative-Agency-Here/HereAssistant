@@ -32,7 +32,7 @@ module.exports = {
       restart_delay: 2000,
       kill_timeout: 10000,
       stop_exit_codes: [0],
-      max_memory_restart: '1G',
+      max_memory_restart: '4G',
       env: {
         PYTHONUNBUFFERED: '1',
         PYTHONIOENCODING: 'utf-8',
