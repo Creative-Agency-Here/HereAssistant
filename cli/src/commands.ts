@@ -3,7 +3,6 @@ import { getAccounts } from './db.js';
 import { pasteImageFromClipboard } from './clipboard.js';
 import { listSessions, formatSessionAge } from './sessions.js';
 import { THEME_NAMES } from './themes.js';
-import { voiceToText, canRecord } from './voice.js';
 import { loadMcpConfig, addMcpServer, removeMcpServer, formatMcpServers, type McpServer } from './mcp.js';
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -44,7 +43,6 @@ const HELP = `Команды:
   /theme [имя]       тема (dark/light/mono/neon)
   /archive [id]      архивировать сессию
   /delete [id]       удалить сессию
-  /voice [сек]       голосовой ввод (mlx-whisper, M2 GPU)
   /mcp [list|add|rm] управление MCP-серверами
   /plain             режим без ANSI (для копирования)
   /image             вставить фото из clipboard (Ctrl+V)
@@ -247,23 +245,6 @@ export function handleCommand(line: string, ctx: CommandContext): boolean {
         ctx.print(`▸ сессия ${sid.slice(0, 12)} удалена`);
       } else {
         ctx.print(`✗ файл сессии не найден`);
-      }
-      return true;
-    }
-
-    case '/voice': {
-      if (!canRecord()) {
-        ctx.print('✗ ffmpeg не найден (brew install ffmpeg)');
-        return true;
-      }
-      const secs = arg ? parseInt(arg) : 15;
-      ctx.print(`🎙 запись ${secs}с…`);
-      const text = voiceToText(secs);
-      if (text) {
-        ctx.voiceInput(text);
-        ctx.print(`🎙 → ${text}`);
-      } else {
-        ctx.print('✗ не распознано');
       }
       return true;
     }

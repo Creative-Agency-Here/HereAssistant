@@ -11,7 +11,7 @@ const WAVE_FRAMES = ['▁▃▅▇', '▃▅▇▅', '▅▇▅▃', '▇▅▃�
 
 const SLASH_COMMANDS = [
   '/help', '/model', '/account', '/status', '/resume', '/rename', '/fork', '/search', '/bg',
-  '/theme', '/archive', '/delete', '/voice', '/mcp', '/plain', '/image', '/diff', '/new', '/compact', '/exit',
+  '/theme', '/archive', '/delete', '/mcp', '/plain', '/image', '/diff', '/new', '/compact', '/exit',
 ];
 
 interface Props {
