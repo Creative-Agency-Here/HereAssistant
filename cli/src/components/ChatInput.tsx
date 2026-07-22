@@ -156,55 +156,57 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
   useInput((input, key) => {
     if (disabled) return;
 
-    // Пробел = hold-to-record (как в Claude Code)
-    // Зажал пробел → через 400ms повторов старт записи
-    // Отпустил (нет повторов 300ms) → стоп записи
-    // Работает с любым текстом (не только пустым)
+    // Пробел = голос (hold 1с → вкл, короткое нажатие → выкл)
     if (input === ' ' && !key.ctrl && !key.meta && !key.shift) {
       if (recording) {
-        // Ещё один пробел при записи = держит живым (key repeat)
+        // В режиме записи: короткий пробел = стоп (не repeat)
         if (spaceHoldRef.current) clearTimeout(spaceHoldRef.current);
         spaceHoldRef.current = setTimeout(() => {
-          // 300ms без повторов = отпустил пробел → стоп
+          // Если за 250ms не пришёл ещё пробел — это короткое нажатие = стоп
           voiceRef.current?.kill();
           voiceRef.current = null;
           setRecording(false);
-          // Дописываем распознанное к существующему тексту
+          spaceHoldRef.current = null;
           if (voiceText.trim()) {
             const current = text;
             const sep = current && !current.endsWith(' ') ? ' ' : '';
             setText(current + sep + voiceText.trim());
             setVoiceText('');
           }
-        }, 300);
+        }, 250);
         return;
       }
-      // Первый пробел — ждём повторы (hold detection)
-      if (!spaceHoldRef.current && canRealtimeVoice()) {
+      // Не в режиме записи: ждём hold (повторы пробела = зажатие)
+      if (!spaceHoldRef.current) {
+        let holdCount = 0;
         spaceHoldRef.current = setTimeout(() => {
-          // 400ms повторов = зажал → старт записи
-          setRecording(true);
-          setVoiceText('');
-          voiceRef.current = voiceRealtime(120, (partial) => {
-            setVoiceText(partial);
-          }, (final) => {
-            setVoiceText(final);
-          });
-          // Таймер для детекта отпускания
-          spaceHoldRef.current = setTimeout(() => {
-            voiceRef.current?.kill();
-            voiceRef.current = null;
-            setRecording(false);
-            if (voiceText.trim()) {
-              const current = text;
-              const sep = current && !current.endsWith(' ') ? ' ' : '';
-              setText(current + sep + voiceText.trim());
-              setVoiceText('');
-            }
-          }, 300);
-        }, 400);
+          spaceHoldRef.current = null;
+        }, 1200); // окно для hold
+        // Считаем повторы через замыкание
+        const checkHold = () => {
+          holdCount++;
+          if (holdCount >= 3 && canRealtimeVoice()) {
+            // 3+ повтора за 1.2с = зажал → старт
+            if (spaceHoldRef.current) clearTimeout(spaceHoldRef.current);
+            spaceHoldRef.current = null;
+            setRecording(true);
+            setVoiceText('');
+            voiceRef.current = voiceRealtime(120, (partial) => {
+              setVoiceText(partial);
+            }, (final) => {
+              setVoiceText(final);
+            });
+          }
+        };
+        checkHold();
+        // Сохраняем checkHold для вызова при следующем пробеле
+        (spaceHoldRef as unknown as Record<string, unknown>)._checkHold = checkHold;
         return;
       }
+      // Повторный пробел в окне hold
+      const fn = (spaceHoldRef as unknown as Record<string, unknown>)._checkHold as (() => void) | undefined;
+      if (fn) fn();
+      return;
     }
 
     // Enter — submit (single line) or newline (multiline with Alt)
@@ -316,14 +318,26 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       return;
     }
 
-    // Ctrl+V — вставка изображения из clipboard (как в Claude Code)
-    if (key.ctrl && input === 'v') {
+    // Ctrl+V — вставка изображения или текста из clipboard
+    if ((key.ctrl && (input === 'v' || input === '\x16')) || (key.meta && input === 'v')) {
       if (onImagePaste) {
         const imgPath = pasteImageFromClipboard();
         if (imgPath) {
           onImagePaste(imgPath);
+          return;
         }
       }
+      // Fallback: вставить текст из clipboard
+      try {
+        const clipText = execSync('pbpaste 2>/dev/null', { encoding: 'utf-8', timeout: 2000 }).trim();
+        if (clipText) {
+          const col = Math.min(cursorCol, currentLine.length);
+          const newLines = [...lines];
+          newLines[cursorLine] = currentLine.slice(0, col) + clipText + currentLine.slice(col);
+          setLines(newLines);
+          setCursorCol(col + clipText.length);
+        }
+      } catch { /* clipboard empty or inaccessible */ }
       return;
     }
 

@@ -174,26 +174,34 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
       const currentAttachments = [...attachments];
       setAttachments([]);
       const fullPrompt = memory ? `${text}${memory}` : text;
-      const result = await provider.run(fullPrompt, cwd, sessionIdRef.current, model || null, (event: StreamEvent) => {
-        if (event.type === 'text' && typeof event.text === 'string') {
-          updateLastAssistant((m) => ({ ...m, text: m.text + (event.text as string) }));
-        } else if (event.type === 'thinking' && typeof event.text === 'string') {
-          setThinking((prev) => prev + (event.text as string));
-        } else if (event.type === 'tool_start' && event.tool) {
-          const tool = event.tool as ToolCall;
-          updateLastAssistant((m) => ({ ...m, toolCalls: [...m.toolCalls, { ...tool }] }));
-        } else if (event.type === 'tool_end') {
-          const toolId = String(event.toolId ?? '');
-          const output = event.output != null ? String(event.output) : '';
-          const isError = Boolean(event.isError);
-          updateLastAssistant((m) => ({
-            ...m,
-            toolCalls: m.toolCalls.map((t) =>
-              t.id === toolId ? { ...t, status: isError ? 'error' as const : 'done' as const, output } : t,
-            ),
-          }));
-        }
-      }, currentAttachments);
+
+      // Таймаут 5 минут чтобы не зависать при ошибке провайдера
+      const TIMEOUT_MS = 5 * 60 * 1000;
+      const result = await Promise.race([
+        provider.run(fullPrompt, cwd, sessionIdRef.current, model || null, (event: StreamEvent) => {
+          if (event.type === 'text' && typeof event.text === 'string') {
+            updateLastAssistant((m) => ({ ...m, text: m.text + (event.text as string) }));
+          } else if (event.type === 'thinking' && typeof event.text === 'string') {
+            setThinking((prev) => prev + (event.text as string));
+          } else if (event.type === 'tool_start' && event.tool) {
+            const tool = event.tool as ToolCall;
+            updateLastAssistant((m) => ({ ...m, toolCalls: [...m.toolCalls, { ...tool }] }));
+          } else if (event.type === 'tool_end') {
+            const toolId = String(event.toolId ?? '');
+            const output = event.output != null ? String(event.output) : '';
+            const isError = Boolean(event.isError);
+            updateLastAssistant((m) => ({
+              ...m,
+              toolCalls: m.toolCalls.map((t) =>
+                t.id === toolId ? { ...t, status: isError ? 'error' as const : 'done' as const, output } : t,
+              ),
+            }));
+          }
+        }, currentAttachments),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Таймаут: провайдер не ответил за 5 минут')), TIMEOUT_MS),
+        ),
+      ]);
 
       const duration = Date.now() - t0;
       if (result.sessionId) sessionIdRef.current = result.sessionId;

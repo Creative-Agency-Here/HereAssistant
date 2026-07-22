@@ -18,30 +18,11 @@ const integrationId = argAfter('--integration-id');
 
 if (profile) process.env.HA_PROFILE = profile;
 
-// Фильтрованный stdin: mouse-события перехватываются ДО Ink
-const mouseFilter = new MouseFilterStream();
-process.stdin.pipe(mouseFilter);
-
-// Экспортируем mouse emitter для useMouse hook
-(globalThis as Record<string, unknown>).__ha_mouse = mouseFilter.mouse;
-
-// Включаем mouse reporting
-if (process.stdout.isTTY) {
-  process.stdout.write('\x1b[?1000h\x1b[?1006h');
-  const cleanup = () => { process.stdout.write('\x1b[?1000l\x1b[?1006l'); };
-  process.on('exit', cleanup);
-  process.on('SIGINT', () => { cleanup(); process.exit(0); });
-  process.on('SIGTERM', () => { cleanup(); process.exit(0); });
-}
-
-// Ink получает только клавиши (mouse отфильтрованы)
+// Ink получает stdin напрямую (mouse reporting НЕ включаем — ломает выделение)
 const { waitUntilExit } = render(
   <App preselected={preselected} resumeId={resumeId} integrationId={integrationId} />,
-  { stdin: mouseFilter as unknown as NodeJS.ReadStream },
 );
 
 waitUntilExit().then(() => {
-  if (process.stdout.isTTY) {
-    process.stdout.write('\x1b[?1000l\x1b[?1006l');
-  }
+  // cleanup if needed
 });
