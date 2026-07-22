@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { pasteImageFromClipboard } from '../clipboard.js';
 import { openInEditor } from '../editor.js';
+import { voiceRealtime, canRealtimeVoice } from '../voice.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -26,7 +27,11 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, disabled = f
   const [historyIdx, setHistoryIdx] = useState(-1);
   const [showComplete, setShowComplete] = useState(false);
   const [completeIdx, setCompleteIdx] = useState(0);
+  const [recording, setRecording] = useState(false);
+  const [voiceText, setVoiceText] = useState('');
   const draftRef = useRef<string | null>(null);
+  const voiceRef = useRef<{ kill: () => void } | null>(null);
+  const spaceHoldRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentLine = lines[cursorLine] ?? '';
   const isSlash = lines.length === 1 && currentLine.startsWith('/');
@@ -103,6 +108,30 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, disabled = f
 
   useInput((input, key) => {
     if (disabled) return;
+
+    // Пробел = toggle голосовой записи (когда ввод пустой или уже пишем голосом)
+    if (input === ' ' && !key.ctrl && !key.meta && !key.shift) {
+      const isEmpty = text.trim() === '';
+      if (recording) {
+        // Стоп записи
+        voiceRef.current?.kill();
+        voiceRef.current = null;
+        setRecording(false);
+        if (voiceText.trim()) setText(voiceText.trim());
+        return;
+      }
+      if (isEmpty && canRealtimeVoice()) {
+        // Старт записи
+        setRecording(true);
+        setVoiceText('');
+        voiceRef.current = voiceRealtime(120, (partial) => {
+          setVoiceText(partial);
+        }, (final) => {
+          setVoiceText(final);
+        });
+        return;
+      }
+    }
 
     // Enter — submit (single line) or newline (multiline with Alt)
     if (key.return) {
@@ -267,18 +296,30 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, disabled = f
         </Box>
       )}
       <Box paddingX={1}>
-        <Text color="magenta" bold>› </Text>
-        {text ? (
-          <Box flexDirection="column">
-            {lines.map((line, i) => (
-              <Text key={i}>
-                {line}
-                {i === cursorLine && <Text color="magenta">▌</Text>}
-              </Text>
-            ))}
+        {recording ? (
+          <Box>
+            <Text color="red" bold>● </Text>
+            <Text color="red">{voiceText || 'слушаю…'}</Text>
+            <Text color="red"> ▌</Text>
+            <Text dimColor>  [пробел — стоп]</Text>
+          </Box>
+        ) : text ? (
+          <Box>
+            <Text color="magenta" bold>› </Text>
+            <Box flexDirection="column">
+              {lines.map((line, i) => (
+                <Text key={i}>
+                  {line}
+                  {i === cursorLine && <Text color="magenta">▌</Text>}
+                </Text>
+              ))}
+            </Box>
           </Box>
         ) : (
-          <Text dimColor>{placeholder ?? 'сообщение… (Ctrl+G редактор, Ctrl+V фото, ! shell)'}</Text>
+          <Box>
+            <Text color="magenta" bold>› </Text>
+            <Text dimColor>{placeholder ?? 'сообщение… (пробел — голос, Ctrl+V — фото, ! shell)'}</Text>
+          </Box>
         )}
       </Box>
     </Box>
