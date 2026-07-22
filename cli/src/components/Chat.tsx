@@ -196,7 +196,11 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
             <Text dimColor>📎 {attachments.map((p) => p.split('/').pop()).join(', ')}</Text>
           </Box>
         )}
-        <ChatInput onSubmit={handleSubmit} disabled={busy} />
+        <ChatInput
+          onSubmit={handleSubmit}
+          onImagePaste={(p) => setAttachments((prev) => [...prev, p])}
+          disabled={busy}
+        />
       </Box>
     </Box>
   );

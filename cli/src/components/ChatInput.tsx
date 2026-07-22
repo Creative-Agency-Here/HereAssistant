@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { pasteImageFromClipboard } from '../clipboard.js';
 
 const SLASH_COMMANDS = [
   '/help', '/model', '/account', '/status', '/image', '/new', '/compact', '/exit',
@@ -7,11 +8,12 @@ const SLASH_COMMANDS = [
 
 interface Props {
   onSubmit: (value: string) => void;
+  onImagePaste?: (path: string) => void;
   disabled?: boolean;
   placeholder?: string;
 }
 
-export function ChatInput({ onSubmit, disabled = false, placeholder }: Props) {
+export function ChatInput({ onSubmit, onImagePaste, disabled = false, placeholder }: Props) {
   const [lines, setLines] = useState<string[]>(['']);
   const [cursorLine, setCursorLine] = useState(0);
   const [history, setHistory] = useState<string[]>([]);
@@ -133,6 +135,17 @@ export function ChatInput({ onSubmit, disabled = false, placeholder }: Props) {
       return;
     }
 
+    // Ctrl+V — вставка изображения из clipboard (как в Claude Code)
+    if (key.ctrl && input === 'v') {
+      if (onImagePaste) {
+        const imgPath = pasteImageFromClipboard();
+        if (imgPath) {
+          onImagePaste(imgPath);
+        }
+      }
+      return;
+    }
+
     // Ctrl+U — clear line
     if (key.ctrl && input === 'u') {
       const newLines = [...lines];
@@ -197,7 +210,7 @@ export function ChatInput({ onSubmit, disabled = false, placeholder }: Props) {
             ))}
           </Box>
         ) : (
-          <Text dimColor>{placeholder ?? 'сообщение… (Alt+Enter — новая строка)'}</Text>
+          <Text dimColor>{placeholder ?? 'сообщение… (Alt+Enter — строка, Ctrl+V — фото)'}</Text>
         )}
       </Box>
     </Box>
