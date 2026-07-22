@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { EventEmitter } from 'node:events';
 import { Box, Text, useInput } from 'ink';
 import { pasteImageFromClipboard } from '../clipboard.js';
 import { openInEditor } from '../editor.js';
@@ -50,7 +51,82 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
   const holdRef = useRef({ count: 0, lastTime: 0, recLastSpace: 0 });
   const recordingRef = useRef(false);
 
-  // Глобальный insert (от /img команды)
+  // Voice events из MouseFilterStream (hold-space detection на уровне потока)
+  useEffect(() => {
+    const voiceEmitter = (globalThis as any).__ha_voice as EventEmitter | undefined;
+    if (!voiceEmitter) return;
+
+    const onHoldStart = () => {
+      dbg('voice: hold-start from stream');
+      setRecording(true);
+      recordingRef.current = true;
+      setVoiceText('');
+      // Убираем лишние пробелы из hold (последние 4+)
+      setLines((prev) => {
+        const newLines = [...prev];
+        const line = newLines[cursorLine] ?? '';
+        const col = Math.min(cursorCol, line.length);
+        // Убираем до 4 пробелов перед курсором
+        let removeStart = col;
+        while (removeStart > 0 && line[removeStart - 1] === ' ' && col - removeStart < 5) removeStart--;
+        newLines[cursorLine] = line.slice(0, removeStart) + line.slice(col);
+        setCursorCol(removeStart);
+        return newLines;
+      });
+      voiceRef.current = voiceRealtime(120, (p) => setVoiceText(p), (f) => setVoiceText(f));
+    };
+
+    const onStop = () => {
+      dbg('voice: stop from stream');
+      voiceRef.current?.kill();
+      voiceRef.current = null;
+      setRecording(false);
+      recordingRef.current = false;
+      setVoiceText((vt) => {
+        if (vt.trim()) {
+          setLines((prev) => {
+            const newLines = [...prev];
+            const line = newLines[cursorLine] ?? '';
+            const col = Math.min(cursorCol, line.length);
+            const insert = (col > 0 && line[col - 1] !== ' ' ? ' ' : '') + vt.trim();
+            newLines[cursorLine] = line.slice(0, col) + insert + line.slice(col);
+            setCursorCol(col + insert.length);
+            return newLines;
+          });
+        }
+        return '';
+      });
+    };
+
+    voiceEmitter.on('hold-start', onHoldStart);
+    voiceEmitter.on('stop', onStop);
+    return () => { voiceEmitter.off('hold-start', onHoldStart); voiceEmitter.off('stop', onStop); };
+  }, [cursorLine, cursorCol]);
+
+  // Ctrl+M = ручной toggle голос (альтернатива hold-space)
+  useEffect(() => {
+    // handled in useInput below
+  }, []);
+
+  // Mouse click → курсор в поле ввода
+  useEffect(() => {
+    const mouseEmitter = (globalThis as any).__ha_mouse as EventEmitter | undefined;
+    if (!mouseEmitter) return;
+    const termRows = process.stdout.rows || 24;
+    const PREFIX = 4;
+    const handler = (ev: any) => {
+      if (ev.type !== 'press' || ev.button !== 'left') return;
+      const inputRow = termRows;
+      if (ev.row < inputRow - lines.length - 2 || ev.row > inputRow) return;
+      const lineIdx = Math.max(0, Math.min(ev.row - (inputRow - lines.length - 1), lines.length - 1));
+      const col = Math.max(0, Math.min(ev.col - PREFIX, (lines[lineIdx] ?? '').length));
+      setCursorLine(lineIdx);
+      setCursorCol(col);
+    };
+    mouseEmitter.on('event', handler);
+    return () => { mouseEmitter.off('event', handler); };
+  }, [lines]);
+
   useEffect(() => {
     const check = setInterval(() => {
       const pending = (globalThis as Record<string, unknown>).__ha_insert as string | undefined;
@@ -187,36 +263,14 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
     // DEBUG: логируем каждую клавишу
     dbg(`input=${JSON.stringify(input)} charCode=${input?.charCodeAt(0)} ctrl=${key.ctrl} meta=${key.meta} shift=${key.shift} return=${key.return} recording=${recordingRef.current}`);
 
-    // Пробел = всегда пробел (голос через Ctrl+M)
-    // Hold-space detection убрана — ненадёжна без интерактивного теста
-
-    // Ctrl+M = toggle голос (простой надёжный toggle)
+    // Пробел и голос теперь обрабатываются в MouseFilterStream (уровень потока)
+    // Ctrl+M = ручной toggle голос
     if (key.ctrl && input === 'm') {
-      dbg(`Ctrl+M pressed, recording=${recordingRef.current}`);
+      const filter = (globalThis as any).__ha_filter;
       if (recordingRef.current) {
-        voiceRef.current?.kill();
-        voiceRef.current = null;
-        setRecording(false);
-        recordingRef.current = false;
-        setVoiceText((vt) => {
-          if (vt.trim()) {
-            setLines((prev) => {
-              const newLines = [...prev];
-              const line = newLines[cursorLine] ?? '';
-              const col = Math.min(cursorCol, line.length);
-              const insert = (col > 0 && line[col - 1] !== ' ' ? ' ' : '') + vt.trim();
-              newLines[cursorLine] = line.slice(0, col) + insert + line.slice(col);
-              setCursorCol(col + insert.length);
-              return newLines;
-            });
-          }
-          return '';
-        });
+        filter?.stopVoice();
       } else if (canRealtimeVoice()) {
-        setRecording(true);
-        recordingRef.current = true;
-        setVoiceText('');
-        voiceRef.current = voiceRealtime(120, (p) => setVoiceText(p), (f) => setVoiceText(f));
+        filter?.startVoice();
       }
       return;
     }
@@ -363,18 +417,45 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       return;
     }
 
-    // Ctrl+V / Cmd+V — только текст из clipboard (изображения через Ctrl+I)
+    // Ctrl+V / Cmd+V — сначала картинка, потом текст
     if ((key.ctrl || key.meta) && (input === 'v' || input === '\x16')) {
+      dbg(`Ctrl+V: trying image paste`);
+      // Сначала пробуем изображение
+      if (onImagePaste) {
+        const imgPath = pasteImageFromClipboard();
+        if (imgPath) {
+          dbg(`Ctrl+V: image found: ${imgPath}`);
+          const imgIdx = attachments.length + 1;
+          const tag = `[Image #${imgIdx}]`;
+          setLines((prev) => {
+            const newLines = [...prev];
+            const line = newLines[cursorLine] ?? '';
+            const col = Math.min(cursorCol, line.length);
+            const sep = col > 0 && line[col - 1] !== ' ' ? ' ' : '';
+            newLines[cursorLine] = line.slice(0, col) + sep + tag + ' ' + line.slice(col);
+            setCursorCol(col + sep.length + tag.length + 1);
+            return newLines;
+          });
+          onImagePaste(imgPath);
+          return;
+        }
+      }
+      // Fallback: текст
+      dbg(`Ctrl+V: no image, trying text`);
       try {
         const clipText = execSync('pbpaste 2>/dev/null', { encoding: 'utf-8', timeout: 2000 }).trim();
         if (clipText) {
-          const col = Math.min(cursorCol, currentLine.length);
-          const newLines = [...lines];
-          newLines[cursorLine] = currentLine.slice(0, col) + clipText + currentLine.slice(col);
-          setLines(newLines);
-          setCursorCol(col + clipText.length);
+          dbg(`Ctrl+V: text pasted (${clipText.length} chars)`);
+          setLines((prev) => {
+            const newLines = [...prev];
+            const line = newLines[cursorLine] ?? '';
+            const col = Math.min(cursorCol, line.length);
+            newLines[cursorLine] = line.slice(0, col) + clipText + line.slice(col);
+            setCursorCol(col + clipText.length);
+            return newLines;
+          });
         }
-      } catch { /* empty */ }
+      } catch { dbg(`Ctrl+V: pbpaste failed`); }
       return;
     }
 

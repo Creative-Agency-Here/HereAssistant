@@ -9,104 +9,116 @@ export interface ParsedMouseEvent {
 }
 
 /**
- * Transform-стрим который фильтрует SGR mouse escape-последовательности
- * из stdin ДО того как Ink их увидит. Mouse-события парсятся и эмитятся
- * через EventEmitter, а чистые данные (клавиши) проходят в Ink.
- *
- * Это решает конфликт useMouse/useInput — Ink получает только клавиши,
- * мы получаем только мышь.
+ * Transform-стрим:
+ * 1. Фильтрует SGR mouse → EventEmitter (клики/скролл)
+ * 2. Детектит hold-space на уровне потока → voice events
+ * 3. Проксирует TTY-методы на реальный stdin
+ * 4. Клавиши → Ink
  */
 export class MouseFilterStream extends Transform {
   readonly mouse = new EventEmitter();
-  private buffer = '';
+  readonly voice = new EventEmitter();
+  private buf = '';
+  private spaceCount = 0;
+  private lastSpaceTime = 0;
+  private voiceMode = false;
+  private voiceLastSpace = 0;
+  private spaceTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
-    super({ encoding: 'utf-8' });
-
-    // Проксируем TTY-свойства на реальный stdin — Ink требует setRawMode
-    const realStdin = process.stdin;
-    Object.defineProperty(this, 'isTTY', { get: () => realStdin.isTTY });
-    Object.defineProperty(this, 'isRaw', { get: () => realStdin.isRaw });
-    (this as unknown as Record<string, unknown>).setRawMode = (mode: boolean) => {
-      if (realStdin.isTTY && realStdin.setRawMode) {
-        realStdin.setRawMode(mode);
-      }
-      return this;
-    };
-    // Проксируем columns/rows (из stdout — там точно есть)
+    super();
+    const real = process.stdin;
+    Object.defineProperty(this, 'isTTY', { get: () => real.isTTY });
+    Object.defineProperty(this, 'isRaw', { get: () => real.isRaw });
+    (this as any).setRawMode = (m: boolean) => { real.setRawMode?.(m); return this; };
+    (this as any).ref = () => { real.ref?.(); return this; };
+    (this as any).unref = () => { real.unref?.(); return this; };
+    (this as any).resume = () => { real.resume(); return this; };
+    (this as any).pause = () => { real.pause(); return this; };
     Object.defineProperty(this, 'columns', { get: () => process.stdout.columns });
     Object.defineProperty(this, 'rows', { get: () => process.stdout.rows });
-    // Проксируем ref/unref — Ink управляет event loop через них
-    (this as unknown as Record<string, unknown>).ref = () => { realStdin.ref?.(); return this; };
-    (this as unknown as Record<string, unknown>).unref = () => { realStdin.unref?.(); return this; };
-    (this as unknown as Record<string, unknown>).resume = () => { realStdin.resume(); return this; };
-    (this as unknown as Record<string, unknown>).pause = () => { realStdin.pause(); return this; };
   }
 
-  _transform(chunk: Buffer, _encoding: string, callback: TransformCallback): void {
-    this.buffer += chunk.toString();
+  stopVoice() { this.voiceMode = false; this.spaceCount = 0; }
+  startVoice() { this.voiceMode = true; this.spaceCount = 0; this.voiceLastSpace = 0; }
 
-    // SGR mouse: \x1b[<button;col;rowM или \x1b[<button;col;rowm
-    // Также старые форматы: \x1b[M... (3 байта после M)
-    const sgrRegex = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
-    let clean = '';
-    let lastIndex = 0;
-    let match;
+  _transform(chunk: Buffer, _enc: string, cb: TransformCallback): void {
+    this.buf += chunk.toString();
+    let out = '';
+    let i = 0;
 
-    while ((match = sgrRegex.exec(this.buffer)) !== null) {
-      // Всё до этого match — чистые данные (клавиши)
-      clean += this.buffer.slice(lastIndex, match.index);
-      lastIndex = match.index + match[0].length;
+    while (i < this.buf.length) {
+      const ch = this.buf[i];
 
-      // Парсим mouse event
-      const buttonCode = parseInt(match[1]);
-      const col = parseInt(match[2]);
-      const row = parseInt(match[3]);
-      const isRelease = match[4] === 'm';
-
-      let button: ParsedMouseEvent['button'];
-      let type: ParsedMouseEvent['type'];
-
-      if (buttonCode === 64) { button = 'scroll-up'; type = 'scroll'; }
-      else if (buttonCode === 65) { button = 'scroll-down'; type = 'scroll'; }
-      else if (buttonCode === 0) { button = 'left'; type = isRelease ? 'release' : 'press'; }
-      else if (buttonCode === 1) { button = 'middle'; type = isRelease ? 'release' : 'press'; }
-      else if (buttonCode === 2) { button = 'right'; type = isRelease ? 'release' : 'press'; }
-      else continue;
-
-      this.mouse.emit('event', { type, button, col, row } satisfies ParsedMouseEvent);
-    }
-
-    // Остаток после последнего match
-    clean += this.buffer.slice(lastIndex);
-
-    // Проверяем незавершённую escape-последовательность в конце буфера
-    // (может быть начало mouse sequence разрезанное по чанкам)
-    const escIdx = clean.lastIndexOf('\x1b');
-    if (escIdx !== -1 && escIdx > clean.length - 20) {
-      const tail = clean.slice(escIdx);
-      // Если хвост похож на начало mouse sequence — буферизуем
-      if (/^\x1b\[<?[\d;]*$/.test(tail)) {
-        this.buffer = tail;
-        clean = clean.slice(0, escIdx);
-      } else {
-        this.buffer = '';
+      // SGR mouse: \x1b[<btn;col;rowM/m
+      if (ch === '\x1b' && this.buf[i + 1] === '[' && this.buf[i + 2] === '<') {
+        let seqEnd = -1;
+        for (let j = i + 3; j < this.buf.length; j++) {
+          if (this.buf[j] === 'M' || this.buf[j] === 'm') { seqEnd = j; break; }
+        }
+        if (seqEnd === -1) { this.buf = this.buf.slice(i); if (out) this.push(out); cb(); return; }
+        const m = this.buf.slice(i, seqEnd + 1).match(/\x1b\[<(\d+);(\d+);(\d+)([Mm])/);
+        if (m) {
+          const bc = parseInt(m[1]), col = parseInt(m[2]), row = parseInt(m[3]), rel = m[4] === 'm';
+          let btn: ParsedMouseEvent['button'], type: ParsedMouseEvent['type'];
+          if (bc === 64) { btn = 'scroll-up'; type = 'scroll'; }
+          else if (bc === 65) { btn = 'scroll-down'; type = 'scroll'; }
+          else if (bc <= 2) { btn = (['left','middle','right'] as const)[bc]; type = rel ? 'release' : 'press'; }
+          else { btn = 'left'; type = rel ? 'release' : 'press'; }
+          this.mouse.emit('event', { type, button: btn, col, row });
+        }
+        i = seqEnd + 1;
+        continue;
       }
-    } else {
-      this.buffer = '';
-    }
 
-    if (clean) {
-      this.push(clean);
+      // Space — hold detection на уровне потока
+      if (ch === ' ' && !this.voiceMode) {
+        const now = Date.now();
+        this.spaceCount = (now - this.lastSpaceTime < 120) ? this.spaceCount + 1 : 1;
+        this.lastSpaceTime = now;
+        if (this.spaceCount >= 4) {
+          this.voiceMode = true;
+          this.spaceCount = 0;
+          this.voiceLastSpace = now;
+          this.voice.emit('hold-start');
+          i++; continue; // НЕ отправляем пробел
+        }
+        out += ch; // отправляем пробел сразу
+        if (this.spaceTimer) clearTimeout(this.spaceTimer);
+        this.spaceTimer = setTimeout(() => { this.spaceCount = 0; }, 200);
+        i++; continue;
+      }
+
+      // Space во время voice mode
+      if (ch === ' ' && this.voiceMode) {
+        const now = Date.now();
+        if (now - this.voiceLastSpace > 250) {
+          this.voiceMode = false;
+          this.spaceCount = 0;
+          this.voice.emit('stop');
+        }
+        this.voiceLastSpace = now;
+        i++; continue; // НЕ отправляем пробел в Ink
+      }
+
+      // Ctrl+C во время voice = стоп
+      if (ch === '\x03' && this.voiceMode) {
+        this.voiceMode = false;
+        this.spaceCount = 0;
+        this.voice.emit('stop');
+        i++; continue;
+      }
+
+      out += ch;
+      i++;
     }
-    callback();
+    this.buf = '';
+    if (out) this.push(out);
+    cb();
   }
 
-  _flush(callback: TransformCallback): void {
-    if (this.buffer) {
-      this.push(this.buffer);
-      this.buffer = '';
-    }
-    callback();
+  _flush(cb: TransformCallback): void {
+    if (this.buf) { this.push(this.buf); this.buf = ''; }
+    cb();
   }
 }
