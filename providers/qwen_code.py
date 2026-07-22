@@ -106,7 +106,11 @@ class QwenCodeProvider(CLIProvider):
             "--approval-mode",
             _approval_mode(),
             "--append-system-prompt",
-            config.RU_SYSTEM_INSTRUCTION,
+            config.RU_SYSTEM_INSTRUCTION
+            + "\n\nShell-команды начинай с rtk для сжатия вывода: "
+            "rtk git status, rtk ls, rtk grep ..., rtk pytest ... "
+            "Для составных команд: rtk sh -c '...'. "
+            "Это экономит контекстные токены.",
             "--prompt",
             "",
         ]

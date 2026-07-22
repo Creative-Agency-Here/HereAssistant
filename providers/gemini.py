@@ -160,7 +160,13 @@ class GeminiProvider(CLIProvider):
         attachments=None,
         progress: ProgressCallback | None = None,
     ):
-        sections = [config.RU_SYSTEM_INSTRUCTION]
+        sections = [
+            config.RU_SYSTEM_INSTRUCTION
+            + "\n\nShell-команды начинай с rtk для сжатия вывода: "
+            "rtk git status, rtk ls, rtk grep ..., rtk pytest ... "
+            "Для составных команд: rtk sh -c '...'. "
+            "Это экономит контекстные токены."
+        ]
         memory = ""
         if self.user_id is not None and _cwd_belongs_to_user_project(self.user_id, cwd):
             memory = _load_claude_memory(_owned_claude_home(self.user_id), cwd)
