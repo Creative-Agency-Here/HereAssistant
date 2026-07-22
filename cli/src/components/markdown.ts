@@ -14,11 +14,21 @@ const MAGENTA = '\x1b[35m';
 const RESET = '\x1b[0m';
 
 function inlineFormat(text: string): string {
-  return text
-    .replace(/`([^`]+)`/g, `${CYAN}$1${RESET}`)
+  // Сначала защищаем inline-код от дальнейшего форматирования
+  const codeSpans: string[] = [];
+  let result = text.replace(/`([^`]+)`/g, (_m, code: string) => {
+    codeSpans.push(code);
+    return `\x00CODE${codeSpans.length - 1}\x00`;
+  });
+  result = result
     .replace(/\*\*([^*]+)\*\*/g, `${BOLD}$1${RESET}`)
     .replace(/\*([^*]+)\*/g, `${ITALIC}$1${RESET}`)
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, `${MAGENTA}$1${RESET} ${DIM}($2)${RESET}`);
+  // Возвращаем код обратно
+  result = result.replace(/\x00CODE(\d+)\x00/g, (_m, idx: string) => {
+    return `${CYAN}${codeSpans[Number(idx)]}${RESET}`;
+  });
+  return result;
 }
 
 export function renderMarkdown(source: string): string[] {

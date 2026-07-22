@@ -115,8 +115,8 @@ export function Chat({ account, cwd }: { account: Account; cwd: string }) {
             )}
             {msg.role === 'assistant' && (
               <Box flexDirection="column">
-                {msg.toolCalls.map((tool, i) => (
-                  <ToolCallBlock key={tool.id} tool={tool} index={i} />
+                {msg.toolCalls.map((tool) => (
+                  <ToolCallBlock key={tool.id} tool={tool} />
                 ))}
                 {msg.text ? (
                   <Box marginTop={msg.toolCalls.length > 0 ? 1 : 0} flexDirection="column">
