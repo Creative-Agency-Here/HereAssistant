@@ -12,6 +12,9 @@ import { handleCommand, type CommandContext } from '../commands.js';
 import { startWorkingTitle, setIdleTitle, stopWorkingTitle } from '../terminal-title.js';
 import { cleanClipboardCache } from '../clipboard.js';
 import { loadConfig } from '../config.js';
+import { memoryPrompt } from '../memory.js';
+import { getTheme, type Theme } from '../themes.js';
+import { renderInlineImage, supportsInlineImages } from '../terminal-images.js';
 import { execSync, spawn } from 'node:child_process';
 
 function makeId(): string {
@@ -21,6 +24,9 @@ function makeId(): string {
 export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: string }) {
   const { exit } = useApp();
   const config = React.useMemo(() => loadConfig(cwd), [cwd]);
+  const memory = React.useMemo(() => memoryPrompt(cwd), [cwd]);
+  const [themeName, setThemeName] = useState(config.theme || 'dark');
+  const theme = React.useMemo(() => getTheme(themeName), [themeName]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [account, setAccount] = useState(initialAccount);
@@ -74,8 +80,9 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
         setSessionId: (id) => { sessionIdRef.current = id; },
         renameSession: (name) => {
           setSessionName(name);
-          setIdleTitle(name, 1);
+          setIdleTitle(name, promptCount);
         },
+        setTheme: (name) => { setThemeName(name); },
         forkSession: () => { sessionIdRef.current = `fork-${makeId()}`; },
         backgroundPrompt: (prompt) => {
           const child = spawn('node', [
@@ -110,7 +117,8 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
       const provider = makeProvider(account);
       const currentAttachments = [...attachments];
       setAttachments([]);
-      const result = await provider.run(text, cwd, sessionIdRef.current, model || null, (event: StreamEvent) => {
+      const fullPrompt = memory ? `${text}${memory}` : text;
+      const result = await provider.run(fullPrompt, cwd, sessionIdRef.current, model || null, (event: StreamEvent) => {
         if (event.type === 'text' && typeof event.text === 'string') {
           updateLastAssistant((m) => ({ ...m, text: m.text + (event.text as string) }));
         } else if (event.type === 'thinking' && typeof event.text === 'string') {
@@ -227,8 +235,13 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
 
       <Box borderTop borderStyle="single" flexDirection="column">
         {attachments.length > 0 && (
-          <Box paddingX={1}>
-            <Text dimColor>📎 {attachments.map((p) => p.split('/').pop()).join(', ')}</Text>
+          <Box paddingX={1} flexDirection="column">
+            {attachments.map((p) => (
+              <Text key={p} dimColor>📎 {p.split('/').pop()}</Text>
+            ))}
+            {supportsInlineImages() && attachments.map((p) => (
+              <Text key={`img-${p}`}>{renderInlineImage(p)}</Text>
+            ))}
           </Box>
         )}
         <ChatInput

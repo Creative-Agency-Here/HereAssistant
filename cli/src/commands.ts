@@ -2,7 +2,10 @@ import type { Account } from './types.js';
 import { getAccounts } from './db.js';
 import { pasteImageFromClipboard } from './clipboard.js';
 import { listSessions, formatSessionAge } from './sessions.js';
+import { THEME_NAMES } from './themes.js';
 import { execSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 
 export interface CommandContext {
   account: Account;
@@ -16,6 +19,7 @@ export interface CommandContext {
   resetSession: () => void;
   setSessionId: (id: string) => void;
   renameSession: (name: string) => void;
+  setTheme: (name: string) => void;
   forkSession: () => void;
   backgroundPrompt: (prompt: string) => void;
   print: (text: string) => void;
@@ -33,6 +37,9 @@ const HELP = `Команды:
   /fork              форк сессии (копия контекста, новый ID)
   /search <query>    веб-поиск (через провайдер)
   /bg <prompt>       фоновый агент (detach)
+  /theme [имя]       тема (dark/light/mono/neon)
+  /archive [id]      архивировать сессию
+  /delete [id]       удалить сессию
   /image             вставить фото из clipboard (Ctrl+V)
   /diff              показать git diff
   /new               новая сессия (очистить контекст)
@@ -167,6 +174,48 @@ export function handleCommand(line: string, ctx: CommandContext): boolean {
     case '/bg': {
       if (!arg) { ctx.print('Использование: /bg <промпт>'); return true; }
       ctx.backgroundPrompt(arg);
+      return true;
+    }
+
+    case '/theme': {
+      if (!arg) {
+        ctx.print(`Темы: ${THEME_NAMES.join(', ')}\n/theme <имя> — переключить`);
+      } else if (THEME_NAMES.includes(arg)) {
+        ctx.setTheme(arg);
+        ctx.print(`▸ тема: ${arg}`);
+      } else {
+        ctx.print(`✗ неизвестная тема "${arg}". Доступные: ${THEME_NAMES.join(', ')}`);
+      }
+      return true;
+    }
+
+    case '/archive': {
+      const sid = arg || ctx.sessionId;
+      if (!sid) { ctx.print('✗ нет активной сессии'); return true; }
+      const slug = ctx.cwd.replace(/[^a-zA-Z0-9]/g, '-');
+      const src = path.join(ctx.account.cli_home_path, 'projects', slug, `${sid}.jsonl`);
+      const archiveDir = path.join(ctx.account.cli_home_path, 'projects', slug, '.archive');
+      if (fs.existsSync(src)) {
+        fs.mkdirSync(archiveDir, { recursive: true });
+        fs.renameSync(src, path.join(archiveDir, `${sid}.jsonl`));
+        ctx.print(`▸ сессия ${sid.slice(0, 12)} архивирована`);
+      } else {
+        ctx.print(`✗ файл сессии не найден`);
+      }
+      return true;
+    }
+
+    case '/delete': {
+      const sid = arg || ctx.sessionId;
+      if (!sid) { ctx.print('✗ нет активной сессии'); return true; }
+      const slug = ctx.cwd.replace(/[^a-zA-Z0-9]/g, '-');
+      const fp = path.join(ctx.account.cli_home_path, 'projects', slug, `${sid}.jsonl`);
+      if (fs.existsSync(fp)) {
+        fs.unlinkSync(fp);
+        ctx.print(`▸ сессия ${sid.slice(0, 12)} удалена`);
+      } else {
+        ctx.print(`✗ файл сессии не найден`);
+      }
       return true;
     }
 
