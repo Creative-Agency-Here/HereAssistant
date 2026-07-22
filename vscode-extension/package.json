@@ -15,10 +15,12 @@
   "activationEvents": [
     "onStartupFinished",
     "onView:hereAssistant.delivery",
+    "onView:hereAssistant.sessions",
     "onCommand:hereAssistant.quickActions",
     "onCommand:hereAssistant.setup",
     "onCommand:hereAssistant.start",
-    "onCommand:hereAssistant.runTask"
+    "onCommand:hereAssistant.runTask",
+    "onCommand:hereAssistant.sessions"
   ],
   "contributes": {
     "configurationDefaults": {
@@ -40,16 +42,20 @@
       { "command": "hereAssistant.deploy", "title": "HereAssistant: Запустить деплой", "icon": "$(rocket)" },
       { "command": "hereAssistant.openWeb", "title": "HereAssistant: Открыть Web App", "icon": "$(globe)" },
       { "command": "hereAssistant.setAccessKey", "title": "HereAssistant: Обновить ключ доступа", "icon": "$(key)" },
-      { "command": "hereAssistant.manageAccounts", "title": "HereAssistant: Управление AI-аккаунтами", "icon": "$(account)" }
+      { "command": "hereAssistant.manageAccounts", "title": "HereAssistant: Управление AI-аккаунтами", "icon": "$(account)" },
+      { "command": "hereAssistant.sessions", "title": "HereAssistant: Все сессии", "icon": "$(list-unordered)" },
+      { "command": "hereAssistant.reconnectSession", "title": "HereAssistant: Перейти к сессии" }
     ],
     "views": {
       "scm": [
+        { "id": "hereAssistant.sessions", "name": "HereAssistant · Сессии", "when": "hereAssistant.enabled" },
         { "id": "hereAssistant.delivery", "name": "HereAssistant · Git и деплой", "when": "hereAssistant.enabled" }
       ]
     },
     "menus": {
       "view/title": [
-        { "command": "hereAssistant.refresh", "when": "view == hereAssistant.delivery", "group": "navigation@1" }
+        { "command": "hereAssistant.refresh", "when": "view == hereAssistant.delivery", "group": "navigation@1" },
+        { "command": "hereAssistant.refresh", "when": "view == hereAssistant.sessions", "group": "navigation@1" }
       ]
     },
     "configuration": {
@@ -108,6 +114,11 @@
           "type": "string",
           "default": "",
           "description": "Явная штатная команда деплоя проекта. Выполняется только после подтверждения."
+        },
+        "hereAssistant.mouseSupport": {
+          "type": "boolean",
+          "default": false,
+          "description": "Мышь в терминальном чате: клик ставит курсор, но выделение текста работает только через Shift/Option+drag. По умолчанию выключена — выделение и копирование штатные."
         }
       }
     }

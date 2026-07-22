@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from collections.abc import Callable
 from typing import TextIO
@@ -14,6 +15,12 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
+
+
+def _mouse_default() -> bool:
+    """Мышь по умолчанию выключена: mouse reporting перехватывает выделение
+    и ломает копирование soft-wrap строк. Включение: HA_MOUSE=1 или /mouse."""
+    return os.environ.get("HA_MOUSE", "").strip() in ("1", "true", "yes")
 
 
 class SlashCommandCompleter(Completer):
@@ -40,8 +47,9 @@ class SlashCommandCompleter(Completer):
 class TerminalPrompt:
     """Claude-like editor: Enter sends, Alt+Enter adds a line, paste stays multiline.
 
-    Mouse reporting lets a click move the caret inside the editable prompt.
-    VS Code still exposes native terminal selection while Shift is held.
+    Мышь по умолчанию выключена (HA_MOUSE=1 для включения): mouse reporting
+    перехватывает выделение и ломает копирование soft-wrap строк.
+    Переключение на лету — /mouse в чате.
     """
 
     def __init__(
@@ -54,6 +62,7 @@ class TerminalPrompt:
     ) -> None:
         self._fallback = fallback
         self._interactive = bool(input_stream.isatty() and output_stream.isatty())
+        self._mouse = _mouse_default()
         self._session: PromptSession[str] | None = None
         if self._interactive:
             bindings = KeyBindings()
@@ -78,12 +87,23 @@ class TerminalPrompt:
                 history=InMemoryHistory(),
                 key_bindings=bindings,
                 multiline=True,
-                mouse_support=True,
+                mouse_support=self._mouse,
                 enable_history_search=True,
                 completer=SlashCommandCompleter(commands),
                 complete_while_typing=True,
                 auto_suggest=AutoSuggestFromHistory(),
             )
+
+    @property
+    def mouse_enabled(self) -> bool:
+        return self._mouse
+
+    def toggle_mouse(self) -> bool:
+        """Переключает mouse reporting; возвращает новое состояние."""
+        self._mouse = not self._mouse
+        if self._session is not None:
+            self._session.mouse_support = self._mouse
+        return self._mouse
 
     async def read(self, prompt: str) -> str:
         if self._session is None:

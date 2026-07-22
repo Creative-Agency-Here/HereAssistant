@@ -255,13 +255,13 @@ def _farewell():
 async def _repl(sess: Session, integration_id: str | None = None):
     client_surface = launch_context.hereassistant_surface(integration_id)
     terminal_app = launch_context.detect_terminal_app()
+    terminal_prompt = TerminalPrompt(commands=COMMAND_SPECS)
     commands = CommandRouter(
         accounts=_db_accounts,
         users=_db_users,
         default_cwd=config.user_default_cwd,
         resumable=_list_resumable,
     )
-    terminal_prompt = TerminalPrompt(commands=COMMAND_SPECS)
     title = TerminalTitle()
     summary = task_summary(sess.cwd)
     title.idle(sess.cwd, summary["open"])
@@ -364,6 +364,9 @@ def _run():
         if not os.path.isdir(path):
             raise ValueError(f"Рабочая папка не существует: {requested_cwd}")
         sess.cwd = path
+    resume_id = _arg_after(argv, "--resume")
+    if resume_id:
+        sess.session_id = resume_id
     asyncio.run(_run_with_sync(sess, _arg_after(argv, "--integration-id")))
 
 

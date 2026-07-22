@@ -72,6 +72,17 @@ function readJson(file) {
   }
 }
 
+function timeAgo(timestampMs) {
+  const seconds = Math.max(0, Math.floor((Date.now() - timestampMs) / 1000));
+  if (seconds < 60) return 'только что';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} мин назад`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} ч назад`;
+  const days = Math.floor(hours / 24);
+  return `${days} дн назад`;
+}
+
 function currentWorkspace() {
   return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
 }
@@ -136,6 +147,34 @@ class SectionProvider {
   getChildren() { return this.controller.items(this.kind); }
 }
 
+const SESSION_ICONS = { working: 'sync~spin', open: 'pass', error: 'error', closed: 'stop-circle' };
+
+class SessionsProvider {
+  constructor(controller) {
+    this.controller = controller;
+    this.emitter = new vscode.EventEmitter();
+    this.onDidChangeTreeData = this.emitter.event;
+  }
+  refresh() { this.emitter.fire(); }
+  getTreeItem(item) { return item; }
+  getChildren() {
+    const sessions = this.controller.scanSessions();
+    if (!sessions.length) return [new NodeItem('Нет сессий', 'Запустите задачу', 'info')];
+    return sessions.map((session) => {
+      const icon = SESSION_ICONS[session.state] || 'circle-outline';
+      const ago = timeAgo(session.updatedAt);
+      const alive = session.alive ? ' · терминал открыт' : '';
+      const item = new NodeItem(session.title, `${ago}${alive}`, icon);
+      item.command = {
+        command: 'hereAssistant.reconnectSession',
+        title: 'Перейти к сессии',
+        arguments: [session],
+      };
+      return item;
+    });
+  }
+}
+
 class Controller {
   constructor(context) {
     this.context = context;
@@ -167,6 +206,77 @@ class Controller {
     return root ? path.join(root, '.runtime', 'state', 'integrations', `${integrationId}.json`) : '';
   }
 
+  scanSessions() {
+    const root = this.installationPath();
+    if (!root) return [];
+    const dir = path.join(root, '.runtime', 'state', 'integrations');
+    let files;
+    try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')); } catch { return []; }
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const sessions = [];
+    for (const file of files) {
+      const data = readJson(path.join(dir, file));
+      if (!data || !data.updatedAt) continue;
+      const updatedAt = data.updatedAt * 1000;
+      if (updatedAt < weekAgo) continue;
+      const integrationId = file.replace(/\.json$/, '');
+      const alive = [...this.terminals.values()].some((info) => info.id === integrationId);
+      sessions.push({
+        integrationId,
+        state: data.state || 'unknown',
+        title: cleanLine(data.title, 100) || 'Без названия',
+        cwd: data.cwd || '',
+        taskCount: Number(data.taskCount || 0),
+        sessionId: data.sessionId || null,
+        updatedAt,
+        alive,
+      });
+    }
+    return sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  async reconnectSession(session) {
+    if (session.alive) {
+      for (const [terminal, info] of this.terminals) {
+        if (info.id === session.integrationId) {
+          terminal.show();
+          this.terminal = terminal;
+          this.localState = info.state || this.localState;
+          this.render();
+          return;
+        }
+      }
+    }
+    const terminal = await this.startTerminal(true);
+    if (!terminal) return;
+    if (session.sessionId) {
+      if (!await this.waitForTerminalReady(terminal)) {
+        void vscode.window.showWarningMessage('Терминал не подтвердил готовность — сессия не возобновлена.');
+        return;
+      }
+      terminal.sendText(`/resume ${session.sessionId}`, true);
+    }
+  }
+
+  async sessionsQuickPick() {
+    const sessions = this.scanSessions();
+    if (!sessions.length) {
+      void vscode.window.showInformationMessage('Сессий за последнюю неделю нет.');
+      return;
+    }
+    const stateLabels = { working: '⚙ работает', open: '✓ открыта', error: '✗ ошибка', closed: '○ закрыта' };
+    const picked = await vscode.window.showQuickPick(
+      sessions.map((session) => ({
+        label: `${session.alive ? '$(terminal) ' : ''}${session.title}`,
+        description: `${stateLabels[session.state] || session.state} · ${timeAgo(session.updatedAt)}`,
+        detail: session.cwd ? `Проект: ${session.cwd}` : undefined,
+        session,
+      })),
+      { title: 'HereAssistant · сессии', placeHolder: 'Выберите сессию для перехода' },
+    );
+    if (picked) await this.reconnectSession(picked.session);
+  }
+
   activeInfo() { return this.terminal ? this.terminals.get(this.terminal) : null; }
 
   async init() {
@@ -180,6 +290,8 @@ class Controller {
       this.providers.set(kind, provider);
       this.context.subscriptions.push(vscode.window.registerTreeDataProvider(`hereAssistant.${kind}`, provider));
     }
+    this.sessionsProvider = new SessionsProvider(this);
+    this.context.subscriptions.push(vscode.window.registerTreeDataProvider('hereAssistant.sessions', this.sessionsProvider));
     this.context.subscriptions.push(this.status);
     this.context.subscriptions.push(vscode.window.onDidCloseTerminal((terminal) => {
       if (!this.terminals.has(terminal)) return;
@@ -224,6 +336,8 @@ class Controller {
       finishTask: () => this.runTask('Проверь результат текущей работы, выполни необходимые проверки и переведи связанную HereCRM-задачу в статус «Завершено». Если задача не связана — явно сообщи об этом.'),
       newSession: () => this.sendSlash('/new'),
       resume: () => this.sendSlash('/resume'),
+      sessions: () => this.sessionsQuickPick(),
+      reconnectSession: (session) => this.reconnectSession(session),
       gitPull: () => vscode.commands.executeCommand('git.pull'),
       gitPush: () => vscode.commands.executeCommand('git.push'),
       deploy: () => this.deploy(),
@@ -403,6 +517,7 @@ class Controller {
     ].filter(Boolean).join('\n');
     void vscode.commands.executeCommand('setContext', 'hereAssistant.working', working);
     for (const provider of this.providers.values()) provider.refresh();
+    if (this.sessionsProvider) this.sessionsProvider.refresh();
   }
 
   items(kind) {
@@ -431,6 +546,12 @@ class Controller {
         description: 'Сначала спросит текст задачи',
         detail: 'Затем откроет отдельный терминал HereAssistant и сразу отправит текст агенту.',
         command: 'hereAssistant.runTask',
+      },
+      {
+        label: '$(list-unordered) Все сессии',
+        description: `${this.scanSessions().length} за неделю`,
+        detail: 'Слепок сессий: переход к активной или возобновление прошлой.',
+        command: 'hereAssistant.sessions',
       },
       {
         label: '$(terminal) Вернуться в текущий терминал',
@@ -515,7 +636,9 @@ class Controller {
       : vscode.TerminalLocation.Editor;
     // Имя намеренно не фиксируется через API: OSC title из chat.py должен
     // свободно показывать текущую задачу и её анимацию в terminal-editor вкладке.
-    this.terminal = vscode.window.createTerminal({ cwd: workspace, location });
+    const env = {};
+    if (this.configuration().get('mouseSupport', false)) env.HA_MOUSE = '1';
+    this.terminal = vscode.window.createTerminal({ cwd: workspace, location, env });
     this.terminals.set(this.terminal, { id: integrationId, stateMtime, state: null });
     this.terminal.show();
     this.terminal.sendText(args.join(' '), true);

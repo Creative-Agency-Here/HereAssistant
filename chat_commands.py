@@ -108,7 +108,7 @@ class CommandRouter:
             session.session_id = None
             self._print(f"{G}▸ новая сессия — контекст забыт{X}")
         elif command == "/resume":
-            self.resume(session)
+            self.resume(session, argument)
         elif command == "/diff":
             self.diff(session)
         elif command == "/clear":
@@ -221,7 +221,11 @@ class CommandRouter:
         for index, title in enumerate(tasks["titles"], 1):
             self._print(f"  {B}{index}.{X} {title}")
 
-    def resume(self, session: Session) -> None:
+    def resume(self, session: Session, argument: str = "") -> None:
+        if argument:
+            session.session_id = argument.strip()
+            self._print(f"{G}▸ продолжаю сессию {session.session_id[:8]}{X}")
+            return
         items = self.resumable(session)
         if not items:
             self._print(
