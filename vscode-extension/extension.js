@@ -398,13 +398,13 @@ class Controller {
       canSelectFiles: false,
       canSelectFolders: true,
       canSelectMany: false,
-      title: 'Папка установки HereAssistant (где находится chat.py)',
+      title: 'Папка установки HereAssistant (где находится cli/dist/index.js)',
       defaultUri: this.installationPath() ? vscode.Uri.file(this.installationPath()) : undefined,
     });
     if (!picked?.[0]) return;
     const root = picked[0].fsPath;
-    if (!fs.existsSync(path.join(root, 'chat.py'))) {
-      void vscode.window.showErrorMessage('В выбранной папке нет chat.py.');
+    if (!fs.existsSync(path.join(root, 'cli', 'dist', 'index.js'))) {
+      void vscode.window.showErrorMessage('В выбранной папке нет cli/dist/index.js (соберите: cd cli && npm install && npm run build).');
       return;
     }
     await this.configuration().update('installationPath', root, vscode.ConfigurationTarget.Global);
@@ -623,23 +623,22 @@ class Controller {
       return this.terminal;
     }
     const root = this.installationPath();
-    if (!root || !fs.existsSync(path.join(root, 'chat.py'))) {
+    if (!root || !fs.existsSync(path.join(root, 'cli', 'dist', 'index.js'))) {
       await this.setup();
       if (!this.installationPath()) return null;
     }
     const account = await this.chooseAccount();
     if (!account) return null;
     const workspace = currentWorkspace() || this.installationPath();
-    const userId = this.connection?.telegram?.user?.id;
     const integrationId = `${this.contourId()}-${crypto.randomUUID().slice(0, 8)}`;
+    // Запускаем Ink TUI (ha) вместо Python chat.py
+    const haBin = path.join(root, 'cli', 'dist', 'index.js');
     const args = [
-      shellQuote(this.pythonCommand(this.installationPath())),
-      shellQuote(path.join(this.installationPath(), 'chat.py')),
+      'node', shellQuote(haBin),
       '-a', shellQuote(account),
       '--cwd', shellQuote(workspace),
       '--integration-id', shellQuote(integrationId),
     ];
-    if (userId !== undefined && userId !== null) args.push('-u', shellQuote(String(userId)));
     let stateMtime = 0;
     try { stateMtime = fs.statSync(this.integrationFile(integrationId)).mtimeMs; } catch { /* New terminal. */ }
     const location = this.configuration().get('terminalLocation', 'editor') === 'panel'

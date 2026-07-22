@@ -37,7 +37,7 @@ function AccountPicker({ onSelect }: { onSelect: (a: Account) => void }) {
   );
 }
 
-export function App({ preselected, resumeId }: { preselected?: string; resumeId?: string }) {
+export function App({ preselected, resumeId, integrationId }: { preselected?: string; resumeId?: string; integrationId?: string }) {
   const [account, setAccount] = useState<Account | null>(() => {
     if (!preselected) return null;
     const accounts = getAccounts();
@@ -48,5 +48,5 @@ export function App({ preselected, resumeId }: { preselected?: string; resumeId?
     return <AccountPicker onSelect={setAccount} />;
   }
 
-  return <FullscreenChat account={account} cwd={process.cwd()} />;
+  return <FullscreenChat account={account} cwd={process.cwd()} integrationId={integrationId} />;
 }

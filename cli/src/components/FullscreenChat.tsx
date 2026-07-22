@@ -16,6 +16,7 @@ import { renderInlineImage, supportsInlineImages } from '../terminal-images.js';
 import { useFullscreen } from '../hooks/useFullscreen.js';
 import { useMouse, type MouseEvent } from '../hooks/useMouse.js';
 import { execSync, spawn } from 'node:child_process';
+import { writeIntegrationState } from '../integration-state.js';
 
 function makeId(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -28,7 +29,7 @@ interface LayoutEntry {
   messageIdx: number;
 }
 
-export function FullscreenChat({ account: initialAccount, cwd }: { account: Account; cwd: string }) {
+export function FullscreenChat({ account: initialAccount, cwd, integrationId }: { account: Account; cwd: string; integrationId?: string }) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const termRows = stdout?.rows || process.stdout.rows || 24;
@@ -65,7 +66,11 @@ export function FullscreenChat({ account: initialAccount, cwd }: { account: Acco
     acceptEdits: 'edits✓', auto: 'auto', plan: 'read-only', default: 'ask',
   };
 
-  React.useEffect(() => { cleanClipboardCache(); }, []);
+  React.useEffect(() => {
+    cleanClipboardCache();
+    if (integrationId) writeIntegrationState(integrationId, { state: 'open', cwd });
+    return () => { if (integrationId) writeIntegrationState(integrationId, { state: 'closed', cwd }); };
+  }, []);
 
   const addMessage = useCallback((msg: ChatMessage) => {
     setMessages((prev) => [...prev, msg]);
@@ -148,6 +153,7 @@ export function FullscreenChat({ account: initialAccount, cwd }: { account: Acco
     setLastDuration(0);
     setPromptCount((c) => c + 1);
     startWorkingTitle(sessionName || project, promptCount + 1);
+    if (integrationId) writeIntegrationState(integrationId, { state: 'working', cwd, title: text, taskCount: promptCount + 1 });
     const t0 = Date.now();
 
     try {
@@ -191,6 +197,7 @@ export function FullscreenChat({ account: initialAccount, cwd }: { account: Acco
       setBusy(false);
       setThinking('');
       setIdleTitle(sessionName || project, promptCount);
+      if (integrationId) writeIntegrationState(integrationId, { state: 'open', cwd, taskCount: promptCount, sessionId: sessionIdRef.current });
     }
   }, [account, cwd, model, tokensIn, tokensOut, project, promptCount, sessionName, attachments, memory, addMessage, updateLastAssistant, doExit]);
 
