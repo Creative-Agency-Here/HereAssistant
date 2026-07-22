@@ -276,12 +276,12 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
       <Box flexDirection="column" flexGrow={1} overflow="hidden" paddingX={1}>
         {messages.length === 0 && (
           <Box flexDirection="column" marginTop={1} paddingX={2}>
-            <Text bold color="cyan">{'  ██╗  ██╗ ███████╗ ██████╗  █████╗'}</Text>
-            <Text bold color="cyan">{'  ██║  ██║ ██╔════╝ ██╔══██╗██╔══██╗'}</Text>
-            <Text bold color="cyan">{'  ███████║ █████╗   ██████╔╝███████║'}</Text>
-            <Text bold color="cyan">{'  ██╔══██║ ██╔══╝   ██╔══██╗██╔══██║'}</Text>
-            <Text bold color="cyan">{'  ██║  ██║ ███████╗ ██║  ██║██║  ██║'}</Text>
-            <Text bold color="cyan">{'  ╚═╝  ╚═╝ ╚══════╝ ╚═╝  ╚═╝╚═╝  ╚═╝'}</Text>
+            <Text bold color="cyan">{'  ██╗  ██╗ ███████╗ ██████╗  ███████╗'}</Text>
+            <Text bold color="cyan">{'  ██║  ██║ ██╔════╝ ██╔══██╗ ██╔════╝'}</Text>
+            <Text bold color="cyan">{'  ███████║ █████╗   ██████╔╝ █████╗'}</Text>
+            <Text bold color="cyan">{'  ██╔══██║ ██╔══╝   ██╔══██╗ ██╔══╝'}</Text>
+            <Text bold color="cyan">{'  ██║  ██║ ███████╗ ██║  ██║ ███████╗'}</Text>
+            <Text bold color="cyan">{'  ╚═╝  ╚═╝ ══════╝ ╚═╝  ╚═╝ ╚══════╝'}</Text>
             <Text> </Text>
             <Text bold color="white">{'  Unified AI Terminal · 4 провайдера'}</Text>
             <Text> </Text>

@@ -124,26 +124,53 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
   useInput((input, key) => {
     if (disabled) return;
 
-    // Пробел = toggle голосовой записи (когда ввод пустой или уже пишем голосом)
+    // Пробел = hold-to-record (как в Claude Code)
+    // Зажал пробел → через 400ms повторов старт записи
+    // Отпустил (нет повторов 300ms) → стоп записи
+    // Работает с любым текстом (не только пустым)
     if (input === ' ' && !key.ctrl && !key.meta && !key.shift) {
-      const isEmpty = text.trim() === '';
       if (recording) {
-        // Стоп записи
-        voiceRef.current?.kill();
-        voiceRef.current = null;
-        setRecording(false);
-        if (voiceText.trim()) setText(voiceText.trim());
+        // Ещё один пробел при записи = держит живым (key repeat)
+        if (spaceHoldRef.current) clearTimeout(spaceHoldRef.current);
+        spaceHoldRef.current = setTimeout(() => {
+          // 300ms без повторов = отпустил пробел → стоп
+          voiceRef.current?.kill();
+          voiceRef.current = null;
+          setRecording(false);
+          // Дописываем распознанное к существующему тексту
+          if (voiceText.trim()) {
+            const current = text;
+            const sep = current && !current.endsWith(' ') ? ' ' : '';
+            setText(current + sep + voiceText.trim());
+            setVoiceText('');
+          }
+        }, 300);
         return;
       }
-      if (isEmpty && canRealtimeVoice()) {
-        // Старт записи
-        setRecording(true);
-        setVoiceText('');
-        voiceRef.current = voiceRealtime(120, (partial) => {
-          setVoiceText(partial);
-        }, (final) => {
-          setVoiceText(final);
-        });
+      // Первый пробел — ждём повторы (hold detection)
+      if (!spaceHoldRef.current && canRealtimeVoice()) {
+        spaceHoldRef.current = setTimeout(() => {
+          // 400ms повторов = зажал → старт записи
+          setRecording(true);
+          setVoiceText('');
+          voiceRef.current = voiceRealtime(120, (partial) => {
+            setVoiceText(partial);
+          }, (final) => {
+            setVoiceText(final);
+          });
+          // Таймер для детекта отпускания
+          spaceHoldRef.current = setTimeout(() => {
+            voiceRef.current?.kill();
+            voiceRef.current = null;
+            setRecording(false);
+            if (voiceText.trim()) {
+              const current = text;
+              const sep = current && !current.endsWith(' ') ? ' ' : '';
+              setText(current + sep + voiceText.trim());
+              setVoiceText('');
+            }
+          }, 300);
+        }, 400);
         return;
       }
     }
