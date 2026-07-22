@@ -1,9 +1,7 @@
-import React, { useState, useRef, useCallback } from 'react';
-import { Box, Text, useApp, useInput } from 'ink';
-import Spinner from 'ink-spinner';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import type { Account, ChatMessage, StreamEvent, ToolCall } from '../types.js';
 import { makeProvider } from '../providers/index.js';
-import { ToolCallBlock } from './ToolCallBlock.js';
 import { ChatInput } from './ChatInput.js';
 import { StatusBar } from './StatusBar.js';
 import { RunSummary } from './RunSummary.js';
@@ -13,20 +11,34 @@ import { startWorkingTitle, setIdleTitle, stopWorkingTitle } from '../terminal-t
 import { cleanClipboardCache } from '../clipboard.js';
 import { loadConfig } from '../config.js';
 import { memoryPrompt } from '../memory.js';
-import { getTheme, type Theme } from '../themes.js';
+import { getTheme } from '../themes.js';
 import { renderInlineImage, supportsInlineImages } from '../terminal-images.js';
+import { useFullscreen } from '../hooks/useFullscreen.js';
+import { useMouse, type MouseEvent } from '../hooks/useMouse.js';
 import { execSync, spawn } from 'node:child_process';
 
 function makeId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
-export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: string }) {
+/** Хранит маппинг row → toolId для hit-testing кликов. */
+interface LayoutEntry {
+  row: number;
+  toolId: string;
+  messageIdx: number;
+}
+
+export function FullscreenChat({ account: initialAccount, cwd }: { account: Account; cwd: string }) {
   const { exit } = useApp();
+  const { stdout } = useStdout();
+  const termRows = stdout?.rows || process.stdout.rows || 24;
+  const termCols = stdout?.columns || process.stdout.columns || 80;
+
+  useFullscreen(true);
+
   const config = React.useMemo(() => loadConfig(cwd), [cwd]);
   const memory = React.useMemo(() => memoryPrompt(cwd), [cwd]);
-  const [themeName, setThemeName] = useState(config.theme || 'dark');
-  const theme = React.useMemo(() => getTheme(themeName), [themeName]);
+  const [themeName] = useState(config.theme || 'dark');
   const [plainMode, setPlainMode] = useState(config.plainMode || false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
@@ -41,10 +53,12 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
   const [attachments, setAttachments] = useState<string[]>([]);
   const [sessionName, setSessionName] = useState<string | null>(null);
   const [promptCount, setPromptCount] = useState(0);
+  const [scrollOffset, setScrollOffset] = useState(0);
+  const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   const sessionIdRef = useRef<string | null>(null);
   const project = cwd.split('/').pop() ?? cwd;
+  const layoutRef = useRef<LayoutEntry[]>([]);
 
-  // Очистка кеша clipboard при старте
   React.useEffect(() => { cleanClipboardCache(); }, []);
 
   const addMessage = useCallback((msg: ChatMessage) => {
@@ -66,11 +80,30 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
     exit();
   }, [exit]);
 
+  const toggleTool = useCallback((toolId: string) => {
+    setExpandedTools((prev) => {
+      const next = new Set(prev);
+      if (next.has(toolId)) next.delete(toolId);
+      else next.add(toolId);
+      return next;
+    });
+  }, []);
+
+  // Mouse handler: клик по tool-блоку → toggle
+  useMouse((event: MouseEvent) => {
+    if (event.type === 'press' && event.button === 'left') {
+      const hit = layoutRef.current.find((e) => e.row === event.row);
+      if (hit) toggleTool(hit.toolId);
+    }
+    if (event.type === 'scroll') {
+      setScrollOffset((prev) => Math.max(0, prev + (event.button === 'scroll-up' ? -3 : 3)));
+    }
+  });
+
   const handleSubmit = useCallback(async (value: string) => {
     const text = value.trim();
     if (!text) return;
 
-    // Slash commands
     if (text.startsWith('/')) {
       const ctx: CommandContext = {
         account, model, sessionId: sessionIdRef.current, cwd,
@@ -79,30 +112,19 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
         setAccount: (a) => { setAccount(a); setModel(a.default_model || ''); },
         resetSession: () => { sessionIdRef.current = null; },
         setSessionId: (id) => { sessionIdRef.current = id; },
-        renameSession: (name) => {
-          setSessionName(name);
-          setIdleTitle(name, promptCount);
-        },
-        setTheme: (name) => { setThemeName(name); },
+        renameSession: (name) => { setSessionName(name); setIdleTitle(name, promptCount); },
+        setTheme: () => {},
         forkSession: () => { sessionIdRef.current = `fork-${makeId()}`; },
         backgroundPrompt: (prompt) => {
           const child = spawn('node', [
             new URL('../index.js', import.meta.url).pathname,
-            '-a', account.label, '--resume', sessionIdRef.current || '',
+            '-a', account.label,
           ], { cwd, detached: true, stdio: 'ignore', env: { ...process.env, HA_BG_PROMPT: prompt } });
           child.unref();
-          addMessage({ id: makeId(), role: 'system', text: `🔄 фоновый агент запущен (PID ${child.pid})`, toolCalls: [], timestamp: Date.now(), streaming: false });
+          addMessage({ id: makeId(), role: 'system', text: `🔄 фон: PID ${child.pid}`, toolCalls: [], timestamp: Date.now(), streaming: false });
         },
-        voiceInput: (text) => {
-          handleSubmit(text);
-        },
-        togglePlain: () => {
-          setPlainMode((p) => {
-            const next = !p;
-            addMessage({ id: makeId(), role: 'system', text: next ? '▸ plain-режим: вывод без ANSI (для копирования)' : '▸ обычный режим', toolCalls: [], timestamp: Date.now(), streaming: false });
-            return next;
-          });
-        },
+        voiceInput: (t) => { handleSubmit(t); },
+        togglePlain: () => { setPlainMode((p) => !p); },
         print: (t) => addMessage({ id: makeId(), role: 'system', text: t, toolCalls: [], timestamp: Date.now(), streaming: false }),
         exit: doExit,
         attachImage: (p) => setAttachments((prev) => [...prev, p]),
@@ -118,8 +140,6 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
     setBusy(true);
     setThinking('');
     setLastDuration(0);
-    setLastTokensIn(0);
-    setLastTokensOut(0);
     setPromptCount((c) => c + 1);
     startWorkingTitle(sessionName || project, promptCount + 1);
     const t0 = Date.now();
@@ -159,16 +179,14 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
     } catch (err) {
       setLastDuration(Date.now() - t0);
       updateLastAssistant((m) => ({
-        ...m,
-        text: `✗ Ошибка: ${err instanceof Error ? err.message : String(err)}`,
-        streaming: false,
+        ...m, text: `✗ ${err instanceof Error ? err.message : String(err)}`, streaming: false,
       }));
     } finally {
       setBusy(false);
       setThinking('');
       setIdleTitle(sessionName || project, promptCount);
     }
-  }, [account, cwd, model, tokensIn, tokensOut, project, addMessage, updateLastAssistant, doExit]);
+  }, [account, cwd, model, tokensIn, tokensOut, project, promptCount, sessionName, attachments, memory, addMessage, updateLastAssistant, doExit]);
 
   const handleShellCommand = useCallback((cmd: string) => {
     addMessage({ id: makeId(), role: 'user', text: `! ${cmd}`, toolCalls: [], timestamp: Date.now(), streaming: false });
@@ -176,17 +194,34 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
       const output = execSync(cmd, { cwd, encoding: 'utf-8', timeout: 30000, shell: '/bin/bash' });
       addMessage({ id: makeId(), role: 'system', text: output.trim() || '(пусто)', toolCalls: [], timestamp: Date.now(), streaming: false });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      addMessage({ id: makeId(), role: 'system', text: `✗ ${msg.slice(0, 500)}`, toolCalls: [], timestamp: Date.now(), streaming: false });
+      addMessage({ id: makeId(), role: 'system', text: `✗ ${err instanceof Error ? err.message.slice(0, 500) : String(err)}`, toolCalls: [], timestamp: Date.now(), streaming: false });
     }
   }, [cwd, addMessage]);
 
+  // Keyboard: scroll
   useInput((input, key) => {
-    if (key.ctrl && input === 'c') doExit();
+    if (key.ctrl && input === 'c') { doExit(); return; }
+    if (key.pageUp) setScrollOffset((p) => Math.max(0, p - 10));
+    if (key.pageDown) setScrollOffset((p) => p + 10);
   });
 
+  // Build layout map for mouse hit testing
+  const TOOL_ICONS: Record<string, string> = {
+    read_file: '📄', write_file: '✏️', edit: '✏️', run_shell_command: '⚡',
+    grep_search: '🔍', glob: '📁', agent: '🤖',
+  };
+
+  // Calculate visible messages (simple: show last N that fit)
+  const visibleAreaHeight = termRows - 4; // status(1) + border(1) + input(1) + padding(1)
+  const visibleMessages = messages.slice(Math.max(0, messages.length - visibleAreaHeight));
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    setScrollOffset(0); // 0 = bottom
+  }, [messages.length]);
+
   return (
-    <Box flexDirection="column" height="100%">
+    <Box flexDirection="column" height={termRows}>
       <StatusBar
         account={account.label}
         model={model || account.default_model || 'default'}
@@ -200,9 +235,9 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
         busy={busy}
       />
 
-      <Box flexDirection="column" flexGrow={1} overflow="hidden">
-        {messages.map((msg) => (
-          <Box key={msg.id} flexDirection="column" marginBottom={1}>
+      <Box flexDirection="column" flexGrow={1} overflow="hidden" paddingX={1}>
+        {visibleMessages.map((msg, msgIdx) => (
+          <Box key={msg.id} flexDirection="column" marginBottom={0}>
             {msg.role === 'user' && (
               <Box><Text color="cyan" bold>› </Text><Text>{msg.text}</Text></Box>
             )}
@@ -215,11 +250,39 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
             )}
             {msg.role === 'assistant' && (
               <Box flexDirection="column">
-                {msg.toolCalls.map((tool) => (
-                  <ToolCallBlock key={tool.id} tool={tool} />
-                ))}
+                {msg.toolCalls.map((tool) => {
+                  const icon = TOOL_ICONS[tool.name] ?? '🔧';
+                  const statusIcon = tool.status === 'running' ? '⏳' : tool.status === 'error' ? '✗' : '✓';
+                  const statusColor = tool.status === 'running' ? 'yellow' : tool.status === 'error' ? 'red' : 'green';
+                  const isExpanded = expandedTools.has(tool.id);
+                  const inputPreview = tool.input.replace(/\n/g, ' ').slice(0, 60);
+                  const outputLines = tool.output ? tool.output.split('\n') : [];
+
+                  return (
+                    <Box key={tool.id} flexDirection="column" marginLeft={1}>
+                      <Box>
+                        <Text color={statusColor}>{statusIcon} </Text>
+                        <Text>{icon} </Text>
+                        <Text bold>{tool.name}</Text>
+                        <Text dimColor> {inputPreview}</Text>
+                        {outputLines.length > 0 && !isExpanded && (
+                          <Text dimColor> [{outputLines.length} строк — клик раскрыть]</Text>
+                        )}
+                        {isExpanded && <Text dimColor> [клик свернуть]</Text>}
+                      </Box>
+                      {isExpanded && tool.output && (
+                        <Box marginLeft={2} flexDirection="column">
+                          {outputLines.slice(0, 30).map((line, i) => (
+                            <Text key={i} dimColor>{line}</Text>
+                          ))}
+                          {outputLines.length > 30 && <Text dimColor>… ещё {outputLines.length - 30} строк</Text>}
+                        </Box>
+                      )}
+                    </Box>
+                  );
+                })}
                 {msg.text ? (
-                  <Box marginTop={msg.toolCalls.length > 0 ? 1 : 0} flexDirection="column">
+                  <Box flexDirection="column">
                     {(plainMode
                       ? renderMarkdown(msg.text).map((l) => l.replace(/\x1b\[[0-9;]*m/g, ''))
                       : renderMarkdown(msg.text)
@@ -230,10 +293,10 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
                   </Box>
                 ) : (
                   msg.streaming && msg.toolCalls.length === 0 && (
-                    <Box><Text color="yellow"><Spinner type="dots" /> думаю…</Text></Box>
+                    <Text color="yellow">⠋ думаю…</Text>
                   )
                 )}
-                {!msg.streaming && msg.role === 'assistant' && lastDuration > 0 && (
+                {!msg.streaming && lastDuration > 0 && msg === messages[messages.length - 1] && (
                   <RunSummary durationMs={lastDuration} tokensIn={lastTokensIn} tokensOut={lastTokensOut} />
                 )}
               </Box>
@@ -241,9 +304,7 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
           </Box>
         ))}
         {thinking && (
-          <Box marginLeft={1}>
-            <Text dimColor italic>💭 {thinking.slice(-200)}</Text>
-          </Box>
+          <Box marginLeft={1}><Text dimColor italic>💭 {thinking.slice(-200)}</Text></Box>
         )}
       </Box>
 

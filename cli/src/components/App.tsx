@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { Account } from '../types.js';
 import { getAccounts } from '../db.js';
-import { Chat } from './Chat.js';
+import { FullscreenChat } from './FullscreenChat.js';
 
 function AccountPicker({ onSelect }: { onSelect: (a: Account) => void }) {
   const accounts = getAccounts();
@@ -48,5 +48,5 @@ export function App({ preselected, resumeId }: { preselected?: string; resumeId?
     return <AccountPicker onSelect={setAccount} />;
   }
 
-  return <Chat account={account} cwd={process.cwd()} />;
+  return <FullscreenChat account={account} cwd={process.cwd()} />;
 }

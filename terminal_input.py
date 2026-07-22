@@ -18,9 +18,13 @@ from prompt_toolkit.key_binding import KeyBindings
 
 
 def _mouse_default() -> bool:
-    """Мышь по умолчанию выключена: mouse reporting перехватывает выделение
-    и ломает копирование soft-wrap строк. Включение: HA_MOUSE=1 или /mouse."""
-    return os.environ.get("HA_MOUSE", "").strip() in ("1", "true", "yes")
+    """Мышь включена по умолчанию (как в Claude Code / Codex).
+    Выделение текста — через Shift+drag (стандарт терминалов с mouse reporting).
+    Выключить: HA_MOUSE=0."""
+    v = os.environ.get("HA_MOUSE", "").strip()
+    if v in ("0", "false", "no"):
+        return False
+    return True
 
 
 class SlashCommandCompleter(Completer):

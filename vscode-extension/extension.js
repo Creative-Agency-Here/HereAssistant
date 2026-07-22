@@ -654,7 +654,7 @@ class Controller {
     // Имя намеренно не фиксируется через API: OSC title из chat.py должен
     // свободно показывать текущую задачу и её анимацию в terminal-editor вкладке.
     const env = {};
-    if (this.configuration().get('mouseSupport', false)) env.HA_MOUSE = '1';
+    if (this.configuration().get('mouseSupport', true) === false) env.HA_MOUSE = '0';
     this.terminal = vscode.window.createTerminal({ cwd: workspace, location, env });
     this.terminals.set(this.terminal, { id: integrationId, stateMtime, state: null });
     this.terminal.show();

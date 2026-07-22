@@ -7,6 +7,8 @@ export interface HaConfig {
   defaultAccount?: string;
   approvalMode?: string;
   theme?: string;
+  plainMode?: boolean;
+  mouseSupport?: boolean;
 }
 
 const CONFIG_NAMES = ['.hereassistant/config.json', '.ha/config.json'];
