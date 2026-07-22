@@ -149,6 +149,15 @@ class SectionProvider {
 
 const SESSION_ICONS = { working: 'sync~spin', open: 'pass', error: 'error', closed: 'stop-circle' };
 
+function sessionLabel(session) {
+  if (session.state === 'working') return '⚙ работает';
+  if (session.state === 'error') return '✗ ошибка';
+  if (session.state === 'closed') return '○ закрыта';
+  // state === 'open'
+  if (session.alive) return '✓ открыта · AFK';
+  return '✓ открыта · AFK';
+}
+
 class SessionsProvider {
   constructor(controller) {
     this.controller = controller;
@@ -164,7 +173,7 @@ class SessionsProvider {
       const icon = SESSION_ICONS[session.state] || 'circle-outline';
       const ago = timeAgo(session.updatedAt);
       const alive = session.alive ? ' · терминал открыт' : '';
-      const item = new NodeItem(session.title, `${ago}${alive}`, icon);
+      const item = new NodeItem(session.title, `${sessionLabel(session)} · ${ago}${alive}`, icon);
       if (session.preview) item.tooltip = session.preview;
       item.command = {
         command: 'hereAssistant.reconnectSession',
@@ -272,7 +281,7 @@ class Controller {
       void vscode.window.showInformationMessage('Сессий за последнюю неделю нет.');
       return;
     }
-    const stateLabels = { working: '⚙ работает', open: '✓ открыта', error: '✗ ошибка', closed: '○ закрыта' };
+    const stateLabels = { working: '⚙ работает', open: '✓ открыта · AFK', error: '✗ ошибка', closed: '○ закрыта' };
     const picked = await vscode.window.showQuickPick(
       sessions.map((session) => ({
         label: `${session.alive ? '$(terminal) ' : ''}${session.title}`,
