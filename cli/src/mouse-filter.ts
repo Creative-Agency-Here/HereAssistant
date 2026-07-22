@@ -22,6 +22,20 @@ export class MouseFilterStream extends Transform {
 
   constructor() {
     super({ encoding: 'utf-8' });
+
+    // Проксируем TTY-свойства на реальный stdin — Ink требует setRawMode
+    const realStdin = process.stdin;
+    Object.defineProperty(this, 'isTTY', { get: () => realStdin.isTTY });
+    Object.defineProperty(this, 'isRaw', { get: () => realStdin.isRaw });
+    (this as unknown as Record<string, unknown>).setRawMode = (mode: boolean) => {
+      if (realStdin.isTTY && realStdin.setRawMode) {
+        realStdin.setRawMode(mode);
+      }
+      return this;
+    };
+    // Проксируем columns/rows (из stdout — там точно есть)
+    Object.defineProperty(this, 'columns', { get: () => process.stdout.columns });
+    Object.defineProperty(this, 'rows', { get: () => process.stdout.rows });
   }
 
   _transform(chunk: Buffer, _encoding: string, callback: TransformCallback): void {
