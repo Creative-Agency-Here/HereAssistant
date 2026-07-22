@@ -36,6 +36,11 @@ export class MouseFilterStream extends Transform {
     // Проксируем columns/rows (из stdout — там точно есть)
     Object.defineProperty(this, 'columns', { get: () => process.stdout.columns });
     Object.defineProperty(this, 'rows', { get: () => process.stdout.rows });
+    // Проксируем ref/unref — Ink управляет event loop через них
+    (this as unknown as Record<string, unknown>).ref = () => { realStdin.ref?.(); return this; };
+    (this as unknown as Record<string, unknown>).unref = () => { realStdin.unref?.(); return this; };
+    (this as unknown as Record<string, unknown>).resume = () => { realStdin.resume(); return this; };
+    (this as unknown as Record<string, unknown>).pause = () => { realStdin.pause(); return this; };
   }
 
   _transform(chunk: Buffer, _encoding: string, callback: TransformCallback): void {
