@@ -37,7 +37,7 @@ function AccountPicker({ onSelect }: { onSelect: (a: Account) => void }) {
   );
 }
 
-export function App({ preselected }: { preselected?: string }) {
+export function App({ preselected, resumeId }: { preselected?: string; resumeId?: string }) {
   const [account, setAccount] = useState<Account | null>(() => {
     if (!preselected) return null;
     const accounts = getAccounts();

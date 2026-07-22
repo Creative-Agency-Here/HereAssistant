@@ -1,14 +1,11 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { Box, Text, useApp, useInput, useStdin } from 'ink';
+import { Box, Text, useApp, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import Spinner from 'ink-spinner';
 import type { Account, ChatMessage, StreamEvent, ToolCall } from '../types.js';
-import { QwenCodeProvider } from '../providers/qwen.js';
+import { makeProvider } from '../providers/index.js';
 import { ToolCallBlock } from './ToolCallBlock.js';
-
-const PROVIDER_MAP: Record<string, (account: Account) => { run: QwenCodeProvider['run'] }> = {
-  qwen_code: (a) => new QwenCodeProvider(a),
-};
+import { renderMarkdown } from './markdown.js';
 
 function makeId(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -21,7 +18,6 @@ export function Chat({ account, cwd }: { account: Account; cwd: string }) {
   const [busy, setBusy] = useState(false);
   const [model] = useState(account.default_model || '');
   const sessionIdRef = useRef<string | null>(null);
-  const { stdin } = useStdin();
 
   const addMessage = useCallback((msg: ChatMessage) => {
     setMessages((prev) => [...prev, msg]);
@@ -42,80 +38,44 @@ export function Chat({ account, cwd }: { account: Account; cwd: string }) {
     if (!text) return;
     setInput('');
 
-    if (text === '/exit' || text === '/quit') {
-      exit();
+    if (text === '/exit' || text === '/quit') { exit(); return; }
+    if (text === '/new') {
+      sessionIdRef.current = null;
+      addMessage({ id: makeId(), role: 'system', text: 'Новая сессия — контекст очищен.', toolCalls: [], timestamp: Date.now(), streaming: false });
       return;
     }
 
-    addMessage({
-      id: makeId(),
-      role: 'user',
-      text,
-      toolCalls: [],
-      timestamp: Date.now(),
-      streaming: false,
-    });
+    addMessage({ id: makeId(), role: 'user', text, toolCalls: [], timestamp: Date.now(), streaming: false });
 
     const assistantMsg: ChatMessage = {
-      id: makeId(),
-      role: 'assistant',
-      text: '',
-      toolCalls: [],
-      timestamp: Date.now(),
-      streaming: true,
+      id: makeId(), role: 'assistant', text: '', toolCalls: [], timestamp: Date.now(), streaming: true,
     };
     addMessage(assistantMsg);
     setBusy(true);
 
-    const provider = PROVIDER_MAP[account.provider];
-    if (!provider) {
-      updateLastAssistant((m) => ({
-        ...m,
-        text: `Провайдер "${account.provider}" пока не поддерживается в TUI.`,
-        streaming: false,
-      }));
-      setBusy(false);
-      return;
-    }
-
     try {
-      const result = await provider(account).run(
-        text,
-        cwd,
-        sessionIdRef.current,
-        model || null,
-        (event: StreamEvent) => {
-          if (event.type === 'text' && typeof event.text === 'string') {
-            updateLastAssistant((m) => ({ ...m, text: m.text + event.text }));
-          } else if (event.type === 'tool_start' && event.tool) {
-            const tool = event.tool as ToolCall;
-            updateLastAssistant((m) => ({
-              ...m,
-              toolCalls: [...m.toolCalls, { ...tool }],
-            }));
-          } else if (event.type === 'tool_end') {
-            const toolId = String(event.toolId ?? '');
-            const output = event.output != null ? String(event.output) : '';
-            const isError = Boolean(event.isError);
-            updateLastAssistant((m) => ({
-              ...m,
-              toolCalls: m.toolCalls.map((t) =>
-                t.id === toolId
-                  ? { ...t, status: isError ? 'error' : 'done', output: String(output ?? '') }
-                  : t,
-              ),
-            }));
-          }
-        },
-      );
+      const provider = makeProvider(account);
+      const result = await provider.run(text, cwd, sessionIdRef.current, model || null, (event: StreamEvent) => {
+        if (event.type === 'text' && typeof event.text === 'string') {
+          updateLastAssistant((m) => ({ ...m, text: m.text + (event.text as string) }));
+        } else if (event.type === 'tool_start' && event.tool) {
+          const tool = event.tool as ToolCall;
+          updateLastAssistant((m) => ({ ...m, toolCalls: [...m.toolCalls, { ...tool }] }));
+        } else if (event.type === 'tool_end') {
+          const toolId = String(event.toolId ?? '');
+          const output = event.output != null ? String(event.output) : '';
+          const isError = Boolean(event.isError);
+          updateLastAssistant((m) => ({
+            ...m,
+            toolCalls: m.toolCalls.map((t) =>
+              t.id === toolId ? { ...t, status: isError ? 'error' as const : 'done' as const, output } : t,
+            ),
+          }));
+        }
+      });
 
       if (result.sessionId) sessionIdRef.current = result.sessionId;
-
-      updateLastAssistant((m) => ({
-        ...m,
-        text: result.text || m.text,
-        streaming: false,
-      }));
+      updateLastAssistant((m) => ({ ...m, text: result.text || m.text, streaming: false }));
     } catch (err) {
       updateLastAssistant((m) => ({
         ...m,
@@ -128,45 +88,47 @@ export function Chat({ account, cwd }: { account: Account; cwd: string }) {
   }, [account, cwd, model, addMessage, updateLastAssistant, exit]);
 
   useInput((input, key) => {
-    if (key.ctrl && input === 'c') {
-      exit();
-    }
+    if (key.ctrl && input === 'c') exit();
   });
 
   return (
     <Box flexDirection="column" height="100%">
-      {/* Header */}
       <Box borderStyle="single" borderBottom={false} borderLeft={false} borderRight={false} paddingX={1}>
         <Text bold color="magenta">HereAssistant</Text>
         <Text dimColor> · {account.label}</Text>
         <Text dimColor> · {model || 'default'}</Text>
         <Text dimColor> · {cwd.split('/').pop()}</Text>
+        {sessionIdRef.current && <Text dimColor> · сессия {sessionIdRef.current.slice(0, 8)}</Text>}
       </Box>
 
-      {/* Messages */}
       <Box flexDirection="column" flexGrow={1} overflow="hidden">
         {messages.map((msg) => (
           <Box key={msg.id} flexDirection="column" marginBottom={1}>
-            {msg.role === 'user' ? (
+            {msg.role === 'user' && (
               <Box>
                 <Text color="cyan" bold>› </Text>
                 <Text>{msg.text}</Text>
               </Box>
-            ) : (
+            )}
+            {msg.role === 'system' && (
+              <Box><Text dimColor italic>{msg.text}</Text></Box>
+            )}
+            {msg.role === 'assistant' && (
               <Box flexDirection="column">
                 {msg.toolCalls.map((tool, i) => (
                   <ToolCallBlock key={tool.id} tool={tool} index={i} />
                 ))}
-                {msg.text && (
-                  <Box marginTop={msg.toolCalls.length > 0 ? 1 : 0}>
-                    <Text>{msg.text}</Text>
+                {msg.text ? (
+                  <Box marginTop={msg.toolCalls.length > 0 ? 1 : 0} flexDirection="column">
+                    {renderMarkdown(msg.text).map((line, i) => (
+                      <Text key={i}>{line}</Text>
+                    ))}
                     {msg.streaming && <Text color="yellow"> ▌</Text>}
                   </Box>
-                )}
-                {msg.streaming && !msg.text && msg.toolCalls.length === 0 && (
-                  <Box>
-                    <Text color="yellow"><Spinner type="dots" /> думаю…</Text>
-                  </Box>
+                ) : (
+                  msg.streaming && msg.toolCalls.length === 0 && (
+                    <Box><Text color="yellow"><Spinner type="dots" /> думаю…</Text></Box>
+                  )
                 )}
               </Box>
             )}
@@ -174,7 +136,6 @@ export function Chat({ account, cwd }: { account: Account; cwd: string }) {
         ))}
       </Box>
 
-      {/* Input */}
       <Box borderTop borderStyle="single" paddingX={1}>
         {busy ? (
           <Text dimColor><Spinner type="dots" /> агент работает…</Text>
@@ -185,7 +146,7 @@ export function Chat({ account, cwd }: { account: Account; cwd: string }) {
               value={input}
               onChange={setInput}
               onSubmit={handleSubmit}
-              placeholder="напиши сообщение… (/exit — выход)"
+              placeholder="сообщение… (/new /exit)"
             />
           </Box>
         )}
