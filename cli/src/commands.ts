@@ -4,6 +4,7 @@ import { pasteImageFromClipboard } from './clipboard.js';
 import { listSessions, formatSessionAge } from './sessions.js';
 import { THEME_NAMES } from './themes.js';
 import { voiceToText, canRecord } from './voice.js';
+import { loadMcpConfig, addMcpServer, removeMcpServer, formatMcpServers, type McpServer } from './mcp.js';
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,6 +25,7 @@ export interface CommandContext {
   forkSession: () => void;
   backgroundPrompt: (prompt: string) => void;
   voiceInput: (text: string) => void;
+  togglePlain: () => void;
   print: (text: string) => void;
   exit: () => void;
   attachImage: (path: string) => void;
@@ -43,6 +45,8 @@ const HELP = `Команды:
   /archive [id]      архивировать сессию
   /delete [id]       удалить сессию
   /voice [сек]       голосовой ввод (mlx-whisper, M2 GPU)
+  /mcp [list|add|rm] управление MCP-серверами
+  /plain             режим без ANSI (для копирования)
   /image             вставить фото из clipboard (Ctrl+V)
   /diff              показать git diff
   /new               новая сессия (очистить контекст)
@@ -102,12 +106,14 @@ export function handleCommand(line: string, ctx: CommandContext): boolean {
 
     case '/status': {
       const tokens = ctx.tokensIn + ctx.tokensOut;
+      const mcp = loadMcpConfig(ctx.cwd);
       ctx.print(
         `▸ аккаунт: ${ctx.account.label} (${ctx.account.provider})\n` +
         `▸ модель: ${ctx.model || ctx.account.default_model || 'default'}\n` +
         `▸ сессия: ${ctx.sessionId ? ctx.sessionId.slice(0, 16) : 'нет'}\n` +
         `▸ токены: ${tokens > 0 ? (tokens / 1000).toFixed(1) + 'k' : '0'}\n` +
-        `▸ проект: ${ctx.cwd}`,
+        `▸ проект: ${ctx.cwd}\n` +
+        `▸ MCP: ${mcp.servers.length} серверов\n${formatMcpServers(mcp)}`,
       );
       return true;
     }
@@ -238,6 +244,36 @@ export function handleCommand(line: string, ctx: CommandContext): boolean {
       }
       return true;
     }
+
+    case '/mcp': {
+      const mcpConfig = loadMcpConfig(ctx.cwd);
+      const sub = parts[1]?.toLowerCase();
+      if (!sub || sub === 'list') {
+        ctx.print(`MCP-серверы (${mcpConfig.servers.length}):\n${formatMcpServers(mcpConfig)}`);
+      } else if (sub === 'add' && parts[2]) {
+        const name = parts[2];
+        const url = parts[3];
+        if (url) {
+          addMcpServer(ctx.cwd, { name, httpUrl: url, description: parts.slice(4).join(' ') || undefined });
+          ctx.print(`▸ MCP-сервер добавлен: ${name} → ${url}`);
+        } else {
+          ctx.print('Использование: /mcp add <имя> <url> [описание]');
+        }
+      } else if ((sub === 'rm' || sub === 'remove') && parts[2]) {
+        if (removeMcpServer(ctx.cwd, parts[2])) {
+          ctx.print(`▸ MCP-сервер удалён: ${parts[2]}`);
+        } else {
+          ctx.print(`✗ сервер "${parts[2]}" не найден`);
+        }
+      } else {
+        ctx.print('Использование: /mcp [list|add <имя> <url>|rm <имя>]');
+      }
+      return true;
+    }
+
+    case '/plain':
+      ctx.togglePlain();
+      return true;
 
     case '/image': {
       const imgPath = pasteImageFromClipboard();

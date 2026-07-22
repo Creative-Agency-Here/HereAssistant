@@ -7,7 +7,7 @@ import path from 'node:path';
 
 const SLASH_COMMANDS = [
   '/help', '/model', '/account', '/status', '/resume', '/rename', '/fork', '/search', '/bg',
-  '/theme', '/archive', '/delete', '/image', '/diff', '/new', '/compact', '/exit',
+  '/theme', '/archive', '/delete', '/voice', '/mcp', '/plain', '/image', '/diff', '/new', '/compact', '/exit',
 ];
 
 interface Props {

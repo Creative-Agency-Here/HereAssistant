@@ -27,6 +27,7 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
   const memory = React.useMemo(() => memoryPrompt(cwd), [cwd]);
   const [themeName, setThemeName] = useState(config.theme || 'dark');
   const theme = React.useMemo(() => getTheme(themeName), [themeName]);
+  const [plainMode, setPlainMode] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [account, setAccount] = useState(initialAccount);
@@ -93,8 +94,14 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
           addMessage({ id: makeId(), role: 'system', text: `🔄 фоновый агент запущен (PID ${child.pid})`, toolCalls: [], timestamp: Date.now(), streaming: false });
         },
         voiceInput: (text) => {
-          // Голосовой текст вставляется как пользовательское сообщение и отправляется
           handleSubmit(text);
+        },
+        togglePlain: () => {
+          setPlainMode((p) => {
+            const next = !p;
+            addMessage({ id: makeId(), role: 'system', text: next ? '▸ plain-режим: вывод без ANSI (для копирования)' : '▸ обычный режим', toolCalls: [], timestamp: Date.now(), streaming: false });
+            return next;
+          });
         },
         print: (t) => addMessage({ id: makeId(), role: 'system', text: t, toolCalls: [], timestamp: Date.now(), streaming: false }),
         exit: doExit,
@@ -213,7 +220,10 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
                 ))}
                 {msg.text ? (
                   <Box marginTop={msg.toolCalls.length > 0 ? 1 : 0} flexDirection="column">
-                    {renderMarkdown(msg.text).map((line, i) => (
+                    {(plainMode
+                      ? renderMarkdown(msg.text).map((l) => l.replace(/\x1b\[[0-9;]*m/g, ''))
+                      : renderMarkdown(msg.text)
+                    ).map((line, i) => (
                       <Text key={i}>{line}</Text>
                     ))}
                     {msg.streaming && <Text color="yellow"> ▌</Text>}
