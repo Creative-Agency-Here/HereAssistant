@@ -36,7 +36,7 @@ async def test_repl_runs_each_plain_prompt_once(monkeypatch: pytest.MonkeyPatch)
         },
     )
     monkeypatch.setattr(chat, "_farewell", lambda: None)
-    run_prompt = AsyncMock(return_value=True)
+    run_prompt = AsyncMock(return_value=(True, ""))
     monkeypatch.setattr(chat, "_run_prompt", run_prompt)
     account = cast(
         AccountRecord,

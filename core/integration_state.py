@@ -29,6 +29,7 @@ def write(
     task_count: int = 0,
     title: str | None = None,
     session_id: str | None = None,
+    preview: str | None = None,
 ) -> dict[str, Any]:
     if state not in STATES:
         raise ValueError("Некорректное состояние интеграции")
@@ -41,6 +42,7 @@ def write(
         "taskCount": max(0, min(999, int(task_count))),
         "title": " ".join(str(title or "").split())[:120] or None,
         "sessionId": str(session_id or "")[:160] or None,
+        "preview": " ".join(str(preview or "").split())[:300] or None,
         "updatedAt": int(time.time()),
     }
     temporary = path.with_suffix(f".{os.getpid()}.tmp")

@@ -169,7 +169,7 @@ async def _run_prompt(
     *,
     client_surface: str,
     terminal_app: str | None,
-) -> bool:
+) -> tuple[bool, str]:
     state = ProgressRenderState()
     prov = providers.make(sess.account, user_id=sess.user_id)
     prov.permission_mode = sess.permission_mode
@@ -192,7 +192,7 @@ async def _run_prompt(
             await activity.stop()
     except Exception as e:
         print(f"\n{R}✗ Ошибка: {e}{X}")
-        return False
+        return False, ""
     finally:
         prov.cleanup_runtime()
     finish_stream(state, text)
@@ -220,7 +220,7 @@ async def _run_prompt(
             terminal_app=terminal_app,
         ),
     )
-    return True
+    return True, text
 
 
 # ---------- прощание ----------
@@ -320,8 +320,9 @@ async def _repl(sess: Session, integration_id: str | None = None):
                 session_id=sess.session_id,
             )
         completed = False
+        answer_text = ""
         try:
-            completed = await _run_prompt(
+            completed, answer_text = await _run_prompt(
                 sess,
                 line,
                 client_surface=client_surface,
@@ -340,6 +341,7 @@ async def _repl(sess: Session, integration_id: str | None = None):
                     task_count=latest["open"],
                     title=None if completed else line,
                     session_id=sess.session_id,
+                    preview=answer_text or None,
                 )
 
 

@@ -165,6 +165,7 @@ class SessionsProvider {
       const ago = timeAgo(session.updatedAt);
       const alive = session.alive ? ' · терминал открыт' : '';
       const item = new NodeItem(session.title, `${ago}${alive}`, icon);
+      if (session.preview) item.tooltip = session.preview;
       item.command = {
         command: 'hereAssistant.reconnectSession',
         title: 'Перейти к сессии',
@@ -228,6 +229,7 @@ class Controller {
         cwd: data.cwd || '',
         taskCount: Number(data.taskCount || 0),
         sessionId: data.sessionId || null,
+        preview: cleanLine(data.preview, 300) || null,
         updatedAt,
         alive,
       });
@@ -269,7 +271,7 @@ class Controller {
       sessions.map((session) => ({
         label: `${session.alive ? '$(terminal) ' : ''}${session.title}`,
         description: `${stateLabels[session.state] || session.state} · ${timeAgo(session.updatedAt)}`,
-        detail: session.cwd ? `Проект: ${session.cwd}` : undefined,
+        detail: [session.cwd ? `Проект: ${session.cwd}` : '', session.preview || ''].filter(Boolean).join(' · '),
         session,
       })),
       { title: 'HereAssistant · сессии', placeHolder: 'Выберите сессию для перехода' },
