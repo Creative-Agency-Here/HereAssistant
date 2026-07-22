@@ -48,13 +48,8 @@ publish() {
 
   echo "📦 Публикую: $(basename "$vsix")"
 
-  # Устанавливаем ovsx если нет
-  if ! command -v ovsx &>/dev/null; then
-    echo "📥 Устанавливаю ovsx..."
-    npm install -g ovsx
-  fi
-
-  ovsx publish "$vsix" -p "$token"
+  # Публикуем через npx (без глобальной установки)
+  npx --yes ovsx publish "$vsix" -p "$token"
   echo ""
   echo "✅ Опубликовано на https://open-vsx.org/extension/creative-agency-here/hereassistant-vscode"
 }
