@@ -1,12 +1,16 @@
-import { execSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CACHE_DIR = path.join(os.tmpdir(), 'ha-clipboard');
+const CLIPBOARD_IMG_BIN = path.join(__dirname, '..', 'bin', 'clipboard_img');
 
-/** Сохраняет изображение из clipboard в temp-файл. Возвращает путь или null. */
+/** Сохраняет изображение из clipboard в temp-файл. Возвращает путь или null.
+ *  Использует нативный Swift-бинарник (не требует osascript automation permissions). */
 export function pasteImageFromClipboard(): string | null {
   if (process.platform !== 'darwin') return null;
 
@@ -15,34 +19,12 @@ export function pasteImageFromClipboard(): string | null {
   const filePath = path.join(CACHE_DIR, `${id}.png`);
 
   try {
-    const script = `
-      try
-        set imgData to the clipboard as «class PNGf»
-        set fp to open for access POSIX file "${filePath}" with write permission
-        set eof fp to 0
-        write imgData to fp
-        close access fp
-        return "ok"
-      on error
-        try
-          close access POSIX file "${filePath}"
-        end try
-        return "no_image"
-      end try
-    `;
-    const result = execSync(`osascript -e '${script.replace(/'/g, "'\\''")}'`, {
-      encoding: 'utf-8',
-      timeout: 5000,
-    }).trim();
-
-    if (result === 'ok' && fs.existsSync(filePath) && fs.statSync(filePath).size > 0) {
+    const result = spawnSync(CLIPBOARD_IMG_BIN, [filePath], { timeout: 5000 });
+    if (result.status === 0 && fs.existsSync(filePath) && fs.statSync(filePath).size > 0) {
       return filePath;
     }
-  } catch {
-    // Clipboard doesn't contain image
-  }
+  } catch { /* ignore */ }
 
-  // Cleanup empty file
   try { fs.unlinkSync(filePath); } catch { /* ignore */ }
   return null;
 }
@@ -50,15 +32,15 @@ export function pasteImageFromClipboard(): string | null {
 /** Проверяет, есть ли изображение в clipboard (без сохранения). */
 export function hasClipboardImage(): boolean {
   if (process.platform !== 'darwin') return false;
+  const tmp = path.join(CACHE_DIR, '_check.png');
   try {
-    const result = execSync(
-      `osascript -e 'try\nthe clipboard as «class PNGf»\nreturn "yes"\non error\nreturn "no"\nend try'`,
-      { encoding: 'utf-8', timeout: 3000 },
-    ).trim();
-    return result === 'yes';
-  } catch {
-    return false;
-  }
+    const result = spawnSync(CLIPBOARD_IMG_BIN, [tmp], { timeout: 3000 });
+    if (result.status === 0) {
+      try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+      return true;
+    }
+  } catch { /* ignore */ }
+  return false;
 }
 
 /** Очищает старые файлы из кеша (> 1 час). */

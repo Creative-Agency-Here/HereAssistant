@@ -156,13 +156,16 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
   useInput((input, key) => {
     if (disabled) return;
 
-    // Пробел = голос (hold 1с → вкл, короткое нажатие → выкл)
+    // Пробел = печатает пробел ИЛИ включает голос при зажатии (как Claude Code)
+    // Логика: каждый пробел сразу печатается. Если повторы сыпятся (hold) —
+    // через 3 повтора включается голос и лишние пробелы стираются.
     if (input === ' ' && !key.ctrl && !key.meta && !key.shift) {
       if (recording) {
-        // В режиме записи: короткий пробел = стоп (не repeat)
+        // В режиме записи: пробел = стоп (короткое нажатие)
+        // Игнорируем key repeat во время записи
         if (spaceHoldRef.current) clearTimeout(spaceHoldRef.current);
         spaceHoldRef.current = setTimeout(() => {
-          // Если за 250ms не пришёл ещё пробел — это короткое нажатие = стоп
+          // 200ms без повторов = короткое нажатие = стоп
           voiceRef.current?.kill();
           voiceRef.current = null;
           setRecording(false);
@@ -173,39 +176,74 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
             setText(current + sep + voiceText.trim());
             setVoiceText('');
           }
-        }, 250);
+        }, 200);
         return;
       }
-      // Не в режиме записи: ждём hold (повторы пробела = зажатие)
-      if (!spaceHoldRef.current) {
-        let holdCount = 0;
-        spaceHoldRef.current = setTimeout(() => {
-          spaceHoldRef.current = null;
-        }, 1200); // окно для hold
-        // Считаем повторы через замыкание
-        const checkHold = () => {
-          holdCount++;
-          if (holdCount >= 3 && canRealtimeVoice()) {
-            // 3+ повтора за 1.2с = зажал → старт
-            if (spaceHoldRef.current) clearTimeout(spaceHoldRef.current);
-            spaceHoldRef.current = null;
-            setRecording(true);
-            setVoiceText('');
-            voiceRef.current = voiceRealtime(120, (partial) => {
-              setVoiceText(partial);
-            }, (final) => {
-              setVoiceText(final);
-            });
-          }
-        };
-        checkHold();
-        // Сохраняем checkHold для вызова при следующем пробеле
-        (spaceHoldRef as unknown as Record<string, unknown>)._checkHold = checkHold;
-        return;
+
+      // Печатаем пробел СРАЗУ (как обычно)
+      const col = Math.min(cursorCol, currentLine.length);
+      const newLines = [...lines];
+      newLines[cursorLine] = currentLine.slice(0, col) + ' ' + currentLine.slice(col);
+      setLines(newLines);
+      setCursorCol(col + 1);
+
+      // Трекаем повторы для hold detection
+      const now = Date.now();
+      const lastSpace = (spaceHoldRef.current as unknown as number) || 0;
+      if (now - lastSpace < 150) {
+        // Повторный пробел в течение 150ms = key repeat (зажатие)
+        const count = ((spaceHoldRef as unknown as Record<string, number>)._count || 0) + 1;
+        (spaceHoldRef as unknown as Record<string, number>)._count = count;
+        if (count >= 3 && canRealtimeVoice()) {
+          // 3+ повтора = зажал → стираем лишние пробелы и включаем голос
+          const removeCount = count + 1; // все пробелы из hold
+          const line = newLines[cursorLine];
+          const removeStart = Math.max(0, col + 1 - removeCount);
+          newLines[cursorLine] = line.slice(0, removeStart) + line.slice(col + 1);
+          setLines(newLines);
+          setCursorCol(removeStart);
+          // Включаем запись
+          setRecording(true);
+          setVoiceText('');
+          (spaceHoldRef as unknown as Record<string, number>)._count = 0;
+          voiceRef.current = voiceRealtime(120, (partial) => {
+            setVoiceText(partial);
+          }, (final) => {
+            setVoiceText(final);
+          });
+        }
+      } else {
+        (spaceHoldRef as unknown as Record<string, number>)._count = 1;
       }
-      // Повторный пробел в окне hold
-      const fn = (spaceHoldRef as unknown as Record<string, unknown>)._checkHold as (() => void) | undefined;
-      if (fn) fn();
+      (spaceHoldRef.current as unknown as number) = now;
+      // Сброс счётчика через 300ms без повторов
+      setTimeout(() => {
+        (spaceHoldRef as unknown as Record<string, number>)._count = 0;
+      }, 300);
+      return;
+    }
+
+    // Ctrl+M = тоже toggle голос (альтернатива)
+    if (key.ctrl && input === 'm') {
+      if (recording) {
+        voiceRef.current?.kill();
+        voiceRef.current = null;
+        setRecording(false);
+        if (voiceText.trim()) {
+          const current = text;
+          const sep = current && !current.endsWith(' ') ? ' ' : '';
+          setText(current + sep + voiceText.trim());
+          setVoiceText('');
+        }
+      } else if (canRealtimeVoice()) {
+        setRecording(true);
+        setVoiceText('');
+        voiceRef.current = voiceRealtime(120, (partial) => {
+          setVoiceText(partial);
+        }, (final) => {
+          setVoiceText(final);
+        });
+      }
       return;
     }
 
@@ -462,7 +500,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
         ) : (
           <Box>
             <Text color="magenta" bold>› </Text>
-            <Text dimColor>{placeholder ?? 'сообщение… (пробел — голос, Ctrl+V — фото, ! shell)'}</Text>
+            <Text dimColor>{placeholder ?? 'сообщение… (зажми пробел — голос, Ctrl+V — фото, ! shell)'}</Text>
           </Box>
         )}
       </Box>
