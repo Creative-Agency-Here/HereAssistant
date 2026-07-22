@@ -71,7 +71,10 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
         setAccount: (a) => { setAccount(a); setModel(a.default_model || ''); },
         resetSession: () => { sessionIdRef.current = null; },
         setSessionId: (id) => { sessionIdRef.current = id; },
-        renameSession: (name) => { setSessionName(name); },
+        renameSession: (name) => {
+          setSessionName(name);
+          setIdleTitle(name, 1);
+        },
         forkSession: () => { sessionIdRef.current = `fork-${makeId()}`; },
         backgroundPrompt: (prompt) => {
           const child = spawn('node', [
@@ -98,7 +101,7 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
     setLastDuration(0);
     setLastTokensIn(0);
     setLastTokensOut(0);
-    startWorkingTitle(project, 1);
+    startWorkingTitle(sessionName || project, 1);
     const t0 = Date.now();
 
     try {
@@ -142,7 +145,7 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
     } finally {
       setBusy(false);
       setThinking('');
-      setIdleTitle(project, 1);
+      setIdleTitle(sessionName || project, 1);
     }
   }, [account, cwd, model, tokensIn, tokensOut, project, addMessage, updateLastAssistant, doExit]);
 
