@@ -21,6 +21,8 @@ def exchange() -> crm_sync.Exchange:
         tokens_in=10,
         tokens_out=20,
         duration_ms=5000,
+        client_surface="hereassistant_cli",
+        terminal_app="ghostty",
     )
 
 
@@ -75,6 +77,17 @@ def test_session_identity_is_stable_per_origin_and_conversation(monkeypatch) -> 
     assert first is not None and second is not None
     assert first["sessionId"] == second["sessionId"]
     assert first["eventId"] != second["eventId"]
+
+
+def test_payload_contains_only_normalized_launch_context() -> None:
+    payload = crm_sync.build_payload(
+        policy(prompts=True),
+        exchange(),
+        event_id="00000000-0000-0000-0000-000000000003",
+    )
+    assert payload is not None
+    assert payload["clientSurface"] == "hereassistant_cli"
+    assert payload["terminalApp"] == "ghostty"
 
 
 def test_endpoint_preserves_versioned_api_prefix(monkeypatch) -> None:

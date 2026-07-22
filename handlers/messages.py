@@ -425,6 +425,7 @@ async def _process_message(
                 tokens_in=meta.get("tokens_in"),
                 tokens_out=meta.get("tokens_out"),
                 duration_ms=int(duration_s * 1000),
+                client_surface="hereassistant_telegram",
             ),
         )
 

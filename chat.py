@@ -47,7 +47,7 @@ from chat_renderer import (
 )
 from chat_sessions import Session
 from chat_sessions import list_resumable as _list_resumable
-from core import config, crm_sync, db, integration_state, project_config
+from core import config, crm_sync, db, integration_state, launch_context, project_config
 from core.workspace_status import task_summary, workspace_overview
 from terminal_input import TerminalPrompt
 from terminal_title import TerminalActivity, TerminalTitle
@@ -163,7 +163,13 @@ def _pick_user(preselect: str | None):
         print(f"{R}нет такого номера{X}")
 
 
-async def _run_prompt(sess: Session, prompt: str) -> bool:
+async def _run_prompt(
+    sess: Session,
+    prompt: str,
+    *,
+    client_surface: str,
+    terminal_app: str | None,
+) -> bool:
     state = ProgressRenderState()
     prov = providers.make(sess.account, user_id=sess.user_id)
     prov.permission_mode = sess.permission_mode
@@ -210,6 +216,8 @@ async def _run_prompt(sess: Session, prompt: str) -> bool:
             tokens_in=(meta or {}).get("tokens_in"),
             tokens_out=(meta or {}).get("tokens_out"),
             duration_ms=int((time.time() - t0) * 1000),
+            client_surface=client_surface,
+            terminal_app=terminal_app,
         ),
     )
     return True
@@ -245,6 +253,8 @@ def _farewell():
 
 # ---------- REPL ----------
 async def _repl(sess: Session, integration_id: str | None = None):
+    client_surface = launch_context.hereassistant_surface(integration_id)
+    terminal_app = launch_context.detect_terminal_app()
     commands = CommandRouter(
         accounts=_db_accounts,
         users=_db_users,
@@ -311,7 +321,12 @@ async def _repl(sess: Session, integration_id: str | None = None):
             )
         completed = False
         try:
-            completed = await _run_prompt(sess, line)
+            completed = await _run_prompt(
+                sess,
+                line,
+                client_surface=client_surface,
+                terminal_app=terminal_app,
+            )
         except KeyboardInterrupt:
             print(f"\n{Y}⏹ прервано{X}")
         finally:

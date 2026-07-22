@@ -40,6 +40,8 @@ class Exchange:
     tokens_in: int | None = None
     tokens_out: int | None = None
     duration_ms: int | None = None
+    client_surface: str = "hereassistant_telegram"
+    terminal_app: str | None = None
 
 
 def configured() -> bool:
@@ -108,6 +110,8 @@ def build_payload(
         "tokensIn": exchange.tokens_in,
         "tokensOut": exchange.tokens_out,
         "durationMs": exchange.duration_ms,
+        "clientSurface": exchange.client_surface,
+        "terminalApp": exchange.terminal_app,
     }
 
 
