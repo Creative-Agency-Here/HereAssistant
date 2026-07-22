@@ -10,6 +10,7 @@ import { RunSummary } from './RunSummary.js';
 import { renderMarkdown } from './markdown.js';
 import { handleCommand, type CommandContext } from '../commands.js';
 import { startWorkingTitle, setIdleTitle, stopWorkingTitle } from '../terminal-title.js';
+import { cleanClipboardCache } from '../clipboard.js';
 
 function makeId(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -27,8 +28,12 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
   const [lastTokensIn, setLastTokensIn] = useState(0);
   const [lastTokensOut, setLastTokensOut] = useState(0);
   const [thinking, setThinking] = useState('');
+  const [attachments, setAttachments] = useState<string[]>([]);
   const sessionIdRef = useRef<string | null>(null);
   const project = cwd.split('/').pop() ?? cwd;
+
+  // Очистка кеша clipboard при старте
+  React.useEffect(() => { cleanClipboardCache(); }, []);
 
   const addMessage = useCallback((msg: ChatMessage) => {
     setMessages((prev) => [...prev, msg]);
@@ -63,6 +68,7 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
         resetSession: () => { sessionIdRef.current = null; },
         print: (t) => addMessage({ id: makeId(), role: 'system', text: t, toolCalls: [], timestamp: Date.now(), streaming: false }),
         exit: doExit,
+        attachImage: (p) => setAttachments((prev) => [...prev, p]),
       };
       if (handleCommand(text, ctx)) return;
     }
@@ -82,6 +88,8 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
 
     try {
       const provider = makeProvider(account);
+      const currentAttachments = [...attachments];
+      setAttachments([]);
       const result = await provider.run(text, cwd, sessionIdRef.current, model || null, (event: StreamEvent) => {
         if (event.type === 'text' && typeof event.text === 'string') {
           updateLastAssistant((m) => ({ ...m, text: m.text + (event.text as string) }));
@@ -101,7 +109,7 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
             ),
           }));
         }
-      });
+      }, currentAttachments);
 
       const duration = Date.now() - t0;
       if (result.sessionId) sessionIdRef.current = result.sessionId;
@@ -182,7 +190,12 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
         )}
       </Box>
 
-      <Box borderTop borderStyle="single">
+      <Box borderTop borderStyle="single" flexDirection="column">
+        {attachments.length > 0 && (
+          <Box paddingX={1}>
+            <Text dimColor>📎 {attachments.map((p) => p.split('/').pop()).join(', ')}</Text>
+          </Box>
+        )}
         <ChatInput onSubmit={handleSubmit} disabled={busy} />
       </Box>
     </Box>

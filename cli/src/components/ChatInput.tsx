@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { Box, Text, useInput } from 'ink';
 
 const SLASH_COMMANDS = [
-  '/help', '/model', '/account', '/status', '/new', '/compact', '/exit',
+  '/help', '/model', '/account', '/status', '/image', '/new', '/compact', '/exit',
 ];
 
 interface Props {

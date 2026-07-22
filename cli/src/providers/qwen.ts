@@ -20,6 +20,7 @@ export class QwenCodeProvider implements Provider {
     sessionId: string | null,
     model: string | null,
     progress: ProgressCallback,
+    attachments?: string[],
   ): Promise<ProviderResult> {
     const cliHome = this.account.cli_home_path;
     const qwenHome = path.join(cliHome, '.qwen');
@@ -48,6 +49,10 @@ export class QwenCodeProvider implements Provider {
     });
 
     child.stdin.write(prompt);
+    if (attachments && attachments.length > 0) {
+      child.stdin.write('\n\n[Прикреплённые изображения — абсолютные пути]\n');
+      for (const p of attachments) child.stdin.write(`- ${p}\n`);
+    }
     child.stdin.end();
 
     const parser = new ClaudeStreamParser();

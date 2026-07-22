@@ -19,6 +19,7 @@ export class CodexProvider implements Provider {
     sessionId: string | null,
     model: string | null,
     progress: ProgressCallback,
+    attachments?: string[],
   ): Promise<ProviderResult> {
     const cliHome = this.account.cli_home_path;
     fs.mkdirSync(cliHome, { recursive: true });
@@ -39,6 +40,9 @@ export class CodexProvider implements Provider {
     }
     if (model) args.push('-c', `model=${model}`);
     args.push('-c', `instructions=${JSON.stringify(instructions)}`);
+    if (attachments) {
+      for (const img of attachments) args.push('-i', img);
+    }
     args.push(prompt);
 
     const child = spawn(args[0], args.slice(1), {

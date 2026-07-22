@@ -1,5 +1,6 @@
 import type { Account } from './types.js';
 import { getAccounts } from './db.js';
+import { pasteImageFromClipboard } from './clipboard.js';
 
 export interface CommandContext {
   account: Account;
@@ -13,6 +14,7 @@ export interface CommandContext {
   resetSession: () => void;
   print: (text: string) => void;
   exit: () => void;
+  attachImage: (path: string) => void;
 }
 
 const HELP = `Команды:
@@ -20,6 +22,7 @@ const HELP = `Команды:
   /model [имя]       показать/сменить модель
   /account [label]   показать/сменить аккаунт
   /status            сессия, модель, токены
+  /image             вставить фото из clipboard (Cmd+V)
   /new               новая сессия (очистить контекст)
   /compact           сжать контекст (заглушка)
   /exit              выход
@@ -94,6 +97,17 @@ export function handleCommand(line: string, ctx: CommandContext): boolean {
     case '/compact':
       ctx.print('▸ /compact: провайдер сам управляет контекстом (заглушка)');
       return true;
+
+    case '/image': {
+      const imgPath = pasteImageFromClipboard();
+      if (imgPath) {
+        ctx.attachImage(imgPath);
+        ctx.print(`📎 изображение прикреплено: ${imgPath.split('/').pop()}`);
+      } else {
+        ctx.print('✗ в clipboard нет изображения (скопируй фото через Cmd+C)');
+      }
+      return true;
+    }
 
     case '/exit':
     case '/quit':

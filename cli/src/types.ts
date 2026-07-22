@@ -41,6 +41,7 @@ export interface Provider {
     sessionId: string | null,
     model: string | null,
     progress: ProgressCallback,
+    attachments?: string[],
   ): Promise<ProviderResult>;
 }
 

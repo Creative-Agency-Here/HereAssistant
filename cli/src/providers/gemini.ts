@@ -14,6 +14,7 @@ export class GeminiProvider implements Provider {
     _sessionId: string | null,
     model: string | null,
     progress: ProgressCallback,
+    attachments?: string[],
   ): Promise<ProviderResult> {
     const cliHome = this.account.cli_home_path;
     fs.mkdirSync(cliHome, { recursive: true });
@@ -28,11 +29,17 @@ export class GeminiProvider implements Provider {
     const instruction =
       'Отвечай на русском. Будь краток. Shell-команды начинай с rtk для сжатия вывода.';
 
+    let fullPrompt = `${instruction}\n\n---\n\n${prompt}`;
+    if (attachments && attachments.length > 0) {
+      fullPrompt += '\n\n[Прикреплённые изображения — абсолютные пути]\n';
+      for (const p of attachments) fullPrompt += `- ${p}\n`;
+    }
+
     const args = [
       '--skip-trust',
       '--approval-mode', 'yolo',
       '-o', 'stream-json',
-      '-p', `${instruction}\n\n---\n\n${prompt}`,
+      '-p', fullPrompt,
     ];
     if (model) args.push('-m', model);
 
