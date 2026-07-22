@@ -2,7 +2,7 @@
   "name": "hereassistant-vscode",
   "displayName": "HereAssistant",
   "description": "Local VS Code workbench for HereAssistant sessions, CRM tasks, contours, Git and deployments.",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "publisher": "creative-agency-here",
   "license": "MIT",
   "engines": {

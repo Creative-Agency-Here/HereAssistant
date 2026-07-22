@@ -214,6 +214,7 @@ class Controller {
     let files;
     try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')); } catch { return []; }
     const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const STALE_MS = 30 * 60 * 1000; // 30 минут без обновления → протухла
     const sessions = [];
     for (const file of files) {
       const data = readJson(path.join(dir, file));
@@ -222,9 +223,14 @@ class Controller {
       if (updatedAt < weekAgo) continue;
       const integrationId = file.replace(/\.json$/, '');
       const alive = [...this.terminals.values()].some((info) => info.id === integrationId);
+      let state = data.state || 'unknown';
+      // open/working без живого терминала и без обновлений > 30 мин → закрыта
+      if (!alive && (state === 'open' || state === 'working') && Date.now() - updatedAt > STALE_MS) {
+        state = 'closed';
+      }
       sessions.push({
         integrationId,
-        state: data.state || 'unknown',
+        state,
         title: cleanLine(data.title, 100) || 'Без названия',
         cwd: data.cwd || '',
         taskCount: Number(data.taskCount || 0),
