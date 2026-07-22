@@ -33,6 +33,7 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
   const [thinking, setThinking] = useState('');
   const [attachments, setAttachments] = useState<string[]>([]);
   const [sessionName, setSessionName] = useState<string | null>(null);
+  const [promptCount, setPromptCount] = useState(0);
   const sessionIdRef = useRef<string | null>(null);
   const project = cwd.split('/').pop() ?? cwd;
 
@@ -101,7 +102,8 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
     setLastDuration(0);
     setLastTokensIn(0);
     setLastTokensOut(0);
-    startWorkingTitle(sessionName || project, 1);
+    setPromptCount((c) => c + 1);
+    startWorkingTitle(sessionName || project, promptCount + 1);
     const t0 = Date.now();
 
     try {
@@ -145,7 +147,7 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
     } finally {
       setBusy(false);
       setThinking('');
-      setIdleTitle(sessionName || project, 1);
+      setIdleTitle(sessionName || project, promptCount);
     }
   }, [account, cwd, model, tokensIn, tokensOut, project, addMessage, updateLastAssistant, doExit]);
 
@@ -175,6 +177,8 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
         tokensOut={tokensOut}
         cwd={cwd}
         provider={account.provider}
+        taskCount={promptCount}
+        busy={busy}
       />
 
       <Box flexDirection="column" flexGrow={1} overflow="hidden">

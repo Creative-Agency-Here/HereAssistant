@@ -10,6 +10,8 @@ interface Props {
   tokensOut: number;
   cwd: string;
   provider: string;
+  taskCount: number;
+  busy: boolean;
 }
 
 const PERM_LABELS: Record<string, string> = {
@@ -19,9 +21,10 @@ const PERM_LABELS: Record<string, string> = {
   gemini: 'yolo',
 };
 
-export function StatusBar({ account, model, sessionId, sessionName, tokensIn, tokensOut, cwd, provider }: Props) {
+export function StatusBar({ account, model, sessionId, sessionName, tokensIn, tokensOut, cwd, provider, taskCount, busy }: Props) {
   const project = cwd.split('/').pop() ?? cwd;
   const tokens = tokensIn + tokensOut;
+  const label = sessionName || project;
 
   return (
     <Box borderStyle="single" borderBottom={false} borderLeft={false} borderRight={false} paddingX={1} justifyContent="space-between">
@@ -47,7 +50,10 @@ export function StatusBar({ account, model, sessionId, sessionName, tokensIn, to
         )}
       </Box>
       <Box>
-        <Text dimColor>{project}</Text>
+        {busy && <Text color="yellow">⚙ </Text>}
+        <Text bold>{label}</Text>
+        <Text dimColor> · </Text>
+        <Text color={taskCount > 0 ? 'green' : undefined}>{taskCount} задач</Text>
         {tokens > 0 && (
           <>
             <Text dimColor> · </Text>
