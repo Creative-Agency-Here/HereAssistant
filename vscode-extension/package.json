@@ -5,6 +5,7 @@
   "version": "0.8.1",
   "publisher": "creative-agency-here",
   "license": "MIT",
+  "icon": "media/here.png",
   "engines": {
     "vscode": "^1.85.0"
   },

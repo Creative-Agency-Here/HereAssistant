@@ -16,6 +16,7 @@ FILES = (
     "extension.js",
     "README.md",
     "media/here.svg",
+    "media/here.png",
 )
 
 
@@ -43,7 +44,7 @@ def manifest(package: dict) -> str:
   <Assets>
     <Asset Type="Microsoft.VisualStudio.Code.Manifest" Path="extension/package.json" Addressable="true" />
     <Asset Type="Microsoft.VisualStudio.Services.Content.Details" Path="extension/README.md" Addressable="true" />
-    <Asset Type="Microsoft.VisualStudio.Services.Icons.Default" Path="extension/media/here.svg" Addressable="true" />
+    <Asset Type="Microsoft.VisualStudio.Services.Icons.Default" Path="extension/media/here.png" Addressable="true" />
   </Assets>
 </PackageManifest>
 """
