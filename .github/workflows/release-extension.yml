@@ -1,0 +1,56 @@
+name: Release VS Code Extension
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build VSIX
+        run: python3 scripts/package_vscode_extension.py
+
+      - name: Get version
+        id: version
+        run: echo "ver=$(python3 -c "import json; print(json.load(open('vscode-extension/package.json'))['version'])")" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.ver) }}
+          name: "HereAssistant VS Code v${{ steps.version.outputs.ver }}"
+          body: |
+            ## Установка
+            ```bash
+            # Скачать и установить
+            code --install-extension hereassistant-vscode-${{ steps.version.outputs.ver }}.vsix
+            ```
+            Или: VS Code → Extensions → `...` → Install from VSIX
+          files: dist/hereassistant-vscode-${{ steps.version.outputs.ver }}.vsix
+          draft: false
+          prerelease: false
+
+      - name: Publish to Open VSX
+        if: secrets.OPEN_VSX_TOKEN != ''
+        run: |
+          npm install -g ovsx
+          ovsx publish dist/hereassistant-vscode-${{ steps.version.outputs.ver }}.vsix -p ${{ secrets.OPEN_VSX_TOKEN }}
+
+      - name: Publish to VS Code Marketplace
+        if: secrets.VSCE_TOKEN != ''
+        run: |
+          npm install -g @vscode/vsce
+          cd vscode-extension
+          vsce publish -p ${{ secrets.VSCE_TOKEN }} --packagePath ../dist/hereassistant-vscode-${{ steps.version.outputs.ver }}.vsix
