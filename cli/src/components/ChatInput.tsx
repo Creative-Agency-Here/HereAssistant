@@ -3,8 +3,10 @@ import { Box, Text, useInput } from 'ink';
 import { pasteImageFromClipboard } from '../clipboard.js';
 import { openInEditor } from '../editor.js';
 import { voiceRealtime, canRealtimeVoice } from '../voice.js';
+import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import type { MouseEvent } from '../hooks/useMouse.js';
 
 const REC_FRAMES = ['●', '◉', '◎', '◉'];
 const WAVE_FRAMES = ['▁▃▅▇', '▃▅▇▅', '▅▇▅▃', '▇▅▃▁', '▅▃▁▃', '▃▁▃▅'];
@@ -28,6 +30,7 @@ interface Props {
 export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAttachment, attachments = [], disabled = false, placeholder, cwd }: Props) {
   const [lines, setLines] = useState<string[]>(['']);
   const [cursorLine, setCursorLine] = useState(0);
+  const [cursorCol, setCursorCol] = useState(0);
   const [history, setHistory] = useState<string[]>([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
   const [showComplete, setShowComplete] = useState(false);
@@ -47,6 +50,34 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
     const waveTimer = setInterval(() => setRecSeconds((s) => s + 1), 1000);
     return () => { clearInterval(frameTimer); clearInterval(waveTimer); };
   }, [recording]);
+
+  // Mouse: клик двигает курсор в поле ввода
+  const termRows = process.stdout.rows || 24;
+
+  useEffect(() => {
+    const emitter = (globalThis as Record<string, unknown>).__ha_mouse as
+      | { on: (e: string, fn: (ev: MouseEvent) => void) => void; off: (e: string, fn: (ev: MouseEvent) => void) => void }
+      | undefined;
+    if (!emitter) return;
+
+    const PREFIX = 4; // paddingX(1) + '› '(2) + 1-based→0-based(1)
+    const inputRow = termRows - 1;
+
+    const handler = (ev: MouseEvent) => {
+      if (disabled || recording) return;
+      if (ev.type !== 'press' || ev.button !== 'left') return;
+      // Клик в строке ввода (последняя строка перед нижней рамкой)
+      if (ev.row < inputRow - lines.length || ev.row > inputRow) return;
+
+      const lineIdx = Math.min(ev.row - (inputRow - lines.length + 1), lines.length - 1);
+      const col = Math.max(0, Math.min(ev.col - PREFIX, (lines[lineIdx] ?? '').length));
+      setCursorLine(Math.max(0, lineIdx));
+      setCursorCol(col);
+    };
+
+    emitter.on('event', handler);
+    return () => { emitter.off('event', handler); };
+  }, [disabled, recording, lines, termRows]);
 
   const currentLine = lines[cursorLine] ?? '';
   const isSlash = lines.length === 1 && currentLine.startsWith('/');
@@ -91,6 +122,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
     const newLines = value.split('\n');
     setLines(newLines);
     setCursorLine(newLines.length - 1);
+    setCursorCol((newLines[newLines.length - 1] ?? '').length);
   };
 
   const handleSubmit = () => {
@@ -258,15 +290,20 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
         onRemoveAttachment(attachments.length - 1);
         return;
       }
-      if (currentLine.length > 0) {
+      const col = Math.min(cursorCol, currentLine.length);
+      if (col > 0) {
         const newLines = [...lines];
-        newLines[cursorLine] = currentLine.slice(0, -1);
+        newLines[cursorLine] = currentLine.slice(0, col - 1) + currentLine.slice(col);
         setLines(newLines);
+        setCursorCol(col - 1);
       } else if (cursorLine > 0) {
         const newLines = [...lines];
+        const prevLen = newLines[cursorLine - 1].length;
+        newLines[cursorLine - 1] += currentLine;
         newLines.splice(cursorLine, 1);
         setLines(newLines);
         setCursorLine(cursorLine - 1);
+        setCursorCol(prevLen);
       }
       setShowComplete(false);
       return;
@@ -314,11 +351,14 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       return;
     }
 
-    // Regular character input
+    // Regular character input — вставка в cursorCol
     if (input && !key.ctrl && !key.meta && input !== '\r' && input !== '\n') {
       const newLines = [...lines];
-      newLines[cursorLine] = currentLine + input;
+      const line = newLines[cursorLine] ?? '';
+      const col = Math.min(cursorCol, line.length);
+      newLines[cursorLine] = line.slice(0, col) + input + line.slice(col);
       setLines(newLines);
+      setCursorCol(col + 1);
       setShowComplete(isSlash && completions.length > 0);
     }
   }, { isActive: !disabled });
@@ -369,12 +409,16 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
           <Box>
             <Text color="magenta" bold>› </Text>
             <Box flexDirection="column">
-              {lines.map((line, i) => (
-                <Text key={i}>
-                  {line}
-                  {i === cursorLine && <Text color="magenta">▌</Text>}
-                </Text>
-              ))}
+              {lines.map((line, i) => {
+                const col = i === cursorLine ? Math.min(cursorCol, line.length) : line.length;
+                return (
+                  <Text key={i}>
+                    {line.slice(0, col)}
+                    {i === cursorLine && <Text color="magenta">▌</Text>}
+                    {line.slice(col)}
+                  </Text>
+                );
+              })}
             </Box>
           </Box>
         ) : (
