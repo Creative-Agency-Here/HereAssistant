@@ -42,6 +42,7 @@ class Exchange:
     duration_ms: int | None = None
     client_surface: str = "hereassistant_telegram"
     terminal_app: str | None = None
+    provider_session_id: str | None = None
 
 
 def configured() -> bool:
@@ -56,6 +57,16 @@ def _iso(timestamp: float) -> str:
 def _session_id(conversation_id: int) -> str:
     identity = f"{config.HERECRM_SYNC_ORIGIN}:{int(conversation_id)}"
     return str(uuid.uuid5(_SESSION_NAMESPACE, identity))
+
+
+def _external_session_id(value: str | None, conversation_id: int) -> str:
+    """Сохраняет native UUID; остальные ID стабильно нормализует в UUIDv5."""
+    if value:
+        try:
+            return str(uuid.UUID(value))
+        except ValueError:
+            return str(uuid.uuid5(_SESSION_NAMESPACE, f"native:{value}"))
+    return _session_id(conversation_id)
 
 
 def build_payload(
@@ -95,7 +106,7 @@ def build_payload(
     )
     return {
         "eventId": event_id,
-        "sessionId": _session_id(exchange.conversation_id),
+        "sessionId": _external_session_id(exchange.provider_session_id, exchange.conversation_id),
         "telegramUserId": str(exchange.telegram_user_id),
         "provider": exchange.provider,
         "model": exchange.model,
@@ -115,9 +126,14 @@ def build_payload(
     }
 
 
-def enqueue(policy: project_config.ProjectPolicy, exchange: Exchange) -> bool:
+def enqueue(
+    policy: project_config.ProjectPolicy,
+    exchange: Exchange,
+    *,
+    event_id: str | None = None,
+) -> bool:
     """Атомарно кладёт разрешённое событие в outbox. Секрет здесь не участвует."""
-    event_id = str(uuid.uuid4())
+    event_id = event_id or str(uuid.uuid4())
     payload = build_payload(policy, exchange, event_id=event_id)
     if payload is None:
         return False
@@ -128,7 +144,8 @@ def enqueue(policy: project_config.ProjectPolicy, exchange: Exchange) -> bool:
                 """INSERT INTO crm_sync_outbox
                    (event_id, user_id, conversation_id, payload, attempts,
                     next_attempt_at, created_at)
-                   VALUES (?, ?, ?, ?, 0, ?, ?)""",
+                   VALUES (?, ?, ?, ?, 0, ?, ?)
+                   ON CONFLICT(event_id) DO NOTHING""",
                 (
                     event_id,
                     exchange.telegram_user_id,

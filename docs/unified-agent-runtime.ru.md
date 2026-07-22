@@ -1,8 +1,8 @@
-# Единый runtime Claude, Codex и Qwen
+# Единый runtime Claude, Codex, Qwen и Gemini
 
 ## Цель
 
-HereAssistant показывает один логический диалог, а Claude Code, Codex и Qwen остаются сменными
+HereAssistant показывает один логический диалог, а Claude Code, Codex, Qwen и Gemini остаются сменными
 движками. Нативные session ID не смешиваются: при смене провайдера создаётся его собственная
 сессия, а общий контекст формируется из разрешённой истории диалога, правил репозитория и
 owner/project-scoped памяти.
@@ -56,6 +56,13 @@ python3 scripts/link_claude_memory.py \
 не удаляются и не перезаписываются автоматически.
 
 ## Lifecycle hooks
+
+Прямые native CLI-сессии можно подключить одним коннектором HereAssistant вместо
+отдельных CRM-скриптов для каждого провайдера. Локальный manager ставит по одному
+своему hook для Claude Code, Codex, Qwen Code и Gemini CLI, не трогая остальные. Единственным
+списком разрешённых папок остаётся project policy:
+
+[Native CLI session connector](native-session-connector.ru.md)
 
 Project hooks остаются рядом с кодом, потому что только репозиторий знает свои Git/deploy
 правила. HereAssistant не копирует произвольные hook-команды в глобальный профиль.

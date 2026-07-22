@@ -173,6 +173,34 @@ def policy_for(cwd: str | Path | None) -> ProjectPolicy:
     return policy
 
 
+def project_root_for(cwd: str | Path | None) -> Path | None:
+    """Находит ближайший явный project.yml, не угадывая проект по Git или имени папки."""
+    if not cwd:
+        return None
+    try:
+        current = Path(cwd).expanduser().resolve(strict=True)
+    except OSError:
+        return None
+    if current.is_file():
+        current = current.parent
+    for candidate in (current, *current.parents):
+        if _config_path(candidate).is_file():
+            return candidate
+    return None
+
+
+def nearest_policy_for(cwd: str | Path | None) -> tuple[Path | None, ProjectPolicy]:
+    """Возвращает ближайший явно настроенный root и его политику; иначе PRIVATE."""
+    root = project_root_for(cwd)
+    return (root, policy_for(root)) if root else (None, PRIVATE)
+
+
+def clear_cache() -> None:
+    """Сбрасывает кэш после локального изменения project.yml через manager."""
+    _cache.clear()
+    _missing_cache.clear()
+
+
 # ---------- хелперы-гейты (единственная точка принятия решения) ----------
 
 

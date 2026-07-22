@@ -1,8 +1,8 @@
-# Unified Claude, Codex and Qwen runtime
+# Unified Claude, Codex, Qwen and Gemini runtime
 
 ## Goal
 
-HereAssistant exposes one logical conversation while Claude Code, Codex and Qwen remain
+HereAssistant exposes one logical conversation while Claude Code, Codex, Qwen and Gemini remain
 interchangeable engines. Native session IDs are never mixed. Cross-provider context is built
 from explicitly allowed conversation history, repository rules, and owner/project-scoped
 memory.
@@ -56,6 +56,13 @@ The link command refuses to replace a non-empty native memory directory. Import 
 existing data is never deleted automatically.
 
 ## Lifecycle hooks
+
+Direct native CLI sessions can use the shared HereAssistant connector instead of separate
+provider-specific CRM scripts. The local manager installs one owned hook for Claude Code,
+Codex, Qwen Code and Gemini CLI while preserving every unrelated hook. Folder policy remains
+the only sync allowlist. See the rollout and employee guide:
+
+[Native CLI session connector](native-session-connector.md)
 
 Project hooks stay with the repository because only the repository knows its Git and deploy
 rules. Codex loads trusted `.codex/hooks.json`; Claude uses the matching

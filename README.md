@@ -31,6 +31,7 @@ never sent to CRM implicitly. See the unified runtime guide for the configuratio
 - **File exchange** — send documents/photos/voice to the agent; long answers come back as Markdown files.
 - **Voice input** — transcription via faster-whisper.
 - **Stats and events** — token usage, durations, models/accounts and normalized launch surfaces (Telegram, HereAssistant CLI/VS Code and allowlisted terminal apps); metrics only, never content, commands or window titles.
+- **Native session connector** — one privacy-gated HereAssistant integration for direct Claude Code, Codex, Qwen Code and Gemini CLI sessions, with idempotent per-user hook installation and per-folder opt-in.
 - **RTK savings** — per-owner aggregate context-token savings via `/rtk` and the Web Mini App; command arguments and project paths are scrubbed after each provider run.
 - **Self-restart** — `/deploy` applies code changes and reports back with a diff.
 - **Optional service API** — `/api/v1/tasks*` for external systems, guarded by a bearer token that can never see private/local projects.
@@ -172,6 +173,7 @@ Full setup and behavior: [docs/vscode-workbench.md](docs/vscode-workbench.md).
 - [Onboarding & authorization path](docs/onboarding.md) — BotFather token → claim code → owner, adding teammates, `/logout` (with a flow diagram)
 - [Ubuntu production runbook](docs/ubuntu-pm2-nginx.md)
 - [Providers & auth homes](docs/providers.md)
+- [Native CLI sessions → HereCRM](docs/native-session-connector.md)
 - [Privacy modes](docs/privacy.md)
 - [Verified mobile activity and screenshot proof](docs/mobile-activity-proof.md)
 - [VS Code Workbench](docs/vscode-workbench.md)

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import uuid
+from dataclasses import replace
 from pathlib import Path
 
 from core import config, crm_sync, db, project_config
@@ -79,6 +81,33 @@ def test_session_identity_is_stable_per_origin_and_conversation(monkeypatch) -> 
     assert first["eventId"] != second["eventId"]
 
 
+def test_native_uuid_is_preserved_as_session_identity() -> None:
+    native_id = "00000000-0000-4000-8000-000000000017"
+    native_exchange = replace(exchange(), provider_session_id=native_id)
+    payload = crm_sync.build_payload(
+        policy(prompts=False),
+        native_exchange,
+        event_id="00000000-0000-4000-8000-000000000018",
+    )
+
+    assert payload is not None
+    assert payload["sessionId"] == native_id
+
+
+def test_non_uuid_native_session_identity_is_stable() -> None:
+    native_exchange = replace(exchange(), provider_session_id="qwen-session-local")
+    first = crm_sync.build_payload(
+        policy(), native_exchange, event_id="00000000-0000-4000-8000-000000000019"
+    )
+    second = crm_sync.build_payload(
+        policy(), native_exchange, event_id="00000000-0000-4000-8000-000000000020"
+    )
+
+    assert first is not None and second is not None
+    assert first["sessionId"] == second["sessionId"]
+    assert uuid.UUID(first["sessionId"])
+
+
 def test_payload_contains_only_normalized_launch_context() -> None:
     payload = crm_sync.build_payload(
         policy(prompts=True),
@@ -111,3 +140,18 @@ def test_enqueue_persists_only_opted_in_payload(tmp_path: Path, monkeypatch) -> 
     stored = rows[0]["payload"]
     assert "Секретный вопрос" in stored
     assert "Полезный ответ" not in stored
+
+
+def test_enqueue_with_explicit_event_id_is_idempotent(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "test.sqlite3")
+    monkeypatch.setattr(config, "ADMIN_IDS", [])
+    monkeypatch.setattr(config, "ADMIN_ID", None)
+    db.init()
+    event_id = "00000000-0000-4000-8000-000000000021"
+
+    assert crm_sync.enqueue(policy(), exchange(), event_id=event_id)
+    assert crm_sync.enqueue(policy(), exchange(), event_id=event_id)
+
+    with db.conn() as connection:
+        count = connection.execute("SELECT COUNT(*) FROM crm_sync_outbox").fetchone()[0]
+    assert count == 1

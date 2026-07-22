@@ -18,6 +18,11 @@
 (Telegram, HereAssistant CLI/VS Code и приложение терминала из закрытого списка),
 но не сохраняют команды, заголовки окон и содержимое диалогов.
 
+Нативные сессии Claude Code, Codex, Qwen Code и Gemini CLI можно
+подключить к HereCRM через один privacy-gated коннектор HereAssistant.
+Инструкция для своей машины и машин сотрудников:
+[docs/native-session-connector.ru.md](docs/native-session-connector.ru.md).
+
 ## Быстрый старт (Ubuntu, production)
 
 ```bash
@@ -41,7 +46,8 @@ python3 manage.py
 ```
 
 Меню: **2** — добавить аккаунт и залогинить провайдера (Claude/Codex/Gemini/Qwen),
-**1** — показать аккаунты, **7** — открыть `.env`, **8** — запустить бота.
+**1** — показать аккаунты, **9 → 5** — открыть `.env`, **9 → 8** —
+настроить native AI-сессии, **8** — запустить бота.
 
 Если бот развёрнут на удалённом сервере под пользователем `here` в
 `/opt/hereassistant`, удобно завести на своей машине одну команду

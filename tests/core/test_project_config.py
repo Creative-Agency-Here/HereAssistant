@@ -13,7 +13,9 @@ from core.project_config import (
     can_sync_to_crm,
     can_use_agent_memory,
     is_crm_visible,
+    nearest_policy_for,
     policy_for,
+    project_root_for,
 )
 
 
@@ -34,6 +36,43 @@ def test_missing_config_is_private(tmp_path: Path) -> None:
 
     assert policy == PRIVATE
     assert not is_crm_visible(policy)
+
+
+def test_nearest_policy_is_inherited_by_nested_folder(tmp_path: Path) -> None:
+    write_config(tmp_path, "mode: local\n")
+    nested = tmp_path / "src" / "feature"
+    nested.mkdir(parents=True)
+
+    root, policy = nearest_policy_for(nested)
+
+    assert root == tmp_path
+    assert policy.mode == "local"
+    assert project_root_for(nested) == tmp_path
+
+
+def test_nested_explicit_private_overrides_parent_crm(tmp_path: Path) -> None:
+    write_config(
+        tmp_path,
+        "mode: crm\ncrm_project_id: project-1\nsync:\n  enabled: true\n",
+    )
+    nested = tmp_path / "private-child"
+    nested.mkdir()
+    write_config(nested, "mode: private\n")
+    workdir = nested / "src"
+    workdir.mkdir()
+
+    root, policy = nearest_policy_for(workdir)
+
+    assert root == nested
+    assert policy.mode == "private"
+    assert not is_crm_visible(policy)
+
+
+def test_nearest_policy_without_explicit_config_is_private(tmp_path: Path) -> None:
+    root, policy = nearest_policy_for(tmp_path)
+
+    assert root is None
+    assert policy == PRIVATE
 
 
 @pytest.mark.parametrize(

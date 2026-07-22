@@ -25,6 +25,7 @@ from manage_env import ensure_env as ensure_env_file
 from manage_env import env_state as read_env_state
 from manage_env import env_template as build_env_template
 from manage_header import render_header
+from manage_native import native_sessions_menu
 from manage_process import bot_process_state, has_command, install_npm_package, login_state
 from manage_process import run_visible as run_visible_process
 from manage_ui import (
@@ -188,6 +189,7 @@ MENU_SETTINGS = [
     ("5", f"{C}✎{X}", "Открыть .env", "токен бота, админы, настройки"),
     ("6", f"{C}⚿{X}", "Доступ аккаунта", "назначить владельца или явно shared"),
     ("7", f"{C}⌂{X}", "Зарегистрировать проект", "доверенный root для конкретного пользователя"),
+    ("8", f"{M}⇄{X}", "AI-сессии → HereCRM", "hooks и privacy-политика папок"),
     ("0", f"{D}←{X}", "Назад", ""),
 ]
 
@@ -227,6 +229,8 @@ def settings_menu():
             configure_account_access()
         elif choice == "7":
             register_project_interactive()
+        elif choice == "8":
+            native_sessions_menu()
         elif choice in ("0", "\x1b", "q", "Q"):
             return
         else:

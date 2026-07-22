@@ -11,7 +11,9 @@
 ## Как это работает
 
 Перед каждой операцией сохранения бот читает
-`<cwd проекта>/.hereassistant/project.yml`:
+`<cwd проекта>/.hereassistant/project.yml`. Native CLI bridge ищет
+ближайший такой файл вверх от текущей папки. Вложенный проект может
+явно перекрыть родительский `crm` своим `mode: private`:
 
 | Ситуация | Режим |
 |---|---|
@@ -46,6 +48,11 @@
 применяет `send_prompts` к запросу пользователя и `send_messages` к ответу
 ассистента. Сетевой сбой не задерживает Telegram-ответ и не приводит к дублям:
 каждое событие имеет idempotency key.
+
+Для native CLI содержимое transcript не читается вообще, пока не включён хотя бы
+один из `send_prompts` / `send_messages`. Даже при opt-in HereAssistant принимает
+только transcript из штатной auth-home соответствующего CLI; произвольный путь
+из hook input не читается.
 
 Транспорт включается только парой `HERECRM_SYNC_URL` + `HERECRM_SYNC_TOKEN`.
 Scoped-токен `has_…` привязан к конкретному CRM workspace, имеет отдельные права
