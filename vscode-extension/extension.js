@@ -571,12 +571,6 @@ class Controller {
         command: 'hereAssistant.sessions',
       },
       {
-        label: '$(terminal) Вернуться в текущий терминал',
-        description: `${this.terminals.size} терминалов открыто`,
-        detail: 'Ничего не создаёт и не отправляет — только показывает текущий чат.',
-        command: 'hereAssistant.start',
-      },
-      {
         label: '$(add) Открыть новый пустой чат',
         description: 'Без автоматического промпта',
         detail: 'Создаёт независимый терминал HereAssistant; задачу можно написать уже внутри.',
