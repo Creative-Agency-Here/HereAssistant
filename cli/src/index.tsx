@@ -12,5 +12,9 @@ function argAfter(flag: string): string | undefined {
 
 const preselected = argAfter('-a');
 const resumeId = argAfter('--resume');
+const profile = argAfter('-p');
+
+// Передаём profile через env для доступа в компонентах
+if (profile) process.env.HA_PROFILE = profile;
 
 render(<App preselected={preselected} resumeId={resumeId} />);

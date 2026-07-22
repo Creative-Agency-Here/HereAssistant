@@ -212,13 +212,24 @@ export function FullscreenChat({ account: initialAccount, cwd }: { account: Acco
   };
 
   // Calculate visible messages (simple: show last N that fit)
-  const visibleAreaHeight = termRows - 4; // status(1) + border(1) + input(1) + padding(1)
+  const visibleAreaHeight = termRows - 5; // status(1) + pinned(1) + border(1) + input(1) + padding(1)
   const visibleMessages = messages.slice(Math.max(0, messages.length - visibleAreaHeight));
+
+  // Последний пользовательский запрос (pinned вверху)
+  const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     setScrollOffset(0); // 0 = bottom
   }, [messages.length]);
+
+  // Нумерация: считаем только user+assistant пары
+  const msgNumbers = new Map<string, number>();
+  let num = 0;
+  for (const m of messages) {
+    if (m.role === 'user') { num++; msgNumbers.set(m.id, num); }
+    else if (m.role === 'assistant') { msgNumbers.set(m.id, num); }
+  }
 
   return (
     <Box flexDirection="column" height={termRows}>
@@ -235,11 +246,26 @@ export function FullscreenChat({ account: initialAccount, cwd }: { account: Acco
         busy={busy}
       />
 
+      {/* Pinned последний запрос */}
+      {lastUserMsg && (
+        <Box paddingX={1} borderStyle="single" borderBottom={false} borderLeft={false} borderRight={false}>
+          <Text dimColor>#{msgNumbers.get(lastUserMsg.id) ?? '?'} </Text>
+          <Text color="cyan" bold>› </Text>
+          <Text color="cyan">{lastUserMsg.text.length > termCols - 10 ? lastUserMsg.text.slice(0, termCols - 13) + '…' : lastUserMsg.text}</Text>
+        </Box>
+      )}
+
       <Box flexDirection="column" flexGrow={1} overflow="hidden" paddingX={1}>
-        {visibleMessages.map((msg, msgIdx) => (
+        {visibleMessages.map((msg) => {
+          const msgNum = msgNumbers.get(msg.id);
+          return (
           <Box key={msg.id} flexDirection="column" marginBottom={0}>
             {msg.role === 'user' && (
-              <Box><Text color="cyan" bold>› </Text><Text>{msg.text}</Text></Box>
+              <Box>
+                <Text dimColor>#{msgNum} </Text>
+                <Text color="cyan" bold>› </Text>
+                <Text>{msg.text}</Text>
+              </Box>
             )}
             {msg.role === 'system' && (
               <Box flexDirection="column">
@@ -302,7 +328,7 @@ export function FullscreenChat({ account: initialAccount, cwd }: { account: Acco
               </Box>
             )}
           </Box>
-        ))}
+        ); })}
         {thinking && (
           <Box marginLeft={1}><Text dimColor italic>💭 {thinking.slice(-200)}</Text></Box>
         )}

@@ -143,13 +143,36 @@ export function handleCommand(line: string, ctx: CommandContext): boolean {
 
     case '/diff': {
       try {
-        const diff = execSync('git diff --stat HEAD 2>/dev/null || echo "нет изменений"', {
+        const stat = execSync('git diff --stat HEAD 2>/dev/null', {
           cwd: ctx.cwd, encoding: 'utf-8', timeout: 5000,
         }).trim();
-        const fullDiff = execSync('git diff HEAD 2>/dev/null | head -100', {
+        if (!stat) { ctx.print('▸ нет изменений'); return true; }
+        const files = stat.split('\n').filter((l) => l.includes('|'));
+        const summary = stat.split('\n').pop() || '';
+        let output = `┌─ 📝 DIFF ${'─'.repeat(50)}┐\n`;
+        for (const f of files) {
+          const match = f.match(/^\s*(.+?)\s*\|\s*(\d+)\s*([+-]*)/);
+          if (match) {
+            const name = match[1].trim();
+            const bars = match[3];
+            const added = (bars.match(/\+/g) || []).length;
+            const removed = (bars.match(/-/g) || []).length;
+            output += `│ \x1b[36m${name}\x1b[0m  \x1b[32m+${added}\x1b[0m/\x1b[31m-${removed}\x1b[0m ${bars}\n`;
+          }
+        }
+        output += `├${'─'.repeat(58)}┤\n│ ${summary}\n└${'─'.repeat(58)}┘`;
+        const fullDiff = execSync('git diff HEAD 2>/dev/null | head -60', {
           cwd: ctx.cwd, encoding: 'utf-8', timeout: 5000,
         }).trim();
-        ctx.print(diff + (fullDiff ? `\n\n${fullDiff}` : ''));
+        if (fullDiff) {
+          output += '\n\n' + fullDiff.split('\n').map((l) => {
+            if (l.startsWith('+') && !l.startsWith('+++')) return `\x1b[32m${l}\x1b[0m`;
+            if (l.startsWith('-') && !l.startsWith('---')) return `\x1b[31m${l}\x1b[0m`;
+            if (l.startsWith('@@')) return `\x1b[36m${l}\x1b[0m`;
+            return l;
+          }).join('\n');
+        }
+        ctx.print(output);
       } catch {
         ctx.print('✗ git diff недоступен');
       }
