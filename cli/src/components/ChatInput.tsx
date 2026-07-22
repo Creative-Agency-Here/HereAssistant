@@ -18,12 +18,14 @@ interface Props {
   onSubmit: (value: string) => void;
   onImagePaste?: (path: string) => void;
   onShellCommand?: (cmd: string) => void;
+  onRemoveAttachment?: (index: number) => void;
+  attachments?: string[];
   disabled?: boolean;
   placeholder?: string;
   cwd?: string;
 }
 
-export function ChatInput({ onSubmit, onImagePaste, onShellCommand, disabled = false, placeholder, cwd }: Props) {
+export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAttachment, attachments = [], disabled = false, placeholder, cwd }: Props) {
   const [lines, setLines] = useState<string[]>(['']);
   const [cursorLine, setCursorLine] = useState(0);
   const [history, setHistory] = useState<string[]>([]);
@@ -224,6 +226,11 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, disabled = f
 
     // Backspace
     if (key.backspace || key.delete) {
+      // Пустой ввод + есть аттачменты → удалить последний
+      if (text.trim() === '' && attachments.length > 0 && onRemoveAttachment) {
+        onRemoveAttachment(attachments.length - 1);
+        return;
+      }
       if (currentLine.length > 0) {
         const newLines = [...lines];
         newLines[cursorLine] = currentLine.slice(0, -1);
@@ -306,6 +313,20 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, disabled = f
               {i === completeIdx ? '❯ ' : '  '}{c}
             </Text>
           ))}
+        </Box>
+      )}
+      {/* Attachment chips */}
+      {attachments.length > 0 && (
+        <Box paddingX={1} flexWrap="wrap">
+          {attachments.map((p, i) => (
+            <Box key={i} marginRight={1}>
+              <Text color="cyan">[Image #{i + 1}</Text>
+              <Text dimColor> {p.split('/').pop()}</Text>
+              <Text color="red"> ✕</Text>
+              <Text color="cyan">]</Text>
+            </Box>
+          ))}
+          <Text dimColor> Backspace — удалить</Text>
         </Box>
       )}
       <Box paddingX={1}>

@@ -371,20 +371,12 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
       </Box>
 
       <Box borderTop borderStyle="single" flexDirection="column">
-        {attachments.length > 0 && (
-          <Box paddingX={1} flexDirection="column">
-            {attachments.map((p) => (
-              <Text key={p} dimColor>📎 {p.split('/').pop()}</Text>
-            ))}
-            {supportsInlineImages() && attachments.map((p) => (
-              <Text key={`img-${p}`}>{renderInlineImage(p)}</Text>
-            ))}
-          </Box>
-        )}
         <ChatInput
           onSubmit={handleSubmit}
           onImagePaste={(p) => setAttachments((prev) => [...prev, p])}
           onShellCommand={handleShellCommand}
+          onRemoveAttachment={(i) => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
+          attachments={attachments}
           disabled={busy}
           cwd={cwd}
         />
