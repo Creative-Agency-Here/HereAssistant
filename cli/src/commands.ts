@@ -15,6 +15,7 @@ export interface CommandContext {
   setAccount: (a: Account) => void;
   resetSession: () => void;
   setSessionId: (id: string) => void;
+  renameSession: (name: string) => void;
   forkSession: () => void;
   backgroundPrompt: (prompt: string) => void;
   print: (text: string) => void;
@@ -28,6 +29,7 @@ const HELP = `Команды:
   /account [label]   показать/сменить аккаунт
   /status            сессия, модель, токены
   /resume [id]       продолжить сессию (без id — список)
+  /rename <имя>      переименовать текущую сессию
   /fork              форк сессии (копия контекста, новый ID)
   /search <query>    веб-поиск (через провайдер)
   /bg <prompt>       фоновый агент (detach)
@@ -146,6 +148,13 @@ export function handleCommand(line: string, ctx: CommandContext): boolean {
       ctx.forkSession();
       ctx.print('▸ сессия форкнута — новый ID, контекст сохранён');
       return true;
+
+    case '/rename': {
+      if (!arg) { ctx.print('Использование: /rename <имя>'); return true; }
+      ctx.renameSession(arg);
+      ctx.print(`▸ сессия переименована: ${arg}`);
+      return true;
+    }
 
     case '/search': {
       if (!arg) { ctx.print('Использование: /search <запрос>'); return true; }

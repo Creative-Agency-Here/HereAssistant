@@ -5,6 +5,7 @@ interface Props {
   account: string;
   model: string;
   sessionId: string | null;
+  sessionName: string | null;
   tokensIn: number;
   tokensOut: number;
   cwd: string;
@@ -18,7 +19,7 @@ const PERM_LABELS: Record<string, string> = {
   gemini: 'yolo',
 };
 
-export function StatusBar({ account, model, sessionId, tokensIn, tokensOut, cwd, provider }: Props) {
+export function StatusBar({ account, model, sessionId, sessionName, tokensIn, tokensOut, cwd, provider }: Props) {
   const project = cwd.split('/').pop() ?? cwd;
   const tokens = tokensIn + tokensOut;
 
@@ -32,7 +33,13 @@ export function StatusBar({ account, model, sessionId, tokensIn, tokensOut, cwd,
         <Text color="cyan">{model || 'default'}</Text>
         <Text dimColor> · </Text>
         <Text dimColor>{PERM_LABELS[provider] ?? provider}</Text>
-        {sessionId && (
+        {sessionName && (
+          <>
+            <Text dimColor> · </Text>
+            <Text color="yellow">{sessionName}</Text>
+          </>
+        )}
+        {sessionId && !sessionName && (
           <>
             <Text dimColor> · </Text>
             <Text dimColor>{sessionId.slice(0, 8)}</Text>

@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const SLASH_COMMANDS = [
-  '/help', '/model', '/account', '/status', '/resume', '/fork', '/search', '/bg',
+  '/help', '/model', '/account', '/status', '/resume', '/rename', '/fork', '/search', '/bg',
   '/image', '/diff', '/new', '/compact', '/exit',
 ];
 

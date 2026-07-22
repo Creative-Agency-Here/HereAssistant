@@ -32,6 +32,7 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
   const [lastTokensOut, setLastTokensOut] = useState(0);
   const [thinking, setThinking] = useState('');
   const [attachments, setAttachments] = useState<string[]>([]);
+  const [sessionName, setSessionName] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const project = cwd.split('/').pop() ?? cwd;
 
@@ -70,6 +71,7 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
         setAccount: (a) => { setAccount(a); setModel(a.default_model || ''); },
         resetSession: () => { sessionIdRef.current = null; },
         setSessionId: (id) => { sessionIdRef.current = id; },
+        renameSession: (name) => { setSessionName(name); },
         forkSession: () => { sessionIdRef.current = `fork-${makeId()}`; },
         backgroundPrompt: (prompt) => {
           const child = spawn('node', [
@@ -165,6 +167,7 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
         account={account.label}
         model={model || account.default_model || 'default'}
         sessionId={sessionIdRef.current}
+        sessionName={sessionName}
         tokensIn={tokensIn}
         tokensOut={tokensOut}
         cwd={cwd}
