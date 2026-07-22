@@ -8,9 +8,17 @@ interface Props {
   tokensIn: number;
   tokensOut: number;
   cwd: string;
+  provider: string;
 }
 
-export function StatusBar({ account, model, sessionId, tokensIn, tokensOut, cwd }: Props) {
+const PERM_LABELS: Record<string, string> = {
+  claude_code: 'acceptEdits',
+  qwen_code: 'auto',
+  codex: 'workspace',
+  gemini: 'yolo',
+};
+
+export function StatusBar({ account, model, sessionId, tokensIn, tokensOut, cwd, provider }: Props) {
   const project = cwd.split('/').pop() ?? cwd;
   const tokens = tokensIn + tokensOut;
 
@@ -22,6 +30,8 @@ export function StatusBar({ account, model, sessionId, tokensIn, tokensOut, cwd 
         <Text>{account}</Text>
         <Text dimColor> · </Text>
         <Text color="cyan">{model || 'default'}</Text>
+        <Text dimColor> · </Text>
+        <Text dimColor>{PERM_LABELS[provider] ?? provider}</Text>
         {sessionId && (
           <>
             <Text dimColor> · </Text>

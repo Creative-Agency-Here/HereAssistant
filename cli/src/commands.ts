@@ -1,6 +1,8 @@
 import type { Account } from './types.js';
 import { getAccounts } from './db.js';
 import { pasteImageFromClipboard } from './clipboard.js';
+import { listSessions, formatSessionAge } from './sessions.js';
+import { execSync } from 'node:child_process';
 
 export interface CommandContext {
   account: Account;
@@ -12,6 +14,7 @@ export interface CommandContext {
   setModel: (m: string) => void;
   setAccount: (a: Account) => void;
   resetSession: () => void;
+  setSessionId: (id: string) => void;
   print: (text: string) => void;
   exit: () => void;
   attachImage: (path: string) => void;
@@ -22,7 +25,9 @@ const HELP = `Команды:
   /model [имя]       показать/сменить модель
   /account [label]   показать/сменить аккаунт
   /status            сессия, модель, токены
-  /image             вставить фото из clipboard (Cmd+V)
+  /resume [id]       продолжить сессию (без id — список)
+  /image             вставить фото из clipboard (Ctrl+V)
+  /diff              показать git diff
   /new               новая сессия (очистить контекст)
   /compact           сжать контекст (заглушка)
   /exit              выход
@@ -30,11 +35,11 @@ const HELP = `Команды:
 Ввод:
   Enter              отправить
   Alt+Enter          новая строка
-  ↑↓                 история / навигация по строкам
-  Tab                автодополнение команд
-  Ctrl+U             очистить строку
-  Ctrl+W             удалить слово
-  Ctrl+C             выход`;
+  ↑↓                 история / навигация
+  Tab                автодополнение /команд и @файлов
+  Ctrl+V             вставить фото из clipboard
+  !команда           выполнить shell-команду
+  Ctrl+U/W/K         очистить строку / слово / до конца`;
 
 export function handleCommand(line: string, ctx: CommandContext): boolean {
   const parts = line.trim().split(/\s+/);
@@ -93,6 +98,39 @@ export function handleCommand(line: string, ctx: CommandContext): boolean {
       ctx.resetSession();
       ctx.print('▸ новая сессия — контекст очищен');
       return true;
+
+    case '/resume': {
+      if (arg) {
+        ctx.setSessionId(arg);
+        ctx.print(`▸ продолжаю сессию ${arg.slice(0, 16)}`);
+      } else {
+        const sessions = listSessions(ctx.account.provider, ctx.account.cli_home_path, ctx.cwd);
+        if (sessions.length === 0) {
+          ctx.print('▸ нет прошлых сессий для этого провайдера');
+        } else {
+          const list = sessions.slice(0, 10).map((s, i) =>
+            `  ${i + 1}. ${s.title}\n     ${formatSessionAge(s.updatedAt)} · ${s.id.slice(0, 12)}`,
+          ).join('\n');
+          ctx.print(`Прошлые сессии (${ctx.account.provider}):\n${list}\n\n/resume <id> — продолжить`);
+        }
+      }
+      return true;
+    }
+
+    case '/diff': {
+      try {
+        const diff = execSync('git diff --stat HEAD 2>/dev/null || echo "нет изменений"', {
+          cwd: ctx.cwd, encoding: 'utf-8', timeout: 5000,
+        }).trim();
+        const fullDiff = execSync('git diff HEAD 2>/dev/null | head -100', {
+          cwd: ctx.cwd, encoding: 'utf-8', timeout: 5000,
+        }).trim();
+        ctx.print(diff + (fullDiff ? `\n\n${fullDiff}` : ''));
+      } catch {
+        ctx.print('✗ git diff недоступен');
+      }
+      return true;
+    }
 
     case '/compact':
       ctx.print('▸ /compact: провайдер сам управляет контекстом (заглушка)');

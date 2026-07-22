@@ -11,6 +11,7 @@ import { renderMarkdown } from './markdown.js';
 import { handleCommand, type CommandContext } from '../commands.js';
 import { startWorkingTitle, setIdleTitle, stopWorkingTitle } from '../terminal-title.js';
 import { cleanClipboardCache } from '../clipboard.js';
+import { execSync } from 'node:child_process';
 
 function makeId(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -66,6 +67,7 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
         setModel: (m) => setModel(m),
         setAccount: (a) => { setAccount(a); setModel(a.default_model || ''); },
         resetSession: () => { sessionIdRef.current = null; },
+        setSessionId: (id) => { sessionIdRef.current = id; },
         print: (t) => addMessage({ id: makeId(), role: 'system', text: t, toolCalls: [], timestamp: Date.now(), streaming: false }),
         exit: doExit,
         attachImage: (p) => setAttachments((prev) => [...prev, p]),
@@ -131,6 +133,17 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
     }
   }, [account, cwd, model, tokensIn, tokensOut, project, addMessage, updateLastAssistant, doExit]);
 
+  const handleShellCommand = useCallback((cmd: string) => {
+    addMessage({ id: makeId(), role: 'user', text: `! ${cmd}`, toolCalls: [], timestamp: Date.now(), streaming: false });
+    try {
+      const output = execSync(cmd, { cwd, encoding: 'utf-8', timeout: 30000, shell: '/bin/bash' });
+      addMessage({ id: makeId(), role: 'system', text: output.trim() || '(пусто)', toolCalls: [], timestamp: Date.now(), streaming: false });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addMessage({ id: makeId(), role: 'system', text: `✗ ${msg.slice(0, 500)}`, toolCalls: [], timestamp: Date.now(), streaming: false });
+    }
+  }, [cwd, addMessage]);
+
   useInput((input, key) => {
     if (key.ctrl && input === 'c') doExit();
   });
@@ -144,6 +157,7 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
         tokensIn={tokensIn}
         tokensOut={tokensOut}
         cwd={cwd}
+        provider={account.provider}
       />
 
       <Box flexDirection="column" flexGrow={1} overflow="hidden">
@@ -199,7 +213,9 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
         <ChatInput
           onSubmit={handleSubmit}
           onImagePaste={(p) => setAttachments((prev) => [...prev, p])}
+          onShellCommand={handleShellCommand}
           disabled={busy}
+          cwd={cwd}
         />
       </Box>
     </Box>

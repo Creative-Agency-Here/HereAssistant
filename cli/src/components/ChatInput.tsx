@@ -1,19 +1,23 @@
 import React, { useState, useRef } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { pasteImageFromClipboard } from '../clipboard.js';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const SLASH_COMMANDS = [
-  '/help', '/model', '/account', '/status', '/image', '/new', '/compact', '/exit',
+  '/help', '/model', '/account', '/status', '/resume', '/image', '/diff', '/new', '/compact', '/exit',
 ];
 
 interface Props {
   onSubmit: (value: string) => void;
   onImagePaste?: (path: string) => void;
+  onShellCommand?: (cmd: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  cwd?: string;
 }
 
-export function ChatInput({ onSubmit, onImagePaste, disabled = false, placeholder }: Props) {
+export function ChatInput({ onSubmit, onImagePaste, onShellCommand, disabled = false, placeholder, cwd }: Props) {
   const [lines, setLines] = useState<string[]>(['']);
   const [cursorLine, setCursorLine] = useState(0);
   const [history, setHistory] = useState<string[]>([]);
@@ -24,9 +28,40 @@ export function ChatInput({ onSubmit, onImagePaste, disabled = false, placeholde
 
   const currentLine = lines[cursorLine] ?? '';
   const isSlash = lines.length === 1 && currentLine.startsWith('/');
-  const completions = isSlash
+
+  // @file автодополнение
+  const atMatch = currentLine.match(/@([^\s]*)$/);
+  const isAt = !!atMatch && cwd;
+  const atPrefix = atMatch ? atMatch[1] : '';
+
+  const getFileCompletions = (): string[] => {
+    if (!cwd || !isAt) return [];
+    try {
+      const searchDir = atPrefix.includes('/')
+        ? path.resolve(cwd, path.dirname(atPrefix))
+        : cwd;
+      const prefix = atPrefix.includes('/')
+        ? path.basename(atPrefix)
+        : atPrefix;
+      if (!fs.existsSync(searchDir)) return [];
+      const entries = fs.readdirSync(searchDir, { withFileTypes: true });
+      return entries
+        .filter((e) => !e.name.startsWith('.') && e.name.startsWith(prefix))
+        .slice(0, 10)
+        .map((e) => {
+          const rel = atPrefix.includes('/')
+            ? path.join(path.dirname(atPrefix), e.name)
+            : e.name;
+          return `@${rel}${e.isDirectory() ? '/' : ''}`;
+        });
+    } catch { return []; }
+  };
+
+  const slashCompletions = isSlash
     ? SLASH_COMMANDS.filter((c) => c.startsWith(currentLine) && c !== currentLine)
     : [];
+  const fileCompletions = isAt ? getFileCompletions() : [];
+  const completions = [...slashCompletions, ...fileCompletions];
 
   const text = lines.join('\n');
 
@@ -39,6 +74,22 @@ export function ChatInput({ onSubmit, onImagePaste, disabled = false, placeholde
   const handleSubmit = () => {
     const value = text.trim();
     if (!value) return;
+
+    // Shell mode: ! команда
+    if (value.startsWith('!') && onShellCommand) {
+      const cmd = value.slice(1).trim();
+      if (cmd) {
+        setHistory((h) => (h[0] === value ? h : [value, ...h].slice(0, 100)));
+        setHistoryIdx(-1);
+        draftRef.current = null;
+        setLines(['']);
+        setCursorLine(0);
+        setShowComplete(false);
+        onShellCommand(cmd);
+        return;
+      }
+    }
+
     setHistory((h) => (h[0] === value ? h : [value, ...h].slice(0, 100)));
     setHistoryIdx(-1);
     draftRef.current = null;
@@ -73,7 +124,15 @@ export function ChatInput({ onSubmit, onImagePaste, disabled = false, placeholde
 
     // Tab — autocomplete
     if (key.tab && completions.length > 0) {
-      setText(completions[completeIdx]);
+      const selected = completions[completeIdx];
+      if (isAt) {
+        // Заменяем @prefix на выбранный файл
+        const newLines = [...lines];
+        newLines[cursorLine] = currentLine.replace(/@[^\s]*$/, selected);
+        setLines(newLines);
+      } else {
+        setText(selected);
+      }
       setShowComplete(false);
       return;
     }
