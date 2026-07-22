@@ -63,6 +63,8 @@ rules. Codex loads trusted `.codex/hooks.json`; Claude uses the matching
 trusted project hooks from `.qwen/settings.json`. Shared
 account pinning, secret scanning, CRM session tasks, Git ownership, session sync, and handoff
 implementations remain in the target repository's `scripts/hooks/` directory.
+Direct Qwen syncs its native transcript on `Stop`; under HereAssistant that path is skipped
+and the scoped outbox delivers the same conversation exactly once.
 
 For the HereAgency Site/Service repositories:
 
