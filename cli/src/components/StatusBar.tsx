@@ -12,16 +12,10 @@ interface Props {
   provider: string;
   taskCount: number;
   busy: boolean;
+  permMode?: string;
 }
 
-const PERM_LABELS: Record<string, string> = {
-  claude_code: 'acceptEdits',
-  qwen_code: 'auto',
-  codex: 'workspace',
-  gemini: 'yolo',
-};
-
-export function StatusBar({ account, model, sessionId, sessionName, tokensIn, tokensOut, cwd, provider, taskCount, busy }: Props) {
+export function StatusBar({ account, model, sessionId, sessionName, tokensIn, tokensOut, cwd, provider, taskCount, busy, permMode }: Props) {
   const project = cwd.split('/').pop() ?? cwd;
   const tokens = tokensIn + tokensOut;
   const label = sessionName || project;
@@ -35,7 +29,8 @@ export function StatusBar({ account, model, sessionId, sessionName, tokensIn, to
         <Text dimColor> · </Text>
         <Text color="cyan">{model || 'default'}</Text>
         <Text dimColor> · </Text>
-        <Text dimColor>{PERM_LABELS[provider] ?? provider}</Text>
+        <Text color="yellow">{permMode || 'ask'}</Text>
+        <Text dimColor> · Shift+Tab</Text>
         {sessionName && (
           <>
             <Text dimColor> · </Text>

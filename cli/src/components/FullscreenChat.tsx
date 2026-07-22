@@ -55,9 +55,15 @@ export function FullscreenChat({ account: initialAccount, cwd }: { account: Acco
   const [promptCount, setPromptCount] = useState(0);
   const [scrollOffset, setScrollOffset] = useState(0);
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+  const [permMode, setPermMode] = useState(0); // index into PERM_MODES
   const sessionIdRef = useRef<string | null>(null);
   const project = cwd.split('/').pop() ?? cwd;
   const layoutRef = useRef<LayoutEntry[]>([]);
+
+  const PERM_MODES = ['acceptEdits', 'auto', 'plan', 'default'] as const;
+  const PERM_LABELS: Record<string, string> = {
+    acceptEdits: 'edits✓', auto: 'auto', plan: 'read-only', default: 'ask',
+  };
 
   React.useEffect(() => { cleanClipboardCache(); }, []);
 
@@ -198,11 +204,15 @@ export function FullscreenChat({ account: initialAccount, cwd }: { account: Acco
     }
   }, [cwd, addMessage]);
 
-  // Keyboard: scroll
+  // Keyboard: scroll + permission mode
   useInput((input, key) => {
     if (key.ctrl && input === 'c') { doExit(); return; }
     if (key.pageUp) setScrollOffset((p) => Math.max(0, p - 10));
     if (key.pageDown) setScrollOffset((p) => p + 10);
+    // Shift+Tab — cycle permission mode (как в Claude Code)
+    if (key.tab && key.shift) {
+      setPermMode((p) => (p + 1) % PERM_MODES.length);
+    }
   });
 
   // Build layout map for mouse hit testing
@@ -244,14 +254,15 @@ export function FullscreenChat({ account: initialAccount, cwd }: { account: Acco
         provider={account.provider}
         taskCount={promptCount}
         busy={busy}
+        permMode={PERM_LABELS[PERM_MODES[permMode]] || 'ask'}
       />
 
-      {/* Pinned последний запрос */}
-      {lastUserMsg && (
+      {/* Floating scroll-хедер (как дата в Telegram) — только при скролле вверх */}
+      {scrollOffset > 0 && lastUserMsg && (
         <Box paddingX={1} borderStyle="single" borderBottom={false} borderLeft={false} borderRight={false}>
-          <Text dimColor>#{msgNumbers.get(lastUserMsg.id) ?? '?'} </Text>
-          <Text color="cyan" bold>› </Text>
-          <Text color="cyan">{lastUserMsg.text.length > termCols - 10 ? lastUserMsg.text.slice(0, termCols - 13) + '…' : lastUserMsg.text}</Text>
+          <Text dimColor>↑ #{msgNumbers.get(lastUserMsg.id) ?? '?'} </Text>
+          <Text color="cyan">{lastUserMsg.text.length > termCols - 15 ? lastUserMsg.text.slice(0, termCols - 18) + '…' : lastUserMsg.text}</Text>
+          <Text dimColor>  · скролл</Text>
         </Box>
       )}
 
@@ -309,10 +320,7 @@ export function FullscreenChat({ account: initialAccount, cwd }: { account: Acco
                 })}
                 {msg.text ? (
                   <Box flexDirection="column">
-                    {(plainMode
-                      ? renderMarkdown(msg.text).map((l) => l.replace(/\x1b\[[0-9;]*m/g, ''))
-                      : renderMarkdown(msg.text)
-                    ).map((line, i) => (
+                    {renderMarkdown(msg.text).map((line, i) => (
                       <Text key={i}>{line}</Text>
                     ))}
                     {msg.streaming && <Text color="yellow"> ▌</Text>}
