@@ -143,7 +143,7 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
       if (handleCommand(text, ctx)) return;
     }
 
-    addMessage({ id: makeId(), role: 'user', text, toolCalls: [], timestamp: Date.now(), streaming: false });
+    addMessage({ id: makeId(), role: 'user', text, toolCalls: [], timestamp: Date.now(), streaming: false, attachments: attachments.length > 0 ? [...attachments] : undefined });
     const assistantMsg: ChatMessage = {
       id: makeId(), role: 'assistant', text: '', toolCalls: [], timestamp: Date.now(), streaming: true,
     };
@@ -300,10 +300,19 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
           return (
           <Box key={msg.id} flexDirection="column" marginBottom={0}>
             {msg.role === 'user' && (
-              <Box>
-                <Text dimColor>#{msgNum} </Text>
-                <Text color="cyan" bold>› </Text>
-                <Text>{msg.text}</Text>
+              <Box flexDirection="column">
+                <Box>
+                  <Text dimColor>#{msgNum} </Text>
+                  <Text color="cyan" bold>› </Text>
+                  <Text>{msg.text}</Text>
+                </Box>
+                {msg.attachments && msg.attachments.length > 0 && (
+                  <Box marginLeft={4} flexDirection="column">
+                    {msg.attachments.map((p, i) => (
+                      <Text key={i} color="cyan">  📎 Image #{i + 1}: {p.split('/').pop()}</Text>
+                    ))}
+                  </Box>
+                )}
               </Box>
             )}
             {msg.role === 'system' && (

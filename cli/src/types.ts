@@ -52,4 +52,5 @@ export interface ChatMessage {
   toolCalls: ToolCall[];
   timestamp: number;
   streaming: boolean;
+  attachments?: string[];
 }
