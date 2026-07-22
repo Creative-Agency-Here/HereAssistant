@@ -274,6 +274,70 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
       )}
 
       <Box flexDirection="column" flexGrow={1} overflow="hidden" paddingX={1}>
+        {messages.length === 0 && (
+          <Box flexDirection="column" marginTop={2} paddingX={2}>
+            <Text bold color="magenta">{'  ╔══════════════════════════════════════════════════════╗'}</Text>
+            <Text bold color="magenta">{'  ║'}</Text>
+            <Text bold color="magenta">{'  ║'}</Text>
+            <Text bold color="magenta">{'  ║  '}</Text>
+            <Text bold color="magenta">{'  ║  '}</Text>
+            <Box>
+              <Text bold color="magenta">{'  ║  '}</Text>
+              <Text bold color="cyan">{'██╗  ██╗ ███████╗ ██████╗  █████╗ '}</Text>
+              <Text bold color="magenta">{'  ║'}</Text>
+            </Box>
+            <Box>
+              <Text bold color="magenta">{'  ║  '}</Text>
+              <Text bold color="cyan">{'██║  ██║ ██╔════╝ ██╔══██╗██╔══██╗'}</Text>
+              <Text bold color="magenta">{'  ║'}</Text>
+            </Box>
+            <Box>
+              <Text bold color="magenta">{'  ║  '}</Text>
+              <Text bold color="cyan">{'███████║ █████╗   ██████╔╝███████║'}</Text>
+              <Text bold color="magenta">{'  ║'}</Text>
+            </Box>
+            <Box>
+              <Text bold color="magenta">{'  ║  '}</Text>
+              <Text bold color="cyan">{'██╔══██║ ██╔══╝   ██╔══██╗██╔══██║'}</Text>
+              <Text bold color="magenta">{'  ║'}</Text>
+            </Box>
+            <Box>
+              <Text bold color="magenta">{'  ║  '}</Text>
+              <Text bold color="cyan">{'██║  ██║ ███████╗ ██║  ██║██║  ██║'}</Text>
+              <Text bold color="magenta">{'  ║'}</Text>
+            </Box>
+            <Box>
+              <Text bold color="magenta">{'  ║  '}</Text>
+              <Text bold color="cyan">{'╚═╝  ╚═╝ ╚══════╝ ╚═╝  ╚═╝╚═╝  ╚═╝'}</Text>
+              <Text bold color="magenta">{'  ║'}</Text>
+            </Box>
+            <Text bold color="magenta">{'  ║'}</Text>
+            <Box>
+              <Text bold color="magenta">{'  ║  '}</Text>
+              <Text bold color="white">{'Unified AI Terminal · 4 провайдера'}</Text>
+              <Text bold color="magenta">{'  ║'}</Text>
+            </Box>
+            <Text bold color="magenta">{'  ║'}</Text>
+            <Box>
+              <Text bold color="magenta">{'  ║  '}</Text>
+              <Text dimColor>{'Напиши сообщение или:'}</Text>
+              <Text bold color="magenta">{'          ║'}</Text>
+            </Box>
+            <Box>
+              <Text bold color="magenta">{'  ║  '}</Text>
+              <Text color="yellow">{'пробел'}</Text>
+              <Text dimColor>{' голос  '}</Text>
+              <Text color="yellow">{'Ctrl+V'}</Text>
+              <Text dimColor>{' фото  '}</Text>
+              <Text color="yellow">{'!cmd'}</Text>
+              <Text dimColor>{' shell  '}</Text>
+              <Text color="yellow">{'/help'}</Text>
+              <Text bold color="magenta">{'  ║'}</Text>
+            </Box>
+            <Text bold color="magenta">{'  ║'}</Text>
+            <Text bold color="magenta">{'  ╚══════════════════════════════════════════════════════╝'}</Text>
+          </Box>
+        )}
         {visibleMessages.map((msg) => {
           const msgNum = msgNumbers.get(msg.id);
           return (
