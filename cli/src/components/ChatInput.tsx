@@ -42,9 +42,11 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
   const draftRef = useRef<string | null>(null);
   const voiceRef = useRef<{ kill: () => void } | null>(null);
   const holdRef = useRef({ count: 0, lastTime: 0, recLastSpace: 0 });
+  const recordingRef = useRef(false);
 
-  // Анимация записи
+  // Анимация записи + sync ref
   useEffect(() => {
+    recordingRef.current = recording;
     if (!recording) { setRecFrame(0); setRecSeconds(0); return; }
     const frameTimer = setInterval(() => setRecFrame((f) => (f + 1) % REC_FRAMES.length), 200);
     const waveTimer = setInterval(() => setRecSeconds((s) => s + 1), 1000);
@@ -161,7 +163,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       const h = holdRef.current;
       const now = Date.now();
 
-      if (recording) {
+      if (recordingRef.current) {
         // Во время записи: repeat игнорим, стоп по одиночному нажатию
         if (now - h.recLastSpace > 300) {
           // Одиночное = стоп
@@ -227,7 +229,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
 
     // Ctrl+M = toggle голос (альтернатива)
     if (key.ctrl && input === 'm') {
-      if (recording) {
+      if (recordingRef.current) {
         voiceRef.current?.kill();
         voiceRef.current = null;
         setRecording(false);
@@ -370,9 +372,8 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       return;
     }
 
-    // Ctrl+V / Cmd+V — вставка изображения inline или текста
-    if ((key.ctrl || key.meta) && (input === 'v' || input === '\x16')) {
-      // Пробуем изображение
+    // Ctrl+I = вставка изображения inline (Ctrl+V перехватывается терминалом/VS Code)
+    if (key.ctrl && (input === 'i' || input === '\t')) {
       if (onImagePaste) {
         const imgPath = pasteImageFromClipboard();
         if (imgPath) {
@@ -388,7 +389,11 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
           return;
         }
       }
-      // Fallback: текст из clipboard
+      return;
+    }
+
+    // Ctrl+V / Cmd+V — только текст из clipboard (изображения через Ctrl+I)
+    if ((key.ctrl || key.meta) && (input === 'v' || input === '\x16')) {
       try {
         const clipText = execSync('pbpaste 2>/dev/null', { encoding: 'utf-8', timeout: 2000 }).trim();
         if (clipText) {
@@ -527,7 +532,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
         ) : (
           <Box>
             <Text color="magenta" bold>› </Text>
-            <Text dimColor>{placeholder ?? 'сообщение… (зажми пробел — голос, Ctrl+V — фото, ! shell)'}</Text>
+            <Text dimColor>{placeholder ?? 'сообщение… (зажми пробел — голос, Ctrl+I — фото, ! shell)'}</Text>
           </Box>
         )}
       </Box>
