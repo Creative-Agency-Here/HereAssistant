@@ -1,10 +1,13 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { pasteImageFromClipboard } from '../clipboard.js';
 import { openInEditor } from '../editor.js';
 import { voiceRealtime, canRealtimeVoice } from '../voice.js';
 import fs from 'node:fs';
 import path from 'node:path';
+
+const REC_FRAMES = ['●', '◉', '◎', '◉'];
+const WAVE_FRAMES = ['▁▃▅▇', '▃▅▇▅', '▅▇▅▃', '▇▅▃▁', '▅▃▁▃', '▃▁▃▅'];
 
 const SLASH_COMMANDS = [
   '/help', '/model', '/account', '/status', '/resume', '/rename', '/fork', '/search', '/bg',
@@ -29,9 +32,19 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, disabled = f
   const [completeIdx, setCompleteIdx] = useState(0);
   const [recording, setRecording] = useState(false);
   const [voiceText, setVoiceText] = useState('');
+  const [recFrame, setRecFrame] = useState(0);
+  const [recSeconds, setRecSeconds] = useState(0);
   const draftRef = useRef<string | null>(null);
   const voiceRef = useRef<{ kill: () => void } | null>(null);
   const spaceHoldRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Анимация записи
+  useEffect(() => {
+    if (!recording) { setRecFrame(0); setRecSeconds(0); return; }
+    const frameTimer = setInterval(() => setRecFrame((f) => (f + 1) % REC_FRAMES.length), 200);
+    const waveTimer = setInterval(() => setRecSeconds((s) => s + 1), 1000);
+    return () => { clearInterval(frameTimer); clearInterval(waveTimer); };
+  }, [recording]);
 
   const currentLine = lines[cursorLine] ?? '';
   const isSlash = lines.length === 1 && currentLine.startsWith('/');
@@ -298,10 +311,11 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, disabled = f
       <Box paddingX={1}>
         {recording ? (
           <Box>
-            <Text color="red" bold>● </Text>
+            <Text color="red" bold>{REC_FRAMES[recFrame]} </Text>
+            <Text color="red">{WAVE_FRAMES[recFrame % WAVE_FRAMES.length]} </Text>
             <Text color="red">{voiceText || 'слушаю…'}</Text>
             <Text color="red"> ▌</Text>
-            <Text dimColor>  [пробел — стоп]</Text>
+            <Text dimColor>  {recSeconds}с · [пробел — стоп]</Text>
           </Box>
         ) : text ? (
           <Box>
