@@ -52,9 +52,15 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
   const recordingRef = useRef(false);
   const cursorColRef = useRef(0);
   const cursorLineRef = useRef(0);
-  const lastEscapeRef = useRef(0); // время последнего Escape для Alt+Enter detection
-  useEffect(() => { cursorColRef.current = cursorCol; }, [cursorCol]);
-  useEffect(() => { cursorLineRef.current = cursorLine; }, [cursorLine]);
+  const lastEscapeRef = useRef(0);
+  const pasteGuardRef = useRef(0); // защита от race condition при paste
+
+  // Синхронизация ref → state, НО НЕ во время быстрого paste
+  useEffect(() => {
+    if (Date.now() - pasteGuardRef.current < 300) return; // paste идёт — не трогаем ref
+    cursorColRef.current = cursorCol;
+    cursorLineRef.current = cursorLine;
+  }, [cursorCol, cursorLine]);
 
   // Voice events из MouseFilterStream (hold-space detection на уровне потока)
   useEffect(() => {
@@ -578,6 +584,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
     // Regular character input — functional update + немедленный ref update
     // (фикс для Cmd+V paste: символы приходят быстрее чем React рендерит)
     if (input && !key.ctrl && !key.meta && input !== '\r' && input !== '\n') {
+      pasteGuardRef.current = Date.now(); // блокируем useEffect sync
       setLines((prev) => {
         const newLines = [...prev];
         const lineIdx = cursorLineRef.current;
