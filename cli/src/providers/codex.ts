@@ -50,6 +50,7 @@ export class CodexProvider implements Provider {
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    (globalThis as any).__ha_process = child;
 
     let stdout = '';
     let stderr = '';

@@ -47,6 +47,7 @@ export class QwenCodeProvider implements Provider {
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    (globalThis as any).__ha_process = child;
 
     child.stdin.write(prompt);
     if (attachments && attachments.length > 0) {

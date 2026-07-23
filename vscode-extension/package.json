@@ -63,8 +63,18 @@
         "when": "terminalFocus && hereAssistant.enabled"
       },
       {
+        "command": "-workbench.action.terminal.sendSequence",
+        "key": "shift+enter",
+        "when": "terminalFocus && hereAssistant.enabled"
+      },
+      {
         "command": "hereAssistant.newLine",
         "key": "shift+enter",
+        "when": "terminalFocus && hereAssistant.enabled"
+      },
+      {
+        "command": "-workbench.action.terminal.sendSequence",
+        "key": "alt+enter",
         "when": "terminalFocus && hereAssistant.enabled"
       },
       {

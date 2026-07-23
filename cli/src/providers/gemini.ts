@@ -48,6 +48,7 @@ export class GeminiProvider implements Provider {
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    (globalThis as any).__ha_process = child;
 
     const parser = new GeminiStreamParser();
     const rl = createInterface({ input: child.stdout! });

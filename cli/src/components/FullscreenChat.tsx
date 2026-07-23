@@ -321,6 +321,12 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
 
   // Keyboard: scroll + permission mode
   useInput((input, key) => {
+    // ESC — отменить текущую задачу
+    if (key.escape && busy) {
+      const proc = (globalThis as any).__ha_process;
+      if (proc) { try { proc.kill('SIGINT'); } catch {} }
+      return;
+    }
     if (key.ctrl && input === 'c') {
       if (selection) {
         const text = getSelectedText();
