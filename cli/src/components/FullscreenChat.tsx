@@ -61,6 +61,89 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
   const project = cwd.split('/').pop() ?? cwd;
   const layoutRef = useRef<LayoutEntry[]>([]);
 
+  // Своё выделение (как в Claude Code)
+  const [selection, setSelection] = useState<{sr: number; sc: number; er: number; ec: number} | null>(null);
+  const isDraggingRef = useRef(false);
+  const rowTextMap = useRef<Map<number, string>>(new Map());
+  const rowCounter = useRef(0);
+
+  // Хелпер: inverse video обёртка для выделенных строк
+  const selWrap = (row: number, content: string): string => {
+    if (!selection) return content;
+    const {sr, er} = selection;
+    const [minR, maxR] = sr <= er ? [sr, er] : [er, sr];
+    if (row >= minR && row <= maxR) return '\x1b[7m' + content + '\x1b[27m';
+    return content;
+  };
+
+  // Хелпер: зарегистрировать строку в row map
+  const regRow = (text: string): number => {
+    const r = rowCounter.current++;
+    rowTextMap.current.set(r, text);
+    return r;
+  };
+
+  // Mouse handler для выделения + кликов
+  useEffect(() => {
+    const mouseEmitter = (globalThis as any).__ha_mouse as any;
+    if (!mouseEmitter) return;
+
+    const handler = (ev: any) => {
+      if (ev.type === 'press' && ev.button === 'left') {
+        isDraggingRef.current = true;
+        setSelection({sr: ev.row, sc: ev.col, er: ev.row, ec: ev.col});
+      } else if (ev.type === 'release' && ev.button === 'left') {
+        isDraggingRef.current = false;
+        // Если клик без drag (та же позиция) — очистить выделение
+        setSelection((prev) => {
+          if (prev && prev.sr === prev.er && prev.sc === prev.ec) return null;
+          return prev;
+        });
+      } else if (isDraggingRef.current && (ev.type === 'press' || ev.type === 'release')) {
+        // Drag — обновляем конец выделения
+        setSelection((prev) => prev ? {...prev, er: ev.row, ec: ev.col} : null);
+      } else if (ev.type === 'scroll') {
+        setScrollOffset((p) => Math.max(0, p + (ev.button === 'scroll-up' ? -3 : 3)));
+      }
+    };
+
+    mouseEmitter.on('event', handler);
+    return () => { mouseEmitter.off('event', handler); };
+  }, []);
+
+  // Ctrl+C: если есть выделение → копировать, иначе → выход
+  useEffect(() => {
+    const handler = (ev: any) => {
+      if (ev.type === 'press' && ev.button === 'right') {
+        // Правый клик = копировать выделение
+        if (selection) {
+          const text = getSelectedText();
+          if (text) {
+            try { execSync(`printf '%s' ${JSON.stringify(text)} | pbcopy`, {timeout: 3000}); } catch {}
+            setSelection(null);
+          }
+        }
+      }
+    };
+    const mouseEmitter = (globalThis as any).__ha_mouse as any;
+    if (mouseEmitter) { mouseEmitter.on('event', handler); return () => mouseEmitter.off('event', handler); }
+  }, [selection]);
+
+  const getSelectedText = (): string => {
+    if (!selection) return '';
+    const {sr, sc, er, ec} = selection;
+    const [minR, maxR] = sr <= er ? [sr, er] : [er, sr];
+    const [minC, maxC] = sr <= er ? [sc, ec] : [ec, sc];
+    const lines: string[] = [];
+    for (let r = minR; r <= maxR; r++) {
+      const text = rowTextMap.current.get(r) || '';
+      const start = r === minR ? Math.min(minC, text.length) : 0;
+      const end = r === maxR ? Math.min(maxC, text.length) : text.length;
+      if (start < end) lines.push(text.slice(start, end));
+    }
+    return lines.join('\n');
+  };
+
   const PERM_MODES = ['acceptEdits', 'auto', 'plan', 'default'] as const;
   const PERM_LABELS: Record<string, string> = {
     acceptEdits: 'edits✓', auto: 'auto', plan: 'read-only', default: 'ask',
@@ -238,7 +321,17 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
 
   // Keyboard: scroll + permission mode
   useInput((input, key) => {
-    if (key.ctrl && input === 'c') { doExit(); return; }
+    if (key.ctrl && input === 'c') {
+      if (selection) {
+        const text = getSelectedText();
+        if (text) {
+          try { execSync(`printf '%s' ${JSON.stringify(text)} | pbcopy`, {timeout: 3000}); } catch {}
+          setSelection(null);
+          return; // не выходим — скопировали
+        }
+      }
+      doExit(); return;
+    }
     if (key.pageUp) setScrollOffset((p) => Math.max(0, p - 10));
     if (key.pageDown) setScrollOffset((p) => p + 10);
     // Shift+Tab — cycle permission mode (как в Claude Code)
@@ -272,6 +365,10 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
     if (m.role === 'user') { num++; msgNumbers.set(m.id, num); }
     else if (m.role === 'assistant') { msgNumbers.set(m.id, num); }
   }
+
+  // Сброс row map перед каждым рендером
+  rowCounter.current = 0;
+  rowTextMap.current.clear();
 
   return (
     <Box flexDirection="column" height={termRows}>
@@ -326,11 +423,11 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
           <Box key={msg.id} flexDirection="column" marginBottom={0}>
             {msg.role === 'user' && (
               <Box flexDirection="column">
-                <Box>
-                  <Text dimColor>#{msgNum} </Text>
-                  <Text color="cyan" bold>› </Text>
-                  <Text>{msg.text}</Text>
-                </Box>
+                {(() => { const r = regRow(msg.text); const sel = selection && r >= Math.min(selection.sr, selection.er) && r <= Math.max(selection.sr, selection.er);
+                  return sel
+                    ? <Text>{'\x1b[7m'}#{msgNum} › {msg.text}{'\x1b[27m'}</Text>
+                    : <Text><Text dimColor>#{msgNum} </Text><Text color="cyan" bold>› </Text><Text>{msg.text}</Text></Text>;
+                })()}
                 {msg.attachments && msg.attachments.length > 0 && (
                   <Box marginLeft={4} flexDirection="column">
                     {msg.attachments.map((p, i) => (
@@ -359,16 +456,13 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
 
                   return (
                     <Box key={tool.id} flexDirection="column" marginLeft={1}>
-                      <Box>
-                        <Text color={statusColor}>{statusIcon} </Text>
-                        <Text>{icon} </Text>
-                        <Text bold>{tool.name}</Text>
-                        <Text dimColor> {inputPreview}</Text>
-                        {outputLines.length > 0 && !isExpanded && (
-                          <Text dimColor> [{outputLines.length} строк — клик раскрыть]</Text>
-                        )}
-                        {isExpanded && <Text dimColor> [клик свернуть]</Text>}
-                      </Box>
+                      {(() => { const r = regRow(`${tool.name} ${inputPreview}`); const sel = selection && r >= Math.min(selection.sr, selection.er) && r <= Math.max(selection.sr, selection.er);
+                        return sel
+                          ? <Text>{'\x1b[7m'}{statusIcon} {icon} {tool.name} {inputPreview}{'\x1b[27m'}</Text>
+                          : <Text><Text color={statusColor}>{statusIcon} </Text><Text>{icon} </Text><Text bold>{tool.name}</Text><Text dimColor> {inputPreview}</Text>
+                              {outputLines.length > 0 && !isExpanded && <Text dimColor> [{outputLines.length} строк — клик раскрыть]</Text>}
+                              {isExpanded && <Text dimColor> [клик свернуть]</Text>}</Text>;
+                      })()}
                       {isExpanded && tool.output && (
                         <Box marginLeft={2} flexDirection="column">
                           {outputLines.slice(0, 30).map((line, i) => (
@@ -382,9 +476,13 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
                 })}
                 {msg.text ? (
                   <Box flexDirection="column">
-                    {renderMarkdown(msg.text).map((line, i) => (
-                      <Text key={i}>{line}</Text>
-                    ))}
+                    {renderMarkdown(msg.text).map((line, i) => {
+                      const r = regRow(line.replace(/\x1b\[[0-9;]*m/g, ''));
+                      const sel = selection && r >= Math.min(selection.sr, selection.er) && r <= Math.max(selection.sr, selection.er);
+                      return sel
+                        ? <Text key={i}>{'\x1b[7m'}{line.replace(/\x1b\[[0-9;]*m/g, '')}{'\x1b[27m'}</Text>
+                        : <Text key={i}>{line}</Text>;
+                    })}
                     {msg.streaming && <Text color="yellow"> ▌</Text>}
                   </Box>
                 ) : (

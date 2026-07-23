@@ -24,8 +24,8 @@ process.stdin.pipe(filter);
 (globalThis as any).__ha_filter = filter;
 
 if (process.stdout.isTTY) {
-  process.stdout.write('\x1b[?1049h'); // alternate screen
-  process.stdout.write('\x1b[?1000h\x1b[?1006h'); // mouse reporting для кликов
+  process.stdout.write('\x1b[?1049h');
+  process.stdout.write('\x1b[?1000h\x1b[?1006h'); // mouse ON — своё выделение
   process.stdout.write('\x1b[2J\x1b[H');
 }
 
