@@ -294,6 +294,36 @@ class Controller {
     if (picked) await this.reconnectSession(picked.session);
   }
 
+  async clipboardPaste() {
+    const term = vscode.window.activeTerminal;
+    if (!term) return;
+    const root = this.installationPath();
+    const clipBin = root ? path.join(root, 'cli', 'bin', 'clipboard_img') : null;
+    const tmpPng = path.join(require('os').tmpdir(), `ha-cmdv-${Date.now()}.png`);
+
+    // Пробуем сохранить изображение из clipboard
+    let hasImage = false;
+    if (clipBin && fs.existsSync(clipBin)) {
+      try {
+        const { execSync } = require('child_process');
+        execSync(`"${clipBin}" "${tmpPng}"`, { timeout: 3000 });
+        hasImage = fs.existsSync(tmpPng) && fs.statSync(tmpPng).size > 0;
+      } catch { /* no image */ }
+    }
+
+    if (hasImage) {
+      // Пишем путь в файл который TUI поллит
+      const signalFile = path.join(require('os').tmpdir(), 'ha-clipboard-paste');
+      fs.writeFileSync(signalFile, tmpPng, 'utf-8');
+    } else {
+      // Текст из clipboard → в терминал
+      try {
+        const text = await vscode.env.clipboard.readText();
+        if (text) term.sendText(text, false); // false = не нажимать Enter
+      } catch { /* empty */ }
+    }
+  }
+
   activeInfo() { return this.terminal ? this.terminals.get(this.terminal) : null; }
 
   async init() {
@@ -361,6 +391,7 @@ class Controller {
       openWeb: () => this.openWeb(),
       setAccessKey: () => this.setAccessKey(),
       manageAccounts: () => this.manageAccounts(),
+      clipboardPaste: () => this.clipboardPaste(),
     };
     for (const [name, handler] of Object.entries(commands)) {
       this.context.subscriptions.push(vscode.commands.registerCommand(`hereAssistant.${name}`, handler));

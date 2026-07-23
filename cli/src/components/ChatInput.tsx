@@ -132,23 +132,43 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
   }, [lines]);
 
   useEffect(() => {
+    const SIGNAL_FILE = '/tmp/ha-clipboard-paste';
     const check = setInterval(() => {
+      // 1. Глобальный insert (от /img команды)
       const pending = (globalThis as Record<string, unknown>).__ha_insert as string | undefined;
       if (pending) {
         (globalThis as Record<string, unknown>).__ha_insert = undefined;
-        setLines((prev) => {
-          const newLines = [...prev];
-          const line = newLines[cursorLine] ?? '';
-          const col = Math.min(cursorCol, line.length);
-          const sep = col > 0 && line[col - 1] !== ' ' ? ' ' : '';
-          newLines[cursorLine] = line.slice(0, col) + sep + pending + ' ' + line.slice(col);
-          setCursorCol(col + sep.length + pending.length + 1);
-          return newLines;
-        });
+        insertText(pending);
+        return;
       }
+      // 2. Файл-сигнал от расширения (Cmd+V с картинкой)
+      try {
+        if (fs.existsSync(SIGNAL_FILE)) {
+          const imgPath = fs.readFileSync(SIGNAL_FILE, 'utf-8').trim();
+          fs.unlinkSync(SIGNAL_FILE);
+          if (imgPath && fs.existsSync(imgPath) && onImagePaste) {
+            const imgIdx = attachments.length + 1;
+            const tag = `[Image #${imgIdx}]`;
+            insertText(tag);
+            onImagePaste(imgPath);
+          }
+        }
+      } catch { /* ignore */ }
     }, 100);
     return () => clearInterval(check);
-  }, [cursorLine, cursorCol]);
+  }, [cursorLine, cursorCol, attachments, onImagePaste]);
+
+  const insertText = (text: string) => {
+    setLines((prev) => {
+      const newLines = [...prev];
+      const line = newLines[cursorLineRef.current] ?? '';
+      const col = Math.min(cursorColRef.current, line.length);
+      const sep = col > 0 && line[col - 1] !== ' ' ? ' ' : '';
+      newLines[cursorLineRef.current] = line.slice(0, col) + sep + text + ' ' + line.slice(col);
+      setCursorCol(col + sep.length + text.length + 1);
+      return newLines;
+    });
+  };
 
   // Анимация записи + sync ref
   useEffect(() => {
@@ -290,12 +310,15 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       return;
     }
 
-    // Alt+Enter or Escape+Enter — insert newline
-    if (key.escape && input === '\r') {
+    // Shift+Enter / Alt+Enter / Option+Enter / Escape+Enter — insert newline
+    if ((key.shift && key.return) || (key.escape && input === '\r') || (key.meta && key.return)) {
+      const col = Math.min(cursorCol, currentLine.length);
       const newLines = [...lines];
-      newLines.splice(cursorLine + 1, 0, '');
+      newLines[cursorLine] = currentLine.slice(0, col);
+      newLines.splice(cursorLine + 1, 0, currentLine.slice(col));
       setLines(newLines);
       setCursorLine(cursorLine + 1);
+      setCursorCol(0);
       return;
     }
 
