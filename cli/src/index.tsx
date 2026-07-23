@@ -24,14 +24,13 @@ process.stdin.pipe(filter);
 (globalThis as any).__ha_filter = filter;
 
 if (process.stdout.isTTY) {
-  process.stdout.write('\x1b[?1049h');
-  process.stdout.write('\x1b[?1000h\x1b[?1006h');
+  process.stdout.write('\x1b[?1049h'); // alternate screen
+  // Mouse reporting НЕ включаем — нативное выделение важнее кликов
   process.stdout.write('\x1b[2J\x1b[H');
 }
 
 const cleanup = () => {
   if (process.stdout.isTTY) {
-    process.stdout.write('\x1b[?1000l\x1b[?1006l');
     process.stdout.write('\x1b[?1049l');
   }
 };
