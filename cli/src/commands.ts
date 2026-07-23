@@ -48,6 +48,7 @@ const HELP = `Команды:
   /mcp [list|add|rm] управление MCP-серверами
   /copy              скопировать последний ответ в clipboard
   /img               вставить фото из clipboard в текст
+  /nl                новая строка (если Alt+Enter не работает)
   /diff              показать git diff
   /new               новая сессия (очистить контекст)
   /compact           сжать контекст (заглушка)
@@ -283,6 +284,10 @@ export function handleCommand(line: string, ctx: CommandContext): boolean {
 
     case '/copy':
       ctx.copyLast();
+      return true;
+
+    case '/nl':
+      ctx.insertAtCursor('\n');
       return true;
 
     case '/img': {

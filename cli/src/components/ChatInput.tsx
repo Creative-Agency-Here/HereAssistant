@@ -20,7 +20,7 @@ const WAVE_FRAMES = ['▁▃▅▇', '▃▅▇▅', '▅▇▅▃', '▇▅▃�
 
 const SLASH_COMMANDS = [
   '/help', '/model', '/account', '/status', '/resume', '/rename', '/fork', '/search', '/bg',
-  '/theme', '/archive', '/delete', '/mcp', '/copy', '/img', '/image', '/diff', '/new', '/compact', '/exit',
+  '/theme', '/archive', '/delete', '/mcp', '/copy', '/img', '/nl', '/image', '/diff', '/new', '/compact', '/exit',
 ];
 
 interface Props {
@@ -309,7 +309,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
     // Новая строка: Shift+Enter / Cmd+Enter / Alt+Enter / Ctrl+Enter / Escape+Enter
     const isModifiedEnter = key.return && (key.shift || key.meta || key.ctrl || key.escape);
     const isAltEnterViaEscape = key.return && (Date.now() - lastEscapeRef.current < 200);
-    const isCtrlEnterRaw = input === '\n'; // некоторые терминалы шлют \n для Ctrl+Enter
+    const isCtrlEnterRaw = input === '\n' || (key.ctrl && input === 'j'); // Ctrl+J = \n в большинстве терминалов
 
     if (isModifiedEnter || isAltEnterViaEscape || isCtrlEnterRaw) {
       lastEscapeRef.current = 0;

@@ -24,6 +24,7 @@ export class MouseFilterStream extends Transform {
   private voiceMode = false;
   private voiceLastSpace = 0;
   private spaceTimer: ReturnType<typeof setTimeout> | null = null;
+  private pasting = false; // bracketed paste — отключаем hold-space
 
   constructor() {
     super();
@@ -79,8 +80,23 @@ export class MouseFilterStream extends Transform {
         continue;
       }
 
-      // Space — hold detection на уровне потока
-      if (ch === ' ' && !this.voiceMode) {
+      // Bracketed paste: \x1b[200~ ... \x1b[201~
+      if (ch === '\x1b' && this.buf.slice(i, i + 6) === '\x1b[200~') {
+        this.pasting = true;
+        out += this.buf.slice(i, i + 6);
+        i += 6;
+        continue;
+      }
+      if (ch === '\x1b' && this.buf.slice(i, i + 6) === '\x1b[201~') {
+        this.pasting = false;
+        this.spaceCount = 0; // сброс hold detection после paste
+        out += this.buf.slice(i, i + 6);
+        i += 6;
+        continue;
+      }
+
+      // Space — hold detection на уровне потока (НО НЕ во время paste!)
+      if (ch === ' ' && !this.voiceMode && !this.pasting) {
         const now = Date.now();
         this.spaceCount = (now - this.lastSpaceTime < 120) ? this.spaceCount + 1 : 1;
         this.lastSpaceTime = now;
