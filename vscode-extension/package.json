@@ -46,7 +46,8 @@
       { "command": "hereAssistant.manageAccounts", "title": "HereAssistant: Управление AI-аккаунтами", "icon": "$(account)" },
       { "command": "hereAssistant.sessions", "title": "HereAssistant: Все сессии", "icon": "$(list-unordered)" },
       { "command": "hereAssistant.reconnectSession", "title": "HereAssistant: Перейти к сессии" },
-      { "command": "hereAssistant.clipboardPaste", "title": "HereAssistant: Вставить из clipboard" }
+      { "command": "hereAssistant.clipboardPaste", "title": "HereAssistant: Вставить из clipboard" },
+      { "command": "hereAssistant.newLine", "title": "HereAssistant: Новая строка" }
     ],
     "keybindings": [
       {
@@ -59,6 +60,16 @@
         "command": "hereAssistant.clipboardPaste",
         "key": "cmd+v",
         "mac": "cmd+v",
+        "when": "terminalFocus && hereAssistant.enabled"
+      },
+      {
+        "command": "hereAssistant.newLine",
+        "key": "shift+enter",
+        "when": "terminalFocus && hereAssistant.enabled"
+      },
+      {
+        "command": "hereAssistant.newLine",
+        "key": "alt+enter",
         "when": "terminalFocus && hereAssistant.enabled"
       }
     ],

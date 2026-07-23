@@ -392,6 +392,7 @@ class Controller {
       setAccessKey: () => this.setAccessKey(),
       manageAccounts: () => this.manageAccounts(),
       clipboardPaste: () => this.clipboardPaste(),
+      newLine: () => { const t = vscode.window.activeTerminal; if (t) t.sendText('\n', false); },
     };
     for (const [name, handler] of Object.entries(commands)) {
       this.context.subscriptions.push(vscode.commands.registerCommand(`hereAssistant.${name}`, handler));
