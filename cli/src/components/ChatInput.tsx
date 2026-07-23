@@ -486,16 +486,39 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
           return;
         }
       }
-      // Fallback: текст
+      // Fallback: текст — но проверяем не путь ли это к картинке
       try {
-        const clipText = execSync('pbpaste 2>/dev/null', { encoding: 'utf-8', timeout: 2000 }).trim();
+        let clipText = execSync('pbpaste 2>/dev/null', { encoding: 'utf-8', timeout: 2000 }).trim();
         if (clipText) {
+          // Детект file:// URL или абсолютного пути к изображению
+          let filePath = clipText;
+          if (filePath.startsWith('file://')) filePath = decodeURIComponent(filePath.replace('file://', ''));
+          const isImagePath = /\.(png|jpe?g|gif|webp|svg|tiff?|bmp)$/i.test(filePath) && fs.existsSync(filePath);
+
+          if (isImagePath && onImagePaste) {
+            dbg(`paste: file path detected: ${filePath}`);
+            const imgIdx = attachments.length + 1;
+            const tag = `[Image #${imgIdx}]`;
+            setLines((prev) => {
+              const newLines = [...prev];
+              const line = newLines[lineIdx] ?? '';
+              const c = Math.min(col, line.length);
+              const sep = c > 0 && line[c - 1] !== ' ' ? ' ' : '';
+              newLines[lineIdx] = line.slice(0, c) + sep + tag + ' ' + line.slice(c);
+              setCursorCol(c + sep.length + tag.length + 1);
+              return newLines;
+            });
+            onImagePaste(filePath);
+            return;
+          }
+
           dbg(`paste: text ${clipText.length} chars`);
           setLines((prev) => {
             const newLines = [...prev];
             const line = newLines[lineIdx] ?? '';
             const c = Math.min(col, line.length);
             newLines[lineIdx] = line.slice(0, c) + clipText + line.slice(c);
+            cursorColRef.current = c + clipText.length;
             setCursorCol(c + clipText.length);
             return newLines;
           });
