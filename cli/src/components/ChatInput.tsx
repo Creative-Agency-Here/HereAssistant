@@ -299,19 +299,9 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       return;
     }
 
-    // Enter — submit (single line) or newline (multiline with Alt)
-    if (key.return) {
-      if (showComplete && completions.length > 0) {
-        setText(completions[completeIdx]);
-        setShowComplete(false);
-        return;
-      }
-      handleSubmit();
-      return;
-    }
-
-    // Shift+Enter / Alt+Enter / Option+Enter / Escape+Enter — insert newline
-    if ((key.shift && key.return) || (key.escape && input === '\r') || (key.meta && key.return)) {
+    // Shift+Enter / Alt+Enter / Option+Enter / Cmd+Enter / Escape+Enter — insert newline
+    // ВАЖНО: проверять ДО plain Enter иначе key.return перехватит всё
+    if (key.return && (key.shift || key.meta || key.escape)) {
       const col = Math.min(cursorCol, currentLine.length);
       const newLines = [...lines];
       newLines[cursorLine] = currentLine.slice(0, col);
@@ -319,6 +309,17 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       setLines(newLines);
       setCursorLine(cursorLine + 1);
       setCursorCol(0);
+      return;
+    }
+
+    // Enter без модификаторов — submit
+    if (key.return) {
+      if (showComplete && completions.length > 0) {
+        setText(completions[completeIdx]);
+        setShowComplete(false);
+        return;
+      }
+      handleSubmit();
       return;
     }
 
