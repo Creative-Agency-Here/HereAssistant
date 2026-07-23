@@ -52,6 +52,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
   const recordingRef = useRef(false);
   const cursorColRef = useRef(0);
   const cursorLineRef = useRef(0);
+  const lastEscapeRef = useRef(0); // время последнего Escape для Alt+Enter detection
   useEffect(() => { cursorColRef.current = cursorCol; }, [cursorCol]);
   useEffect(() => { cursorLineRef.current = cursorLine; }, [cursorLine]);
 
@@ -299,9 +300,19 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       return;
     }
 
-    // Shift+Enter / Alt+Enter / Option+Enter / Cmd+Enter / Escape+Enter — insert newline
-    // ВАЖНО: проверять ДО plain Enter иначе key.return перехватит всё
-    if (key.return && (key.shift || key.meta || key.escape)) {
+    // Трекаем Escape для Alt+Enter (терминал шлёт два события: Esc + Enter)
+    if (key.escape && !key.return) {
+      lastEscapeRef.current = Date.now();
+      return;
+    }
+
+    // Новая строка: Shift+Enter / Cmd+Enter / Alt+Enter / Ctrl+Enter / Escape+Enter
+    const isModifiedEnter = key.return && (key.shift || key.meta || key.ctrl || key.escape);
+    const isAltEnterViaEscape = key.return && (Date.now() - lastEscapeRef.current < 200);
+    const isCtrlEnterRaw = input === '\n'; // некоторые терминалы шлют \n для Ctrl+Enter
+
+    if (isModifiedEnter || isAltEnterViaEscape || isCtrlEnterRaw) {
+      lastEscapeRef.current = 0;
       const col = Math.min(cursorCol, currentLine.length);
       const newLines = [...lines];
       newLines[cursorLine] = currentLine.slice(0, col);
