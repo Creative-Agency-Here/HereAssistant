@@ -390,41 +390,45 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       return;
     }
 
-    // Backspace
+    // Backspace — functional update + немедленный ref
     if (key.backspace || key.delete) {
-      // Пустой ввод + есть аттачменты → удалить последний
       if (text.trim() === '' && attachments.length > 0 && onRemoveAttachment) {
         onRemoveAttachment(attachments.length - 1);
         return;
       }
-      const col = Math.min(cursorCol, currentLine.length);
-      if (col > 0) {
-        // Проверяем: курсор после [Image #N] — удаляем тег целиком
-        const before = currentLine.slice(0, col);
+      setLines((prev) => {
+        const lineIdx = cursorLineRef.current;
+        const col = cursorColRef.current;
+        const line = prev[lineIdx] ?? '';
+        const c = Math.min(col, line.length);
+        const newLines = [...prev];
+
+        // Проверяем [Image #N] тег — удаляем целиком
+        const before = line.slice(0, c);
         const tagMatch = before.match(/\[Image #\d+\]\s?$/);
-        const newLines = [...lines];
         if (tagMatch) {
           const removeLen = tagMatch[0].length;
-          newLines[cursorLine] = currentLine.slice(0, col - removeLen) + currentLine.slice(col);
-          setCursorCol(col - removeLen);
-          // Удаляем соответствующий аттачмент
-          if (onRemoveAttachment && attachments.length > 0) {
-            onRemoveAttachment(attachments.length - 1);
-          }
-        } else {
-          newLines[cursorLine] = currentLine.slice(0, col - 1) + currentLine.slice(col);
-          setCursorCol(col - 1);
+          newLines[lineIdx] = line.slice(0, c - removeLen) + line.slice(c);
+          const newCol = c - removeLen;
+          cursorColRef.current = newCol;
+          setCursorCol(newCol);
+          if (onRemoveAttachment && attachments.length > 0) onRemoveAttachment(attachments.length - 1);
+        } else if (c > 0) {
+          newLines[lineIdx] = line.slice(0, c - 1) + line.slice(c);
+          const newCol = c - 1;
+          cursorColRef.current = newCol;
+          setCursorCol(newCol);
+        } else if (lineIdx > 0) {
+          const prevLen = (prev[lineIdx - 1] ?? '').length;
+          newLines[lineIdx - 1] = (prev[lineIdx - 1] ?? '') + line;
+          newLines.splice(lineIdx, 1);
+          cursorLineRef.current = lineIdx - 1;
+          cursorColRef.current = prevLen;
+          setCursorLine(lineIdx - 1);
+          setCursorCol(prevLen);
         }
-        setLines(newLines);
-      } else if (cursorLine > 0) {
-        const newLines = [...lines];
-        const prevLen = newLines[cursorLine - 1].length;
-        newLines[cursorLine - 1] += currentLine;
-        newLines.splice(cursorLine, 1);
-        setLines(newLines);
-        setCursorLine(cursorLine - 1);
-        setCursorCol(prevLen);
-      }
+        return newLines;
+      });
       setShowComplete(false);
       return;
     }
@@ -548,14 +552,20 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
     if (key.ctrl && input === 'a') { setCursorCol(0); return; }
     if (key.ctrl && input === 'e') { setCursorCol(currentLine.length); return; }
 
-    // Regular character input — вставка в cursorCol
+    // Regular character input — functional update + немедленный ref update
+    // (фикс для Cmd+V paste: символы приходят быстрее чем React рендерит)
     if (input && !key.ctrl && !key.meta && input !== '\r' && input !== '\n') {
-      const newLines = [...lines];
-      const line = newLines[cursorLine] ?? '';
-      const col = Math.min(cursorCol, line.length);
-      newLines[cursorLine] = line.slice(0, col) + input + line.slice(col);
-      setLines(newLines);
-      setCursorCol(col + 1);
+      setLines((prev) => {
+        const newLines = [...prev];
+        const lineIdx = cursorLineRef.current;
+        const line = newLines[lineIdx] ?? '';
+        const col = Math.min(cursorColRef.current, line.length);
+        newLines[lineIdx] = line.slice(0, col) + input + line.slice(col);
+        const newCol = col + 1;
+        cursorColRef.current = newCol; // немедленно!
+        setCursorCol(newCol);
+        return newLines;
+      });
       setShowComplete(isSlash && completions.length > 0);
     }
   }, { isActive: !disabled });
