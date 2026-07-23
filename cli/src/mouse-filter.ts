@@ -25,6 +25,7 @@ export class MouseFilterStream extends Transform {
   private voiceLastSpace = 0;
   private spaceTimer: ReturnType<typeof setTimeout> | null = null;
   private pasting = false; // bracketed paste — отключаем hold-space
+  private rapidInputUntil = 0; // детект быстрого ввода (paste без bracketed)
 
   constructor() {
     super();
@@ -47,6 +48,12 @@ export class MouseFilterStream extends Transform {
     this.buf += chunk.toString();
     let out = '';
     let i = 0;
+
+    // Детект быстрого ввода: chunk > 5 printable символов = paste
+    const printable = this.buf.replace(/\x1b\[[^a-zA-Z]*[a-zA-Z]/g, '').replace(/[\x00-\x1f]/g, '');
+    if (printable.length > 5) {
+      this.rapidInputUntil = Date.now() + 500;
+    }
 
     while (i < this.buf.length) {
       const ch = this.buf[i];
@@ -95,8 +102,8 @@ export class MouseFilterStream extends Transform {
         continue;
       }
 
-      // Space — hold detection на уровне потока (НО НЕ во время paste!)
-      if (ch === ' ' && !this.voiceMode && !this.pasting) {
+      // Space — hold detection (НО НЕ во время paste или rapid input!)
+      if (ch === ' ' && !this.voiceMode && !this.pasting && Date.now() > this.rapidInputUntil) {
         const now = Date.now();
         this.spaceCount = (now - this.lastSpaceTime < 120) ? this.spaceCount + 1 : 1;
         this.lastSpaceTime = now;
