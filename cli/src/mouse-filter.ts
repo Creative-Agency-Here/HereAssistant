@@ -87,18 +87,41 @@ export class MouseFilterStream extends Transform {
         continue;
       }
 
-      // Bracketed paste: \x1b[200~ ... \x1b[201~
-      if (ch === '\x1b' && this.buf.slice(i, i + 6) === '\x1b[200~') {
-        this.pasting = true;
-        out += this.buf.slice(i, i + 6);
-        i += 6;
+      // Фильтр CSI-последовательностей
+      if (ch === '\x1b' && this.buf[i + 1] === '[' && this.buf[i + 2] !== '<') {
+        let csiEnd = -1;
+        for (let j = i + 2; j < this.buf.length; j++) {
+          const c = this.buf.charCodeAt(j);
+          if (c >= 0x40 && c <= 0x7e) { csiEnd = j; break; }
+        }
+        if (csiEnd === -1) {
+          this.buf = this.buf.slice(i);
+          if (out) this.push(out);
+          cb();
+          return;
+        }
+        const csiSeq = this.buf.slice(i, csiEnd + 1);
+        const inner = csiSeq.slice(2, -1); // между [ и terminator
+
+        // Bracketed paste — пропускаем и обрабатываем
+        if (csiSeq === '\x1b[200~') { this.pasting = true; out += csiSeq; i = csiEnd + 1; continue; }
+        if (csiSeq === '\x1b[201~') { this.pasting = false; this.spaceCount = 0; out += csiSeq; i = csiEnd + 1; continue; }
+
+        // Простые CSI (стрелки, Home, End): \x1b[A \x1b[B \x1b[H \x1b[F — пропускаем
+        if (/^[A-Z]$/i.test(inner)) { out += csiSeq; i = csiEnd + 1; continue; }
+
+        // Модифицированные стрелки: \x1b[1;2A \x1b[1;5C — пропускаем
+        if (/^\d+;\d+[A-Z]$/i.test(inner)) { out += csiSeq; i = csiEnd + 1; continue; }
+
+        // Всё остальное (модифицированный Enter/Tab/F-keys): DROP
+        i = csiEnd + 1;
         continue;
       }
-      if (ch === '\x1b' && this.buf.slice(i, i + 6) === '\x1b[201~') {
-        this.pasting = false;
-        this.spaceCount = 0; // сброс hold detection после paste
-        out += this.buf.slice(i, i + 6);
-        i += 6;
+
+      // Одиночный Escape — пропускаем (для Alt+Enter detection)
+      if (ch === '\x1b' && (i + 1 >= this.buf.length || (this.buf[i + 1] !== '[' && this.buf[i + 1] !== 'O'))) {
+        out += ch;
+        i++;
         continue;
       }
 
