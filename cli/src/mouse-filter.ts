@@ -57,9 +57,17 @@ export class MouseFilterStream extends Transform {
           if (this.buf[j] === 'M' || this.buf[j] === 'm') { seqEnd = j; break; }
         }
         if (seqEnd === -1) { this.buf = this.buf.slice(i); if (out) this.push(out); cb(); return; }
-        const m = this.buf.slice(i, seqEnd + 1).match(/\x1b\[<(\d+);(\d+);(\d+)([Mm])/);
+        const seq = this.buf.slice(i, seqEnd + 1);
+        const m = seq.match(/\x1b\[<(\d+);(\d+);(\d+)([Mm])/);
         if (m) {
-          const bc = parseInt(m[1]), col = parseInt(m[2]), row = parseInt(m[3]), rel = m[4] === 'm';
+          const bc = parseInt(m[1]);
+          // Shift+mouse (bc & 4) → пропускаем для нативного выделения терминалом
+          if (bc & 4) {
+            out += seq; // пропускаем в Ink/терминал
+            i = seqEnd + 1;
+            continue;
+          }
+          const col = parseInt(m[2]), row = parseInt(m[3]), rel = m[4] === 'm';
           let btn: ParsedMouseEvent['button'], type: ParsedMouseEvent['type'];
           if (bc === 64) { btn = 'scroll-up'; type = 'scroll'; }
           else if (bc === 65) { btn = 'scroll-down'; type = 'scroll'; }

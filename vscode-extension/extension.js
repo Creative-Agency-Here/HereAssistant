@@ -728,6 +728,16 @@ let controller;
 async function activate(context) {
   controller = new Controller(context);
   await controller.init();
+
+  // Cmd+V → пропускаем в терминал (не перехватываем как paste)
+  // чтобы наше TUI могло обработать вставку изображений
+  try {
+    const cfg = vscode.workspace.getConfiguration('terminal.integrated');
+    const skip = cfg.get('commandsToSkipShell', []);
+    if (Array.isArray(skip) && !skip.includes('-workbench.action.clipboardPasteAction')) {
+      cfg.update('commandsToSkipShell', [...skip, '-workbench.action.clipboardPasteAction'], true);
+    }
+  } catch { /* ignore */ }
 }
 
 async function deactivate() {

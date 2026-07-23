@@ -50,6 +50,10 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
   const voiceRef = useRef<{ kill: () => void } | null>(null);
   const holdRef = useRef({ count: 0, lastTime: 0, recLastSpace: 0 });
   const recordingRef = useRef(false);
+  const cursorColRef = useRef(0);
+  const cursorLineRef = useRef(0);
+  useEffect(() => { cursorColRef.current = cursorCol; }, [cursorCol]);
+  useEffect(() => { cursorLineRef.current = cursorLine; }, [cursorLine]);
 
   // Voice events из MouseFilterStream (hold-space detection на уровне потока)
   useEffect(() => {
@@ -417,23 +421,25 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       return;
     }
 
-    // Ctrl+V / Cmd+V — сначала картинка, потом текст
-    if ((key.ctrl || key.meta) && (input === 'v' || input === '\x16')) {
-      dbg(`Ctrl+V: trying image paste`);
+    // Ctrl+V / Cmd+V / Meta+V — сначала картинка, потом текст
+    if ((key.ctrl || key.meta) && (input === 'v' || input === '\x16' || input === '\x1b')) {
+      dbg(`paste: ctrl=${key.ctrl} meta=${key.meta} input=${JSON.stringify(input)}`);
+      const col = cursorColRef.current;
+      const lineIdx = cursorLineRef.current;
       // Сначала пробуем изображение
       if (onImagePaste) {
         const imgPath = pasteImageFromClipboard();
         if (imgPath) {
-          dbg(`Ctrl+V: image found: ${imgPath}`);
+          dbg(`paste: image found`);
           const imgIdx = attachments.length + 1;
           const tag = `[Image #${imgIdx}]`;
           setLines((prev) => {
             const newLines = [...prev];
-            const line = newLines[cursorLine] ?? '';
-            const col = Math.min(cursorCol, line.length);
-            const sep = col > 0 && line[col - 1] !== ' ' ? ' ' : '';
-            newLines[cursorLine] = line.slice(0, col) + sep + tag + ' ' + line.slice(col);
-            setCursorCol(col + sep.length + tag.length + 1);
+            const line = newLines[lineIdx] ?? '';
+            const c = Math.min(col, line.length);
+            const sep = c > 0 && line[c - 1] !== ' ' ? ' ' : '';
+            newLines[lineIdx] = line.slice(0, c) + sep + tag + ' ' + line.slice(c);
+            setCursorCol(c + sep.length + tag.length + 1);
             return newLines;
           });
           onImagePaste(imgPath);
@@ -441,21 +447,20 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
         }
       }
       // Fallback: текст
-      dbg(`Ctrl+V: no image, trying text`);
       try {
         const clipText = execSync('pbpaste 2>/dev/null', { encoding: 'utf-8', timeout: 2000 }).trim();
         if (clipText) {
-          dbg(`Ctrl+V: text pasted (${clipText.length} chars)`);
+          dbg(`paste: text ${clipText.length} chars`);
           setLines((prev) => {
             const newLines = [...prev];
-            const line = newLines[cursorLine] ?? '';
-            const col = Math.min(cursorCol, line.length);
-            newLines[cursorLine] = line.slice(0, col) + clipText + line.slice(col);
-            setCursorCol(col + clipText.length);
+            const line = newLines[lineIdx] ?? '';
+            const c = Math.min(col, line.length);
+            newLines[lineIdx] = line.slice(0, c) + clipText + line.slice(c);
+            setCursorCol(c + clipText.length);
             return newLines;
           });
         }
-      } catch { dbg(`Ctrl+V: pbpaste failed`); }
+      } catch { dbg(`paste: pbpaste failed`); }
       return;
     }
 
