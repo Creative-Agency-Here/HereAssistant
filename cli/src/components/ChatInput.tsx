@@ -421,11 +421,11 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       return;
     }
 
-    // Ctrl+V / Cmd+V / Meta+V — сначала картинка, потом текст
-    if ((key.ctrl || key.meta) && (input === 'v' || input === '\x16' || input === '\x1b')) {
-      dbg(`paste: ctrl=${key.ctrl} meta=${key.meta} input=${JSON.stringify(input)}`);
+    // Ctrl+V / Cmd+V — сначала картинка, потом текст
+    if ((key.ctrl || key.meta) && (input === 'v' || input === '\x16')) {
       const col = cursorColRef.current;
       const lineIdx = cursorLineRef.current;
+      dbg(`paste: ctrl=${key.ctrl} meta=${key.meta} col=${col} line=${lineIdx} lines=${JSON.stringify(lines)}`);
       // Сначала пробуем изображение
       if (onImagePaste) {
         const imgPath = pasteImageFromClipboard();
@@ -439,6 +439,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
             const c = Math.min(col, line.length);
             const sep = c > 0 && line[c - 1] !== ' ' ? ' ' : '';
             newLines[lineIdx] = line.slice(0, c) + sep + tag + ' ' + line.slice(c);
+            dbg(`paste: after insert lineIdx=${lineIdx} c=${c} result=${JSON.stringify(newLines)}`);
             setCursorCol(c + sep.length + tag.length + 1);
             return newLines;
           });
