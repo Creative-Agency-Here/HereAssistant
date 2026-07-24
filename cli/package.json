@@ -9,7 +9,7 @@
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test dist/mouse-filter.test.js dist/components/ChatInput.test.js"
+    "test": "npm run build && node --test dist/mouse-filter.test.js dist/ha-sessions.test.js dist/components/ChatInput.test.js dist/components/SessionPicker.test.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0",

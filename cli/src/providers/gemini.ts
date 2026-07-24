@@ -4,6 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import type { Account, ProgressCallback, Provider, ProviderResult } from '../types.js';
 import { GeminiStreamParser } from '../parsers/stream.js';
+import { setActiveProviderProcess } from './active-process.js';
 
 export class GeminiProvider implements Provider {
   constructor(private account: Account) {}
@@ -51,7 +52,7 @@ export class GeminiProvider implements Provider {
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    (globalThis as any).__ha_process = child;
+    setActiveProviderProcess(child);
 
     const parser = new GeminiStreamParser();
     const rl = createInterface({ input: child.stdout! });

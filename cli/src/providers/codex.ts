@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 import type { Account, ProgressCallback, Provider, ProviderResult } from '../types.js';
+import { setActiveProviderProcess } from './active-process.js';
 
 /** Извлекает session ID из вывода codex (эвристика). */
 function extractSessionId(out: string, err: string, fallback: string | null): string | null {
@@ -47,7 +48,7 @@ export class CodexProvider implements Provider {
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    (globalThis as any).__ha_process = child;
+    setActiveProviderProcess(child);
 
     let stdout = '';
     let stderr = '';

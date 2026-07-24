@@ -2,6 +2,10 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Box, Text, useApp, useInput, useStdout, type DOMElement } from 'ink';
 import type { Account, ChatMessage, StreamEvent, ToolCall } from '../types.js';
 import { makeProvider } from '../providers/index.js';
+import {
+  activeProviderProcess,
+  signalActiveProviderProcess,
+} from '../providers/active-process.js';
 import { ChatInput } from './ChatInput.js';
 import { StatusBar } from './StatusBar.js';
 import { RunSummary } from './RunSummary.js';
@@ -194,6 +198,7 @@ export function FullscreenChat({
   const haSessionRef = useRef<HaSession | null>(null);
   const busyRef = useRef(false);
   const resumedRef = useRef(false);
+  const cancelRequestedRef = useRef(false);
   const lastBusyEscapeRef = useRef(0);
   const cancelArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pickerSessions, setPickerSessions] = useState<HaSession[] | null>(null);
@@ -348,6 +353,7 @@ export function FullscreenChat({
   }, [resumeId, restoreSession, addMessage]);
 
   const doExit = useCallback(() => {
+    if (signalActiveProviderProcess('SIGTERM')) cancelRequestedRef.current = true;
     stopWorkingTitle();
     exit();
   }, [exit]);
@@ -364,6 +370,7 @@ export function FullscreenChat({
   const handleEscape = useCallback((event: ParsedEscapeKey = { modifiers: 1 }) => {
     const hasShift = ((event.modifiers - 1) & 1) !== 0;
     if (hasShift) return;
+    if (pickerSessions) return;
     const inputHasText = (globalThis as Record<string, unknown>).__ha_input_has_text as
       | (() => boolean)
       | undefined;
@@ -381,8 +388,16 @@ export function FullscreenChat({
         }, 1500);
         return;
       }
-      const proc = (globalThis as any).__ha_process;
-      if (proc) { try { proc.kill('SIGINT'); } catch {} }
+      const proc = activeProviderProcess();
+      if (proc && signalActiveProviderProcess('SIGINT')) {
+        cancelRequestedRef.current = true;
+        const forceTimer = setTimeout(() => {
+          if (proc.exitCode === null && proc.signalCode === null) {
+            try { proc.kill('SIGTERM'); } catch { /* процесс уже завершился */ }
+          }
+        }, 750);
+        forceTimer.unref();
+      }
       disarmCancellation();
       return;
     }
@@ -401,7 +416,7 @@ export function FullscreenChat({
         streaming: false,
       }]);
     }
-  }, [busy, disarmCancellation]);
+  }, [busy, disarmCancellation, pickerSessions]);
 
   useEffect(() => {
     if (!busy) disarmCancellation();
@@ -562,6 +577,8 @@ export function FullscreenChat({
     startWorkingTitle(sessionName || project, promptCount + 1);
     if (integrationId) writeIntegrationState(integrationId, { state: 'working', cwd, title: text, taskCount: promptCount + 1 });
     const t0 = Date.now();
+    cancelRequestedRef.current = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
 
     try {
       const provider = makeProvider(account);
@@ -591,9 +608,13 @@ export function FullscreenChat({
             }));
           }
         }, currentAttachments, historyPrompt || undefined),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Таймаут: провайдер не ответил за 5 минут')), TIMEOUT_MS),
-        ),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => {
+            signalActiveProviderProcess('SIGTERM');
+            reject(new Error('Таймаут: провайдер не ответил за 5 минут'));
+          }, TIMEOUT_MS);
+          timeout.unref();
+        }),
       ]);
 
       const duration = Date.now() - t0;
@@ -609,11 +630,25 @@ export function FullscreenChat({
       });
       saveHaSession(session);
     } catch (err) {
+      const cancelled = cancelRequestedRef.current;
+      const message = cancelled
+        ? '⏹ текущая работа отменена'
+        : `✗ ${err instanceof Error ? err.message : String(err)}`;
       setLastDuration(Date.now() - t0);
       updateLastAssistant((m) => ({
-        ...m, text: `✗ ${err instanceof Error ? err.message : String(err)}`, streaming: false,
+        ...m, text: message, streaming: false,
       }));
+      session.messages.push({
+        role: 'assistant',
+        text: cancelled ? 'Запрос отменён пользователем.' : message,
+        timestamp: Date.now(),
+        provider: account.provider,
+        model: model || undefined,
+      });
+      saveHaSession(session);
     } finally {
+      if (timeout) clearTimeout(timeout);
+      cancelRequestedRef.current = false;
       busyRef.current = false;
       setBusy(false);
       setThinking('');

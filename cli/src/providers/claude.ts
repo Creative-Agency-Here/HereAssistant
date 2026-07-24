@@ -4,6 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import type { Account, ProgressCallback, Provider, ProviderResult } from '../types.js';
 import { ClaudeStreamParser } from '../parsers/stream.js';
+import { setActiveProviderProcess } from './active-process.js';
 
 export class ClaudeCodeProvider implements Provider {
   constructor(private account: Account) {}
@@ -41,7 +42,7 @@ export class ClaudeCodeProvider implements Provider {
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    (globalThis as any).__ha_process = child;
+    setActiveProviderProcess(child);
 
     if (historyPrompt) child.stdin.write(historyPrompt + '\n\n');
     child.stdin.write(prompt);

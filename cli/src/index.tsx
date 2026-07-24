@@ -3,8 +3,16 @@ import React from 'react';
 import { render } from 'ink';
 import { App } from './components/App.js';
 import { MouseFilterStream } from './mouse-filter.js';
+import { signalActiveProviderProcess } from './providers/active-process.js';
 
 const args = process.argv.slice(2);
+if (args.includes('--help') || args.includes('-h')) {
+  process.stdout.write(
+    'HereAssistant CLI\n\n'
+    + 'Использование: ha [-a account] [-p profile] [--resume session-id] [--integration-id id]\n',
+  );
+  process.exit(0);
+}
 function argAfter(flag: string): string | undefined {
   const i = args.indexOf(flag);
   return i !== -1 && args[i + 1] ? args[i + 1] : undefined;
@@ -48,8 +56,16 @@ const cleanup = () => {
   if (process.stdin.isTTY) process.stdin.setRawMode?.(stdinWasRaw);
 };
 process.on('exit', cleanup);
-process.on('SIGINT', () => { cleanup(); process.exit(0); });
-process.on('SIGTERM', () => { cleanup(); process.exit(0); });
+process.on('SIGINT', () => {
+  signalActiveProviderProcess('SIGTERM');
+  cleanup();
+  process.exit(0);
+});
+process.on('SIGTERM', () => {
+  signalActiveProviderProcess('SIGTERM');
+  cleanup();
+  process.exit(0);
+});
 
 const { waitUntilExit } = render(
   <App preselected={preselected} resumeId={resumeId} integrationId={integrationId} />,

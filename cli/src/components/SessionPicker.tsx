@@ -4,7 +4,7 @@ import { Box, Text, useInput } from 'ink';
 import type { HaSession } from '../ha-sessions.js';
 import { haSessionTitle } from '../ha-sessions.js';
 import { formatSessionAge } from '../sessions.js';
-import type { ParsedNavigationKey } from '../mouse-filter.js';
+import type { ParsedEscapeKey, ParsedNavigationKey } from '../mouse-filter.js';
 
 const VISIBLE = 12;
 const PREVIEW_LINES = 20;
@@ -31,6 +31,19 @@ export function SessionPicker({ sessions, onSelect, onCancel }: Props) {
     keysEmitter.on('arrow-key', onArrow);
     return () => { keysEmitter.off('arrow-key', onArrow); };
   }, [preview, sessions.length]);
+
+  useEffect(() => {
+    const keysEmitter = (globalThis as Record<string, unknown>).__ha_keys as EventEmitter | undefined;
+    if (!keysEmitter) return;
+    const onEscape = ({ modifiers = 1 }: ParsedEscapeKey = { modifiers: 1 }) => {
+      const hasShift = ((modifiers - 1) & 1) !== 0;
+      if (hasShift) return;
+      if (preview) setPreview(null);
+      else onCancel();
+    };
+    keysEmitter.on('escape-key', onEscape);
+    return () => { keysEmitter.off('escape-key', onEscape); };
+  }, [preview, onCancel]);
 
   useInput((input, key) => {
     if (preview) {

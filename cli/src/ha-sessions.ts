@@ -21,13 +21,68 @@ export interface HaSession {
 }
 
 const SESSIONS_DIR = path.join(os.homedir(), '.hereassistant', 'sessions');
+const SESSION_ID_PATTERN = /^ha-[a-z0-9]+-[a-z0-9]+$/;
 
 function ensureDir(): void {
-  fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+  fs.mkdirSync(SESSIONS_DIR, { recursive: true, mode: 0o700 });
+  try { fs.chmodSync(SESSIONS_DIR, 0o700); } catch { /* Windows или read-only FS */ }
 }
 
-function sessionPath(id: string): string {
+export function isValidHaSessionId(id: string): boolean {
+  return SESSION_ID_PATTERN.test(id);
+}
+
+function sessionPath(id: string): string | null {
+  if (!isValidHaSessionId(id)) return null;
   return path.join(SESSIONS_DIR, `${id}.json`);
+}
+
+function isHaSession(value: unknown, expectedId?: string): value is HaSession {
+  if (!value || typeof value !== 'object') return false;
+  const session = value as Partial<HaSession>;
+  const messages = session.messages;
+  return typeof session.id === 'string'
+    && isValidHaSessionId(session.id)
+    && (!expectedId || session.id === expectedId)
+    && (session.name === null || typeof session.name === 'string')
+    && typeof session.createdAt === 'number'
+    && typeof session.updatedAt === 'number'
+    && typeof session.cwd === 'string'
+    && Array.isArray(messages)
+    && messages.every((message) => (
+      Boolean(message)
+      && typeof message === 'object'
+      && ['user', 'assistant', 'system'].includes(message.role)
+      && typeof message.text === 'string'
+      && typeof message.timestamp === 'number'
+      && (
+        typeof message.attachments === 'undefined'
+        || (
+          Array.isArray(message.attachments)
+          && message.attachments.every((attachment) => typeof attachment === 'string')
+        )
+      )
+    ));
+}
+
+function writeSession(session: HaSession): void {
+  ensureDir();
+  const target = sessionPath(session.id);
+  if (!target) throw new Error('Некорректный идентификатор HA-сессии');
+  const temporary = `${target}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(session), {
+      encoding: 'utf-8',
+      flag: 'wx',
+      mode: 0o600,
+    });
+    fs.renameSync(temporary, target);
+    try { fs.chmodSync(target, 0o600); } catch { /* Windows или read-only FS */ }
+  } finally {
+    try {
+      if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+    } catch { /* cleanup best effort */ }
+  }
 }
 
 export function createHaSession(cwd: string): HaSession {
@@ -41,24 +96,24 @@ export function createHaSession(cwd: string): HaSession {
     cwd,
     messages: [],
   };
-  fs.writeFileSync(sessionPath(id), JSON.stringify(session));
+  writeSession(session);
   return session;
 }
 
 export function loadHaSession(id: string): HaSession | null {
   const fp = sessionPath(id);
-  if (!fs.existsSync(fp)) return null;
+  if (!fp || !fs.existsSync(fp)) return null;
   try {
-    return JSON.parse(fs.readFileSync(fp, 'utf-8'));
+    const session: unknown = JSON.parse(fs.readFileSync(fp, 'utf-8'));
+    return isHaSession(session, id) ? session : null;
   } catch {
     return null;
   }
 }
 
 export function saveHaSession(session: HaSession): void {
-  ensureDir();
   session.updatedAt = Date.now();
-  fs.writeFileSync(sessionPath(session.id), JSON.stringify(session));
+  writeSession(session);
 }
 
 export function listHaSessions(cwd?: string): HaSession[] {
@@ -67,7 +122,10 @@ export function listHaSessions(cwd?: string): HaSession[] {
   try {
     for (const file of fs.readdirSync(SESSIONS_DIR).filter((f) => f.endsWith('.json'))) {
       try {
-        const session: HaSession = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, file), 'utf-8'));
+        const expectedId = file.slice(0, -'.json'.length);
+        const parsed: unknown = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, file), 'utf-8'));
+        if (!isHaSession(parsed, expectedId)) continue;
+        const session = parsed;
         if (!cwd || session.cwd === cwd) sessions.push(session);
       } catch { /* skip corrupted */ }
     }
@@ -77,7 +135,7 @@ export function listHaSessions(cwd?: string): HaSession[] {
 
 export function deleteHaSession(id: string): boolean {
   const fp = sessionPath(id);
-  if (!fs.existsSync(fp)) return false;
+  if (!fp || !fs.existsSync(fp)) return false;
   fs.unlinkSync(fp);
   return true;
 }
