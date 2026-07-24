@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import type { ChatMessage } from './types.js';
 
 export interface SessionInfo {
   id: string;
@@ -192,4 +193,66 @@ export function formatSessionAge(ms: number): string {
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours} ч назад`;
   return `${Math.floor(hours / 24)} дн назад`;
+}
+
+function makeMsgId(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+/** Загружает историю сессии из .jsonl → ChatMessage[] для отображения в UI. */
+export function loadSessionMessages(provider: string, cliHome: string, cwd: string, sessionId: string): ChatMessage[] {
+  let filePath: string | null = null;
+
+  switch (provider) {
+    case 'claude_code': {
+      const slug = cwd.replace(/[^a-zA-Z0-9]/g, '-');
+      filePath = path.join(cliHome, 'projects', slug, `${sessionId}.jsonl`);
+      break;
+    }
+    case 'qwen_code': {
+      const qwenHome = path.join(cliHome, '.qwen');
+      const slug = cwd.replace(/[^a-zA-Z0-9]/g, '-');
+      filePath = path.join(qwenHome, 'projects', slug, `${sessionId}.jsonl`);
+      break;
+    }
+    default:
+      return [];
+  }
+
+  if (!filePath || !fs.existsSync(filePath)) return [];
+
+  const messages: ChatMessage[] = [];
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const lines = content.split('\n').filter(Boolean);
+
+    for (const line of lines) {
+      try {
+        const obj = JSON.parse(line);
+        if ((obj.type === 'user' || obj.type === 'assistant') && obj.message) {
+          const msg = obj.message;
+          const text = typeof msg.content === 'string'
+            ? msg.content
+            : Array.isArray(msg.content)
+              ? msg.content
+                  .filter((b: { type: string }) => b.type === 'text')
+                  .map((b: { text: string }) => b.text)
+                  .join(' ')
+              : '';
+          if (text.trim()) {
+            messages.push({
+              id: makeMsgId(),
+              role: obj.type as 'user' | 'assistant',
+              text,
+              toolCalls: [],
+              timestamp: obj.timestamp ? obj.timestamp * 1000 : Date.now(),
+              streaming: false,
+            });
+          }
+        }
+      } catch { /* skip malformed */ }
+    }
+  } catch { /* unreadable */ }
+
+  return messages.slice(-50);
 }

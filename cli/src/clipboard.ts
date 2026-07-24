@@ -9,6 +9,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CACHE_DIR = path.join(os.tmpdir(), 'ha-clipboard');
 const CLIPBOARD_IMG_BIN = path.join(__dirname, '..', 'bin', 'clipboard_img');
 
+/** Копирует текст без shell-интерполяции пользовательского содержимого. */
+export function copyTextToClipboard(text: string): boolean {
+  if (process.platform !== 'darwin') return false;
+  try {
+    return spawnSync('pbcopy', [], { input: text, timeout: 3000 }).status === 0;
+  } catch {
+    return false;
+  }
+}
+
 /** Сохраняет изображение из clipboard в temp-файл. Возвращает путь или null.
  *  Использует нативный Swift-бинарник (не требует osascript automation permissions). */
 export function pasteImageFromClipboard(): string | null {

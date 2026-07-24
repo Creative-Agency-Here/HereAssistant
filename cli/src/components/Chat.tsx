@@ -9,8 +9,9 @@ import { StatusBar } from './StatusBar.js';
 import { RunSummary } from './RunSummary.js';
 import { renderMarkdown } from './markdown.js';
 import { handleCommand, type CommandContext } from '../commands.js';
+import { createHaSession, loadHaSession, saveHaSession, formatHistoryForPrompt, haSessionTitle, type HaSession } from '../ha-sessions.js';
 import { startWorkingTitle, setIdleTitle, stopWorkingTitle } from '../terminal-title.js';
-import { cleanClipboardCache } from '../clipboard.js';
+import { cleanClipboardCache, copyTextToClipboard } from '../clipboard.js';
 import { loadConfig } from '../config.js';
 import { memoryPrompt } from '../memory.js';
 import { getTheme, type Theme } from '../themes.js';
@@ -41,7 +42,7 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
   const [attachments, setAttachments] = useState<string[]>([]);
   const [sessionName, setSessionName] = useState<string | null>(null);
   const [promptCount, setPromptCount] = useState(0);
-  const sessionIdRef = useRef<string | null>(null);
+  const haSessionRef = useRef<HaSession | null>(null);
   const project = cwd.split('/').pop() ?? cwd;
 
   // Очистка кеша clipboard при старте
@@ -73,22 +74,50 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
     // Slash commands
     if (text.startsWith('/')) {
       const ctx: CommandContext = {
-        account, model, sessionId: sessionIdRef.current, cwd,
+        account, model, sessionId: haSessionRef.current?.id ?? null, cwd,
         tokensIn, tokensOut,
         setModel: (m) => setModel(m),
         setAccount: (a) => { setAccount(a); setModel(a.default_model || ''); },
-        resetSession: () => { sessionIdRef.current = null; },
-        setSessionId: (id) => { sessionIdRef.current = id; },
+        resetSession: () => {
+          haSessionRef.current = createHaSession(cwd);
+          setMessages([]);
+          setSessionName(null);
+        },
+        resumeSession: (id) => {
+          const session = loadHaSession(id);
+          if (!session) { addMessage({ id: makeId(), role: 'system', text: `✗ сессия не найдена`, toolCalls: [], timestamp: Date.now(), streaming: false }); return; }
+          haSessionRef.current = session;
+          setSessionName(session.name);
+          setMessages(session.messages.map((m) => ({
+            id: makeId(), role: m.role, text: m.text, toolCalls: [], timestamp: m.timestamp, streaming: false, attachments: m.attachments,
+          })));
+        },
+        openSessionPicker: (sessions) => {
+          const list = sessions.slice(0, 10).map((s, i) =>
+            `  ${i + 1}. ${haSessionTitle(s)}\n     ${s.id.slice(0, 16)}`,
+          ).join('\n');
+          addMessage({ id: makeId(), role: 'system', text: `Прошлые сессии:\n${list}\n\n/resume <номер> — продолжить`, toolCalls: [], timestamp: Date.now(), streaming: false });
+        },
         renameSession: (name) => {
           setSessionName(name);
           setIdleTitle(name, promptCount);
+          if (haSessionRef.current) { haSessionRef.current.name = name; saveHaSession(haSessionRef.current); }
+        },
+        forkSession: () => {
+          const forked = createHaSession(cwd);
+          if (haSessionRef.current) {
+            forked.messages = [...haSessionRef.current.messages];
+            forked.name = haSessionRef.current.name ? `${haSessionRef.current.name} (fork)` : null;
+          }
+          saveHaSession(forked);
+          haSessionRef.current = forked;
+          setSessionName(forked.name);
         },
         setTheme: (name) => { setThemeName(name); },
-        forkSession: () => { sessionIdRef.current = `fork-${makeId()}`; },
         backgroundPrompt: (prompt) => {
           const child = spawn('node', [
             new URL('../index.js', import.meta.url).pathname,
-            '-a', account.label, '--resume', sessionIdRef.current || '',
+            '-a', account.label,
           ], { cwd, detached: true, stdio: 'ignore', env: { ...process.env, HA_BG_PROMPT: prompt } });
           child.unref();
           addMessage({ id: makeId(), role: 'system', text: `🔄 фоновый агент запущен (PID ${child.pid})`, toolCalls: [], timestamp: Date.now(), streaming: false });
@@ -107,7 +136,7 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
           const last = [...messages].reverse().find((m) => m.role === 'assistant' && m.text);
           if (last?.text) {
             try {
-              execSync(`printf '%s' ${JSON.stringify(last.text)} | pbcopy`, { timeout: 3000 });
+              if (!copyTextToClipboard(last.text)) throw new Error('clipboard недоступен');
               addMessage({ id: makeId(), role: 'system', text: '📋 скопировано в clipboard', toolCalls: [], timestamp: Date.now(), streaming: false });
             } catch { /* ignore */ }
           }
@@ -119,6 +148,25 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
       };
       if (handleCommand(text, ctx)) return;
     }
+
+    // HA-сессия: создаём при первом сообщении
+    if (!haSessionRef.current) {
+      haSessionRef.current = createHaSession(cwd);
+    }
+    const session = haSessionRef.current;
+
+    if (!session.name && session.messages.length === 0) {
+      session.name = text.slice(0, 60);
+      setSessionName(session.name);
+    }
+
+    session.messages.push({
+      role: 'user', text, timestamp: Date.now(),
+      provider: account.provider, model: model || undefined,
+      attachments: attachments.length > 0 ? [...attachments] : undefined,
+    });
+
+    const historyPrompt = formatHistoryForPrompt(session.messages.slice(0, -1));
 
     addMessage({ id: makeId(), role: 'user', text, toolCalls: [], timestamp: Date.now(), streaming: false });
     const assistantMsg: ChatMessage = {
@@ -139,7 +187,7 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
       const currentAttachments = [...attachments];
       setAttachments([]);
       const fullPrompt = memory ? `${text}${memory}` : text;
-      const result = await provider.run(fullPrompt, cwd, sessionIdRef.current, model || null, (event: StreamEvent) => {
+      const result = await provider.run(fullPrompt, cwd, null, model || null, (event: StreamEvent) => {
         if (event.type === 'text' && typeof event.text === 'string') {
           updateLastAssistant((m) => ({ ...m, text: m.text + (event.text as string) }));
         } else if (event.type === 'thinking' && typeof event.text === 'string') {
@@ -158,14 +206,19 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
             ),
           }));
         }
-      }, currentAttachments);
+      }, currentAttachments, historyPrompt || undefined);
 
       const duration = Date.now() - t0;
-      if (result.sessionId) sessionIdRef.current = result.sessionId;
       if (result.tokensIn) { setTokensIn((p) => p + result.tokensIn!); setLastTokensIn(result.tokensIn); }
       if (result.tokensOut) { setTokensOut((p) => p + result.tokensOut!); setLastTokensOut(result.tokensOut); }
       setLastDuration(duration);
       updateLastAssistant((m) => ({ ...m, text: result.text || m.text, streaming: false }));
+
+      session.messages.push({
+        role: 'assistant', text: result.text || '', timestamp: Date.now(),
+        provider: account.provider, model: model || undefined,
+      });
+      saveHaSession(session);
     } catch (err) {
       setLastDuration(Date.now() - t0);
       updateLastAssistant((m) => ({
@@ -200,7 +253,7 @@ export function Chat({ account: initialAccount, cwd }: { account: Account; cwd: 
       <StatusBar
         account={account.label}
         model={model || account.default_model || 'default'}
-        sessionId={sessionIdRef.current}
+        sessionId={haSessionRef.current?.id ?? null}
         sessionName={sessionName}
         tokensIn={tokensIn}
         tokensOut={tokensOut}

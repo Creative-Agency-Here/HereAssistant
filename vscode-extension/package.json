@@ -46,10 +46,23 @@
       { "command": "hereAssistant.manageAccounts", "title": "HereAssistant: Управление AI-аккаунтами", "icon": "$(account)" },
       { "command": "hereAssistant.sessions", "title": "HereAssistant: Все сессии", "icon": "$(list-unordered)" },
       { "command": "hereAssistant.reconnectSession", "title": "HereAssistant: Перейти к сессии" },
+      { "command": "hereAssistant.copySelection", "title": "HereAssistant: Копировать выделение" },
       { "command": "hereAssistant.clipboardPaste", "title": "HereAssistant: Вставить из clipboard" },
       { "command": "hereAssistant.newLine", "title": "HereAssistant: Новая строка" }
     ],
     "keybindings": [
+      {
+        "command": "-workbench.action.terminal.copySelection",
+        "key": "cmd+c",
+        "mac": "cmd+c",
+        "when": "terminalFocus && hereAssistant.terminalActive"
+      },
+      {
+        "command": "hereAssistant.copySelection",
+        "key": "cmd+c",
+        "mac": "cmd+c",
+        "when": "terminalFocus && hereAssistant.terminalActive"
+      },
       {
         "command": "-workbench.action.clipboardPasteAction",
         "key": "cmd+v",

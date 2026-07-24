@@ -16,10 +16,11 @@ export class CodexProvider implements Provider {
   async run(
     prompt: string,
     cwd: string,
-    sessionId: string | null,
+    _sessionId: string | null,
     model: string | null,
     progress: ProgressCallback,
     attachments?: string[],
+    historyPrompt?: string,
   ): Promise<ProviderResult> {
     const cliHome = this.account.cli_home_path;
     fs.mkdirSync(cliHome, { recursive: true });
@@ -32,18 +33,14 @@ export class CodexProvider implements Provider {
     const instructions =
       'Отвечай на русском. Будь краток. Shell-команды начинай с rtk для сжатия вывода.';
 
-    let args: string[];
-    if (sessionId) {
-      args = ['codex', 'exec', 'resume', sessionId, '--skip-git-repo-check'];
-    } else {
-      args = ['codex', 'exec', '--skip-git-repo-check'];
-    }
+    const args = ['codex', 'exec', '--skip-git-repo-check'];
     if (model) args.push('-c', `model=${model}`);
     args.push('-c', `instructions=${JSON.stringify(instructions)}`);
     if (attachments) {
       for (const img of attachments) args.push('-i', img);
     }
-    args.push(prompt);
+    const fullPrompt = historyPrompt ? `${historyPrompt}\n\n${prompt}` : prompt;
+    args.push(fullPrompt);
 
     const child = spawn(args[0], args.slice(1), {
       cwd,
@@ -71,7 +68,7 @@ export class CodexProvider implements Provider {
 
     return {
       text: stdout.trim(),
-      sessionId: extractSessionId(stdout, stderr, sessionId),
+      sessionId: null,
     };
   }
 }

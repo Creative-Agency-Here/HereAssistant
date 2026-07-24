@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Box, Text, useApp, useInput, useStdout } from 'ink';
+import { Box, Text, useApp, useInput, useStdout, type DOMElement } from 'ink';
 import type { Account, ChatMessage, StreamEvent, ToolCall } from '../types.js';
 import { makeProvider } from '../providers/index.js';
 import { ChatInput } from './ChatInput.js';
@@ -7,14 +7,17 @@ import { StatusBar } from './StatusBar.js';
 import { RunSummary } from './RunSummary.js';
 import { renderMarkdown } from './markdown.js';
 import { handleCommand, type CommandContext } from '../commands.js';
+import { createHaSession, loadHaSession, saveHaSession, formatHistoryForPrompt, haSessionTitle, type HaSession } from '../ha-sessions.js';
+import { SessionPicker } from './SessionPicker.js';
 import { startWorkingTitle, setIdleTitle, stopWorkingTitle } from '../terminal-title.js';
-import { cleanClipboardCache } from '../clipboard.js';
+import { cleanClipboardCache, copyTextToClipboard } from '../clipboard.js';
 import { loadConfig } from '../config.js';
 import { memoryPrompt } from '../memory.js';
 import { getTheme } from '../themes.js';
 import { renderInlineImage, supportsInlineImages } from '../terminal-images.js';
 import { useFullscreen } from '../hooks/useFullscreen.js';
 import { useMouse, type MouseEvent } from '../hooks/useMouse.js';
+import type { ParsedEscapeKey } from '../mouse-filter.js';
 import { execSync, spawn } from 'node:child_process';
 import { writeIntegrationState } from '../integration-state.js';
 
@@ -22,14 +25,143 @@ function makeId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
-/** Хранит маппинг row → toolId для hit-testing кликов. */
-interface LayoutEntry {
-  row: number;
-  toolId: string;
-  messageIdx: number;
+const WELCOME_LOGO = [
+  '  ██╗  ██╗ ███████╗ ██████╗  ███████╗',
+  '  ██║  ██║ ██╔════╝ ██╔══██╗ ██╔════╝',
+  '  ███████║ █████╗   ██████╔╝ █████╗',
+  '  ██╔══██║ ██╔══╝   ██╔══██╗ ██╔══╝',
+  '  ██║  ██║ ███████╗ ██║  ██║ ███████╗',
+  '  ╚═╝  ╚═╝ ══════╝ ╚═╝  ╚═╝ ╚══════╝',
+];
+
+interface ScreenSelection {
+  sr: number;
+  sc: number;
+  er: number;
+  ec: number;
 }
 
-export function FullscreenChat({ account: initialAccount, cwd, integrationId }: { account: Account; cwd: string; integrationId?: string }) {
+interface QueuedPrompt {
+  id: string;
+  text: string;
+  attachments: string[];
+}
+
+interface ScreenRowEntry {
+  id: string;
+  row: number;
+  col: number;
+  text: string;
+  toolId?: string;
+}
+
+function elementPosition(node: DOMElement): { left: number; top: number } {
+  let left = 0;
+  let top = 0;
+  let current: DOMElement | undefined = node;
+  while (current) {
+    left += current.yogaNode?.getComputedLeft() ?? 0;
+    top += current.yogaNode?.getComputedTop() ?? 0;
+    current = current.parentNode;
+  }
+  return { left, top };
+}
+
+function normalizedScreenSelection(selection: ScreenSelection): ScreenSelection {
+  const forward = selection.sr < selection.er
+    || (selection.sr === selection.er && selection.sc <= selection.ec);
+  return forward
+    ? selection
+    : { sr: selection.er, sc: selection.ec, er: selection.sr, ec: selection.sc };
+}
+
+function screenSelectionRange(
+  selection: ScreenSelection | null,
+  row: Pick<ScreenRowEntry, 'row' | 'col' | 'text'>,
+): [number, number] | null {
+  if (!selection) return null;
+  const normalized = normalizedScreenSelection(selection);
+  if (row.row < normalized.sr || row.row > normalized.er) return null;
+
+  const from = row.row === normalized.sr ? normalized.sc - row.col : 0;
+  const to = row.row === normalized.er ? normalized.ec - row.col : row.text.length;
+  const start = Math.max(0, Math.min(from, row.text.length));
+  const end = Math.max(0, Math.min(to, row.text.length));
+  return start < end ? [start, end] : null;
+}
+
+function selectedScreenText(rows: ScreenRowEntry[], selection: ScreenSelection | null): string {
+  if (!selection) return '';
+  const normalized = normalizedScreenSelection(selection);
+  const selected: string[] = [];
+
+  for (const row of [...rows].sort((a, b) => a.row - b.row || a.col - b.col)) {
+    if (row.row < normalized.sr || row.row > normalized.er) continue;
+    const range = screenSelectionRange(normalized, row);
+    if (range) selected.push(row.text.slice(range[0], range[1]));
+  }
+  return selected.join('\n');
+}
+
+function SelectableRow({
+  id,
+  text,
+  selection,
+  register,
+  toolId,
+  children,
+}: {
+  id: string;
+  text: string;
+  selection: ScreenSelection | null;
+  register: (id: string, entry: ScreenRowEntry | null) => void;
+  toolId?: string;
+  children: React.ReactNode;
+}) {
+  const ref = useRef<DOMElement | null>(null);
+  const [position, setPosition] = useState<{ row: number; col: number } | null>(null);
+
+  React.useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const { left, top } = elementPosition(node);
+    const next = { row: top + 1, col: left + 1 };
+    setPosition((previous) => (
+      previous?.row === next.row && previous.col === next.col ? previous : next
+    ));
+    register(id, { id, ...next, text, toolId });
+  });
+
+  useEffect(() => () => register(id, null), [id, register]);
+
+  const range = position
+    ? screenSelectionRange(selection, { ...position, text })
+    : null;
+
+  return (
+    <Box ref={ref} flexShrink={0}>
+      {range ? (
+        <Text>
+          {text.slice(0, range[0])}
+          <Text inverse>{text.slice(range[0], range[1])}</Text>
+          {text.slice(range[1])}
+        </Text>
+      ) : children}
+    </Box>
+  );
+}
+
+export function FullscreenChat({
+  account: initialAccount,
+  cwd,
+  integrationId,
+  resumeId,
+}: {
+  account: Account;
+  cwd: string;
+  integrationId?: string;
+  resumeId?: string;
+}) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const termRows = stdout?.rows || process.stdout.rows || 24;
@@ -52,36 +184,29 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
   const [lastTokensOut, setLastTokensOut] = useState(0);
   const [thinking, setThinking] = useState('');
   const [attachments, setAttachments] = useState<string[]>([]);
+  const [promptQueue, setPromptQueue] = useState<QueuedPrompt[]>([]);
   const [sessionName, setSessionName] = useState<string | null>(null);
   const [promptCount, setPromptCount] = useState(0);
   const [scrollOffset, setScrollOffset] = useState(0);
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   const [permMode, setPermMode] = useState(0); // index into PERM_MODES
-  const sessionIdRef = useRef<string | null>(null);
+  const [cancelArmed, setCancelArmed] = useState(false);
+  const haSessionRef = useRef<HaSession | null>(null);
+  const busyRef = useRef(false);
+  const resumedRef = useRef(false);
+  const lastBusyEscapeRef = useRef(0);
+  const cancelArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pickerSessions, setPickerSessions] = useState<HaSession[] | null>(null);
   const project = cwd.split('/').pop() ?? cwd;
-  const layoutRef = useRef<LayoutEntry[]>([]);
 
   // Своё выделение (как в Claude Code)
-  const [selection, setSelection] = useState<{sr: number; sc: number; er: number; ec: number} | null>(null);
+  const [selection, setSelection] = useState<ScreenSelection | null>(null);
   const isDraggingRef = useRef(false);
-  const rowTextMap = useRef<Map<number, string>>(new Map());
-  const rowCounter = useRef(0);
-
-  // Хелпер: inverse video обёртка для выделенных строк
-  const selWrap = (row: number, content: string): string => {
-    if (!selection) return content;
-    const {sr, er} = selection;
-    const [minR, maxR] = sr <= er ? [sr, er] : [er, sr];
-    if (row >= minR && row <= maxR) return '\x1b[7m' + content + '\x1b[27m';
-    return content;
-  };
-
-  // Хелпер: зарегистрировать строку в row map
-  const regRow = (text: string): number => {
-    const r = rowCounter.current++;
-    rowTextMap.current.set(r, text);
-    return r;
-  };
+  const screenRowsRef = useRef<Map<string, ScreenRowEntry>>(new Map());
+  const registerScreenRow = useCallback((id: string, entry: ScreenRowEntry | null) => {
+    if (entry) screenRowsRef.current.set(id, entry);
+    else screenRowsRef.current.delete(id);
+  }, []);
 
   // Mouse handler для выделения + кликов
   useEffect(() => {
@@ -89,21 +214,30 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
     if (!mouseEmitter) return;
 
     const handler = (ev: any) => {
+      const inputHitTest = (globalThis as Record<string, unknown>).__ha_input_mouse_hit as
+        | ((event: MouseEvent) => boolean)
+        | undefined;
+      if (inputHitTest?.(ev)) {
+        isDraggingRef.current = false;
+        setSelection(null);
+        return;
+      }
+
       if (ev.type === 'press' && ev.button === 'left') {
         isDraggingRef.current = true;
         setSelection({sr: ev.row, sc: ev.col, er: ev.row, ec: ev.col});
+      } else if (ev.type === 'move' && ev.button === 'left' && isDraggingRef.current) {
+        // Drag обновляет выделение 1:1 с указателем.
+        setSelection((prev) => prev ? {...prev, er: ev.row, ec: ev.col} : null);
       } else if (ev.type === 'release' && ev.button === 'left') {
         isDraggingRef.current = false;
-        // Если клик без drag (та же позиция) — очистить выделение
+        // Release только фиксирует диапазон; копирование — явным Ctrl+C.
         setSelection((prev) => {
-          if (prev && prev.sr === prev.er && prev.sc === prev.ec) return null;
-          return prev;
+          if (!prev) return null;
+          const next = {...prev, er: ev.row, ec: ev.col};
+          if (next.sr === next.er && next.sc === next.ec) return null;
+          return next;
         });
-      } else if (isDraggingRef.current && (ev.type === 'press' || ev.type === 'release')) {
-        // Drag — обновляем конец выделения
-        setSelection((prev) => prev ? {...prev, er: ev.row, ec: ev.col} : null);
-      } else if (ev.type === 'scroll') {
-        setScrollOffset((p) => Math.max(0, p + (ev.button === 'scroll-up' ? -3 : 3)));
       }
     };
 
@@ -117,9 +251,9 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
       if (ev.type === 'press' && ev.button === 'right') {
         // Правый клик = копировать выделение
         if (selection) {
-          const text = getSelectedText();
+          const text = getSelectedText(selection);
           if (text) {
-            try { execSync(`printf '%s' ${JSON.stringify(text)} | pbcopy`, {timeout: 3000}); } catch {}
+            copyTextToClipboard(text);
             setSelection(null);
           }
         }
@@ -129,20 +263,32 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
     if (mouseEmitter) { mouseEmitter.on('event', handler); return () => mouseEmitter.off('event', handler); }
   }, [selection]);
 
-  const getSelectedText = (): string => {
-    if (!selection) return '';
-    const {sr, sc, er, ec} = selection;
-    const [minR, maxR] = sr <= er ? [sr, er] : [er, sr];
-    const [minC, maxC] = sr <= er ? [sc, ec] : [ec, sc];
-    const lines: string[] = [];
-    for (let r = minR; r <= maxR; r++) {
-      const text = rowTextMap.current.get(r) || '';
-      const start = r === minR ? Math.min(minC, text.length) : 0;
-      const end = r === maxR ? Math.min(maxC, text.length) : text.length;
-      if (start < end) lines.push(text.slice(start, end));
-    }
-    return lines.join('\n');
+  const getSelectedText = (currentSelection: typeof selection): string => {
+    return selectedScreenText([...screenRowsRef.current.values()], currentSelection);
   };
+
+  const copyCurrentSelection = useCallback((): boolean => {
+    const copyInputSelection = (globalThis as Record<string, unknown>).__ha_input_copy_selection as
+      | (() => boolean)
+      | undefined;
+    if (copyInputSelection?.()) return true;
+    const text = selectedScreenText([...screenRowsRef.current.values()], selection);
+    if (!text) return false;
+    if (!copyTextToClipboard(text)) return false;
+    setSelection(null);
+    return true;
+  }, [selection]);
+
+  // Kitty Cmd+C и VS Code extension отправляют единое copy-key событие.
+  useEffect(() => {
+    const keysEmitter = (globalThis as any).__ha_keys as
+      | { on: (event: string, handler: () => void) => void; off: (event: string, handler: () => void) => void }
+      | undefined;
+    if (!keysEmitter) return;
+    const handler = () => { copyCurrentSelection(); };
+    keysEmitter.on('copy-key', handler);
+    return () => { keysEmitter.off('copy-key', handler); };
+  }, [copyCurrentSelection]);
 
   const PERM_MODES = ['acceptEdits', 'auto', 'plan', 'default'] as const;
   const PERM_LABELS: Record<string, string> = {
@@ -169,10 +315,109 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
     });
   }, []);
 
+  const restoreSession = useCallback((session: HaSession) => {
+    haSessionRef.current = session;
+    resumedRef.current = true;
+    setSessionName(session.name);
+    setMessages(session.messages.map((message) => ({
+      id: makeId(),
+      role: message.role,
+      text: message.text,
+      toolCalls: [],
+      timestamp: message.timestamp,
+      streaming: false,
+      attachments: message.attachments,
+    })));
+  }, []);
+
+  useEffect(() => {
+    if (!resumeId) return;
+    const session = loadHaSession(resumeId);
+    if (session) {
+      restoreSession(session);
+      return;
+    }
+    addMessage({
+      id: makeId(),
+      role: 'system',
+      text: `✗ сессия ${resumeId.slice(0, 16)} не найдена`,
+      toolCalls: [],
+      timestamp: Date.now(),
+      streaming: false,
+    });
+  }, [resumeId, restoreSession, addMessage]);
+
   const doExit = useCallback(() => {
     stopWorkingTitle();
     exit();
   }, [exit]);
+
+  const disarmCancellation = useCallback(() => {
+    lastBusyEscapeRef.current = 0;
+    setCancelArmed(false);
+    if (cancelArmTimerRef.current) {
+      clearTimeout(cancelArmTimerRef.current);
+      cancelArmTimerRef.current = null;
+    }
+  }, []);
+
+  const handleEscape = useCallback((event: ParsedEscapeKey = { modifiers: 1 }) => {
+    const hasShift = ((event.modifiers - 1) & 1) !== 0;
+    if (hasShift) return;
+    const inputHasText = (globalThis as Record<string, unknown>).__ha_input_has_text as
+      | (() => boolean)
+      | undefined;
+    if (inputHasText?.()) return;
+    if (busy) {
+      const now = Date.now();
+      if (now - lastBusyEscapeRef.current > 1500) {
+        lastBusyEscapeRef.current = now;
+        setCancelArmed(true);
+        if (cancelArmTimerRef.current) clearTimeout(cancelArmTimerRef.current);
+        cancelArmTimerRef.current = setTimeout(() => {
+          cancelArmTimerRef.current = null;
+          lastBusyEscapeRef.current = 0;
+          setCancelArmed(false);
+        }, 1500);
+        return;
+      }
+      const proc = (globalThis as any).__ha_process;
+      if (proc) { try { proc.kill('SIGINT'); } catch {} }
+      disarmCancellation();
+      return;
+    }
+    disarmCancellation();
+    if (resumedRef.current) {
+      resumedRef.current = false;
+      haSessionRef.current = null;
+      setSessionName(null);
+      setPromptCount(0);
+      setMessages([{
+        id: makeId(),
+        role: 'system',
+        text: '▸ выход из продолженной сессии — начат новый диалог',
+        toolCalls: [],
+        timestamp: Date.now(),
+        streaming: false,
+      }]);
+    }
+  }, [busy, disarmCancellation]);
+
+  useEffect(() => {
+    if (!busy) disarmCancellation();
+    return () => {
+      if (cancelArmTimerRef.current) clearTimeout(cancelArmTimerRef.current);
+    };
+  }, [busy, disarmCancellation]);
+
+  useEffect(() => {
+    const keysEmitter = (globalThis as any).__ha_keys as
+      | { on: (event: string, handler: (event: ParsedEscapeKey) => void) => void; off: (event: string, handler: (event: ParsedEscapeKey) => void) => void }
+      | undefined;
+    if (!keysEmitter) return;
+    keysEmitter.on('escape-key', handleEscape);
+    return () => { keysEmitter.off('escape-key', handleEscape); };
+  }, [handleEscape]);
 
   const toggleTool = useCallback((toolId: string) => {
     setExpandedTools((prev) => {
@@ -186,29 +431,64 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
   // Mouse handler: клик по tool-блоку → toggle
   useMouse((event: MouseEvent) => {
     if (event.type === 'press' && event.button === 'left') {
-      const hit = layoutRef.current.find((e) => e.row === event.row);
-      if (hit) toggleTool(hit.toolId);
+      const hit = [...screenRowsRef.current.values()]
+        .find((entry) => entry.row === event.row && entry.toolId);
+      if (hit?.toolId) toggleTool(hit.toolId);
     }
     if (event.type === 'scroll') {
       setScrollOffset((prev) => Math.max(0, prev + (event.button === 'scroll-up' ? -3 : 3)));
     }
   });
 
-  const handleSubmit = useCallback(async (value: string) => {
+  const handleSubmit = useCallback(async (value: string, queuedAttachments?: string[]) => {
     const text = value.trim();
     if (!text) return;
+    const submissionAttachments = queuedAttachments ?? attachments;
+
+    if (busyRef.current) {
+      setPromptQueue((previous) => [
+        ...previous,
+        { id: makeId(), text, attachments: [...submissionAttachments] },
+      ]);
+      setAttachments([]);
+      return;
+    }
 
     if (text.startsWith('/')) {
       const ctx: CommandContext = {
-        account, model, sessionId: sessionIdRef.current, cwd,
+        account, model, sessionId: haSessionRef.current?.id ?? null, cwd,
         tokensIn, tokensOut,
         setModel: (m) => setModel(m),
         setAccount: (a) => { setAccount(a); setModel(a.default_model || ''); },
-        resetSession: () => { sessionIdRef.current = null; },
-        setSessionId: (id) => { sessionIdRef.current = id; },
-        renameSession: (name) => { setSessionName(name); setIdleTitle(name, promptCount); },
+        resetSession: () => {
+          haSessionRef.current = createHaSession(cwd);
+          resumedRef.current = false;
+          setMessages([]);
+          setSessionName(null);
+        },
+        resumeSession: (id) => {
+          const session = loadHaSession(id);
+          if (!session) { addMessage({ id: makeId(), role: 'system', text: `✗ сессия ${id.slice(0, 16)} не найдена`, toolCalls: [], timestamp: Date.now(), streaming: false }); return; }
+          restoreSession(session);
+        },
+        openSessionPicker: (sessions) => setPickerSessions(sessions),
+        renameSession: (name) => {
+          setSessionName(name);
+          setIdleTitle(name, promptCount);
+          if (haSessionRef.current) { haSessionRef.current.name = name; saveHaSession(haSessionRef.current); }
+        },
+        forkSession: () => {
+          const forked = createHaSession(cwd);
+          if (haSessionRef.current) {
+            forked.messages = [...haSessionRef.current.messages];
+            forked.name = haSessionRef.current.name ? `${haSessionRef.current.name} (fork)` : null;
+          }
+          saveHaSession(forked);
+          haSessionRef.current = forked;
+          resumedRef.current = false;
+          setSessionName(forked.name);
+        },
         setTheme: () => {},
-        forkSession: () => { sessionIdRef.current = `fork-${makeId()}`; },
         backgroundPrompt: (prompt) => {
           const child = spawn('node', [
             new URL('../index.js', import.meta.url).pathname,
@@ -223,7 +503,7 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
           const last = [...messages].reverse().find((m) => m.role === 'assistant' && m.text);
           if (last?.text) {
             try {
-              execSync(`printf '%s' ${JSON.stringify(last.text)} | pbcopy`, { timeout: 3000 });
+              if (!copyTextToClipboard(last.text)) throw new Error('clipboard недоступен');
               addMessage({ id: makeId(), role: 'system', text: '📋 скопировано в clipboard', toolCalls: [], timestamp: Date.now(), streaming: false });
             } catch {
               addMessage({ id: makeId(), role: 'system', text: '✗ не удалось скопировать', toolCalls: [], timestamp: Date.now(), streaming: false });
@@ -243,11 +523,38 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
       if (handleCommand(text, ctx)) return;
     }
 
-    addMessage({ id: makeId(), role: 'user', text, toolCalls: [], timestamp: Date.now(), streaming: false, attachments: attachments.length > 0 ? [...attachments] : undefined });
+    // После первого нового сообщения ESC снова отвечает только за отмену задачи:
+    // история уже стала продолжением текущего разговора.
+    resumedRef.current = false;
+
+    // HA-сессия: создаём при первом сообщении
+    if (!haSessionRef.current) {
+      haSessionRef.current = createHaSession(cwd);
+    }
+    const session = haSessionRef.current;
+
+    // Авто-имя сессии по первому сообщению
+    if (!session.name && session.messages.length === 0) {
+      session.name = text.slice(0, 60);
+      setSessionName(session.name);
+    }
+
+    // Сохраняем пользовательское сообщение
+    session.messages.push({
+      role: 'user', text, timestamp: Date.now(),
+      provider: account.provider, model: model || undefined,
+      attachments: submissionAttachments.length > 0 ? [...submissionAttachments] : undefined,
+    });
+
+    // Форматируем историю для провайдера (все кроме текущего)
+    const historyPrompt = formatHistoryForPrompt(session.messages.slice(0, -1));
+
+    addMessage({ id: makeId(), role: 'user', text, toolCalls: [], timestamp: Date.now(), streaming: false, attachments: submissionAttachments.length > 0 ? [...submissionAttachments] : undefined });
     const assistantMsg: ChatMessage = {
       id: makeId(), role: 'assistant', text: '', toolCalls: [], timestamp: Date.now(), streaming: true,
     };
     addMessage(assistantMsg);
+    busyRef.current = true;
     setBusy(true);
     setThinking('');
     setLastDuration(0);
@@ -258,14 +565,13 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
 
     try {
       const provider = makeProvider(account);
-      const currentAttachments = [...attachments];
+      const currentAttachments = [...submissionAttachments];
       setAttachments([]);
       const fullPrompt = memory ? `${text}${memory}` : text;
 
-      // Таймаут 5 минут чтобы не зависать при ошибке провайдера
       const TIMEOUT_MS = 5 * 60 * 1000;
       const result = await Promise.race([
-        provider.run(fullPrompt, cwd, sessionIdRef.current, model || null, (event: StreamEvent) => {
+        provider.run(fullPrompt, cwd, null, model || null, (event: StreamEvent) => {
           if (event.type === 'text' && typeof event.text === 'string') {
             updateLastAssistant((m) => ({ ...m, text: m.text + (event.text as string) }));
           } else if (event.type === 'thinking' && typeof event.text === 'string') {
@@ -284,30 +590,44 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
               ),
             }));
           }
-        }, currentAttachments),
+        }, currentAttachments, historyPrompt || undefined),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('Таймаут: провайдер не ответил за 5 минут')), TIMEOUT_MS),
         ),
       ]);
 
       const duration = Date.now() - t0;
-      if (result.sessionId) sessionIdRef.current = result.sessionId;
       if (result.tokensIn) { setTokensIn((p) => p + result.tokensIn!); setLastTokensIn(result.tokensIn); }
       if (result.tokensOut) { setTokensOut((p) => p + result.tokensOut!); setLastTokensOut(result.tokensOut); }
       setLastDuration(duration);
       updateLastAssistant((m) => ({ ...m, text: result.text || m.text, streaming: false }));
+
+      // Сохраняем ответ ассистента в HA-сессию
+      session.messages.push({
+        role: 'assistant', text: result.text || '', timestamp: Date.now(),
+        provider: account.provider, model: model || undefined,
+      });
+      saveHaSession(session);
     } catch (err) {
       setLastDuration(Date.now() - t0);
       updateLastAssistant((m) => ({
         ...m, text: `✗ ${err instanceof Error ? err.message : String(err)}`, streaming: false,
       }));
     } finally {
+      busyRef.current = false;
       setBusy(false);
       setThinking('');
       setIdleTitle(sessionName || project, promptCount);
-      if (integrationId) writeIntegrationState(integrationId, { state: 'open', cwd, taskCount: promptCount, sessionId: sessionIdRef.current });
+      if (integrationId) writeIntegrationState(integrationId, { state: 'open', cwd, taskCount: promptCount, sessionId: haSessionRef.current?.id ?? null });
     }
   }, [account, cwd, model, tokensIn, tokensOut, project, promptCount, sessionName, attachments, memory, addMessage, updateLastAssistant, doExit]);
+
+  useEffect(() => {
+    if (busy || busyRef.current || promptQueue.length === 0) return;
+    const [next] = promptQueue;
+    setPromptQueue((previous) => previous.slice(1));
+    void handleSubmit(next.text, next.attachments);
+  }, [busy, promptQueue, handleSubmit]);
 
   const handleShellCommand = useCallback((cmd: string) => {
     addMessage({ id: makeId(), role: 'user', text: `! ${cmd}`, toolCalls: [], timestamp: Date.now(), streaming: false });
@@ -321,23 +641,19 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
 
   // Keyboard: scroll + permission mode
   useInput((input, key) => {
+    // Пока открыт пикер, клавиатурой владеет SessionPicker.
+    if (pickerSessions) return;
+
     // ESC — отменить текущую задачу
-    if (key.escape && busy) {
-      const proc = (globalThis as any).__ha_process;
-      if (proc) { try { proc.kill('SIGINT'); } catch {} }
+    if (key.escape) {
+      handleEscape({ modifiers: key.shift ? 2 : 1 });
       return;
     }
-    if (key.ctrl && input === 'c') {
-      if (selection) {
-        const text = getSelectedText();
-        if (text) {
-          try { execSync(`printf '%s' ${JSON.stringify(text)} | pbcopy`, {timeout: 3000}); } catch {}
-          setSelection(null);
-          return; // не выходим — скопировали
-        }
-      }
-      doExit(); return;
+    if (key.meta && input.toLowerCase() === 'c') {
+      copyCurrentSelection();
+      return;
     }
+    if (key.ctrl && input === 'c') { doExit(); return; }
     if (key.pageUp) setScrollOffset((p) => Math.max(0, p - 10));
     if (key.pageDown) setScrollOffset((p) => p + 10);
     // Shift+Tab — cycle permission mode (как в Claude Code)
@@ -372,16 +688,12 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
     else if (m.role === 'assistant') { msgNumbers.set(m.id, num); }
   }
 
-  // Сброс row map перед каждым рендером
-  rowCounter.current = 0;
-  rowTextMap.current.clear();
-
   return (
     <Box flexDirection="column" height={termRows}>
       <StatusBar
         account={account.label}
         model={model || account.default_model || 'default'}
-        sessionId={sessionIdRef.current}
+        sessionId={haSessionRef.current?.id ?? null}
         sessionName={sessionName}
         tokensIn={tokensIn}
         tokensOut={tokensOut}
@@ -402,42 +714,102 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
       )}
 
       <Box flexDirection="column" flexGrow={1} overflow="hidden" paddingX={1}>
-        {messages.length === 0 && (
+        {pickerSessions && (
+          <SessionPicker
+            sessions={pickerSessions}
+            onSelect={(id) => {
+              setPickerSessions(null);
+              const session = loadHaSession(id);
+              if (!session) return;
+              restoreSession(session);
+            }}
+            onCancel={() => setPickerSessions(null)}
+          />
+        )}
+        {!pickerSessions && messages.length === 0 && (
           <Box flexDirection="column" marginTop={1} paddingX={2}>
-            <Text bold color="cyan">{'  ██╗  ██╗ ███████╗ ██████╗  ███████╗'}</Text>
-            <Text bold color="cyan">{'  ██║  ██║ ██╔════╝ ██╔══██╗ ██╔════╝'}</Text>
-            <Text bold color="cyan">{'  ███████║ █████╗   ██████╔╝ █████╗'}</Text>
-            <Text bold color="cyan">{'  ██╔══██║ ██╔══╝   ██╔══██╗ ██╔══╝'}</Text>
-            <Text bold color="cyan">{'  ██║  ██║ ███████╗ ██║  ██║ ███████╗'}</Text>
-            <Text bold color="cyan">{'  ╚═╝  ╚═╝ ══════╝ ╚═╝  ╚═╝ ╚══════╝'}</Text>
+            {WELCOME_LOGO.map((line, index) => (
+              <SelectableRow
+                key={index}
+                id={`welcome-logo-${index}`}
+                text={line}
+                selection={selection}
+                register={registerScreenRow}
+              >
+                <Text bold color="cyan">{line}</Text>
+              </SelectableRow>
+            ))}
             <Text> </Text>
-            <Text bold color="white">{'  Unified AI Terminal · 4 провайдера'}</Text>
+            <SelectableRow
+              id="welcome-title"
+              text="  Unified AI Terminal · 4 провайдера"
+              selection={selection}
+              register={registerScreenRow}
+            >
+              <Text bold color="white">{'  Unified AI Terminal · 4 провайдера'}</Text>
+            </SelectableRow>
             <Text> </Text>
-            <Text dimColor>{'  Напиши сообщение или:'}</Text>
+            <SelectableRow
+              id="welcome-prompt"
+              text="  Напиши сообщение или:"
+              selection={selection}
+              register={registerScreenRow}
+            >
+              <Text dimColor>{'  Напиши сообщение или:'}</Text>
+            </SelectableRow>
             <Box marginLeft={2}>
-              <Text color="yellow">пробел</Text><Text dimColor> голос </Text>
-              <Text color="yellow">Ctrl+V</Text><Text dimColor> фото </Text>
-              <Text color="yellow">!cmd</Text><Text dimColor> shell </Text>
-              <Text color="yellow">/help</Text><Text dimColor> команды</Text>
+              <SelectableRow
+                id="welcome-commands"
+                text="пробел голос Ctrl+V фото !cmd shell /help команды"
+                selection={selection}
+                register={registerScreenRow}
+              >
+                <Text color="yellow">пробел</Text><Text dimColor> голос </Text>
+                <Text color="yellow">Ctrl+V</Text><Text dimColor> фото </Text>
+                <Text color="yellow">!cmd</Text><Text dimColor> shell </Text>
+                <Text color="yellow">/help</Text><Text dimColor> команды</Text>
+              </SelectableRow>
             </Box>
             <Text> </Text>
           </Box>
         )}
-        {visibleMessages.map((msg) => {
+        {!pickerSessions && visibleMessages.map((msg) => {
           const msgNum = msgNumbers.get(msg.id);
           return (
           <Box key={msg.id} flexDirection="column" marginBottom={0}>
             {msg.role === 'user' && (
               <Box flexDirection="column">
-                {(() => { const r = regRow(msg.text); const sel = selection && r >= Math.min(selection.sr, selection.er) && r <= Math.max(selection.sr, selection.er);
-                  return sel
-                    ? <Text>{'\x1b[7m'}#{msgNum} › {msg.text}{'\x1b[27m'}</Text>
-                    : <Text><Text dimColor>#{msgNum} </Text><Text color="cyan" bold>› </Text><Text>{msg.text}</Text></Text>;
-                })()}
+                {msg.text.split('\n').map((line, lineIdx) => {
+                  const prefix = lineIdx === 0 ? `#${msgNum} › ` : '    ';
+                  const rowText = prefix + line;
+                  return (
+                    <SelectableRow
+                      key={lineIdx}
+                      id={`user-${msg.id}-${lineIdx}`}
+                      text={rowText}
+                      selection={selection}
+                      register={registerScreenRow}
+                    >
+                      <Text>
+                        <Text dimColor>{lineIdx === 0 ? `#${msgNum} ` : '    '}</Text>
+                        {lineIdx === 0 && <Text color="cyan" bold>› </Text>}
+                        <Text>{line}</Text>
+                      </Text>
+                    </SelectableRow>
+                  );
+                })}
                 {msg.attachments && msg.attachments.length > 0 && (
                   <Box marginLeft={4} flexDirection="column">
                     {msg.attachments.map((p, i) => (
-                      <Text key={i} color="cyan">  📎 Image #{i + 1}: {p.split('/').pop()}</Text>
+                      <SelectableRow
+                        key={i}
+                        id={`attachment-${msg.id}-${i}`}
+                        text={`  📎 Image #${i + 1}: ${p.split('/').pop()}`}
+                        selection={selection}
+                        register={registerScreenRow}
+                      >
+                        <Text color="cyan">  📎 Image #{i + 1}: {p.split('/').pop()}</Text>
+                      </SelectableRow>
                     ))}
                   </Box>
                 )}
@@ -446,7 +818,15 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
             {msg.role === 'system' && (
               <Box flexDirection="column">
                 {msg.text.split('\n').map((line, i) => (
-                  <Text key={i} dimColor>{line}</Text>
+                  <SelectableRow
+                    key={i}
+                    id={`system-${msg.id}-${i}`}
+                    text={line}
+                    selection={selection}
+                    register={registerScreenRow}
+                  >
+                    <Text dimColor>{line}</Text>
+                  </SelectableRow>
                 ))}
               </Box>
             )}
@@ -462,17 +842,34 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
 
                   return (
                     <Box key={tool.id} flexDirection="column" marginLeft={1}>
-                      {(() => { const r = regRow(`${tool.name} ${inputPreview}`); const sel = selection && r >= Math.min(selection.sr, selection.er) && r <= Math.max(selection.sr, selection.er);
-                        return sel
-                          ? <Text>{'\x1b[7m'}{statusIcon} {icon} {tool.name} {inputPreview}{'\x1b[27m'}</Text>
-                          : <Text><Text color={statusColor}>{statusIcon} </Text><Text>{icon} </Text><Text bold>{tool.name}</Text><Text dimColor> {inputPreview}</Text>
-                              {outputLines.length > 0 && !isExpanded && <Text dimColor> [{outputLines.length} строк — клик раскрыть]</Text>}
-                              {isExpanded && <Text dimColor> [клик свернуть]</Text>}</Text>;
-                      })()}
+                      <SelectableRow
+                        id={`tool-${msg.id}-${tool.id}`}
+                        text={`${statusIcon} ${icon} ${tool.name} ${inputPreview}`}
+                        selection={selection}
+                        register={registerScreenRow}
+                        toolId={tool.id}
+                      >
+                        <Text>
+                          <Text color={statusColor}>{statusIcon} </Text>
+                          <Text>{icon} </Text>
+                          <Text bold>{tool.name}</Text>
+                          <Text dimColor> {inputPreview}</Text>
+                          {outputLines.length > 0 && !isExpanded && <Text dimColor> [{outputLines.length} строк — клик раскрыть]</Text>}
+                          {isExpanded && <Text dimColor> [клик свернуть]</Text>}
+                        </Text>
+                      </SelectableRow>
                       {isExpanded && tool.output && (
                         <Box marginLeft={2} flexDirection="column">
                           {outputLines.slice(0, 30).map((line, i) => (
-                            <Text key={i} dimColor>{line}</Text>
+                            <SelectableRow
+                              key={i}
+                              id={`tool-output-${msg.id}-${tool.id}-${i}`}
+                              text={line}
+                              selection={selection}
+                              register={registerScreenRow}
+                            >
+                              <Text dimColor>{line}</Text>
+                            </SelectableRow>
                           ))}
                           {outputLines.length > 30 && <Text dimColor>… ещё {outputLines.length - 30} строк</Text>}
                         </Box>
@@ -483,11 +880,18 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
                 {msg.text ? (
                   <Box flexDirection="column">
                     {renderMarkdown(msg.text).map((line, i) => {
-                      const r = regRow(line.replace(/\x1b\[[0-9;]*m/g, ''));
-                      const sel = selection && r >= Math.min(selection.sr, selection.er) && r <= Math.max(selection.sr, selection.er);
-                      return sel
-                        ? <Text key={i}>{'\x1b[7m'}{line.replace(/\x1b\[[0-9;]*m/g, '')}{'\x1b[27m'}</Text>
-                        : <Text key={i}>{line}</Text>;
+                      const plainLine = line.replace(/\x1b\[[0-9;]*m/g, '');
+                      return (
+                        <SelectableRow
+                          key={i}
+                          id={`assistant-${msg.id}-${i}`}
+                          text={plainLine}
+                          selection={selection}
+                          register={registerScreenRow}
+                        >
+                          <Text>{line}</Text>
+                        </SelectableRow>
+                      );
                     })}
                     {msg.streaming && <Text color="yellow"> ▌</Text>}
                   </Box>
@@ -503,19 +907,32 @@ export function FullscreenChat({ account: initialAccount, cwd, integrationId }: 
             )}
           </Box>
         ); })}
-        {thinking && (
+        {!pickerSessions && thinking && (
           <Box marginLeft={1}><Text dimColor italic>💭 {thinking.slice(-200)}</Text></Box>
         )}
       </Box>
 
       <Box borderTop borderStyle="single" flexDirection="column">
+        {cancelArmed && (
+          <Box paddingX={1}>
+            <Text color="yellow">Esc ещё раз — отменить текущую работу</Text>
+          </Box>
+        )}
+        {promptQueue.length > 0 && (
+          <Box paddingX={1}>
+            <Text dimColor>
+              очередь: {promptQueue.length} · {promptQueue[0].text.slice(0, Math.max(10, termCols - 24))}
+            </Text>
+          </Box>
+        )}
         <ChatInput
           onSubmit={handleSubmit}
           onImagePaste={(p) => setAttachments((prev) => [...prev, p])}
           onShellCommand={handleShellCommand}
           onRemoveAttachment={(i) => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
           attachments={attachments}
-          disabled={busy}
+          disabled={!!pickerSessions}
+          placeholder={busy ? 'агент работает… Enter добавит запрос в очередь' : undefined}
           cwd={cwd}
         />
       </Box>

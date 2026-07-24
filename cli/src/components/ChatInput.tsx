@@ -1,22 +1,78 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { EventEmitter } from 'node:events';
-import { Box, Text, useInput } from 'ink';
-import { pasteImageFromClipboard } from '../clipboard.js';
+import { Box, Text, useInput, type DOMElement } from 'ink';
+import { copyTextToClipboard, pasteImageFromClipboard } from '../clipboard.js';
 import { openInEditor } from '../editor.js';
 import { voiceRealtime, canRealtimeVoice } from '../voice.js';
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { MouseEvent } from '../hooks/useMouse.js';
+import type { ParsedEscapeKey, ParsedNavigationKey } from '../mouse-filter.js';
 
-// DEBUG: логируем все клавиши в /tmp/ha-keys.log
+// Подробный лог клавиш включается только явным opt-in: он может содержать ввод.
 const DEBUG_LOG = '/tmp/ha-keys.log';
 function dbg(msg: string) {
+  if (process.env.HA_TUI_DEBUG_KEYS !== '1') return;
   try { fs.appendFileSync(DEBUG_LOG, `${new Date().toISOString()} ${msg}\n`); } catch {}
 }
 
 const REC_FRAMES = ['●', '◉', '◎', '◉'];
 const WAVE_FRAMES = ['▁▃▅▇', '▃▅▇▅', '▅▇▅▃', '▇▅▃▁', '▅▃▁▃', '▃▁▃▅'];
+
+function elementPosition(node: DOMElement): { left: number; top: number } {
+  let left = 0;
+  let top = 0;
+  let current: DOMElement | undefined = node;
+  while (current) {
+    left += current.yogaNode?.getComputedLeft() ?? 0;
+    top += current.yogaNode?.getComputedTop() ?? 0;
+    current = current.parentNode;
+  }
+  return { left, top };
+}
+
+type InputPoint = { line: number; col: number };
+type InputSelection = { anchor: InputPoint; focus: InputPoint };
+
+function compareInputPoints(a: InputPoint, b: InputPoint): number {
+  return a.line === b.line ? a.col - b.col : a.line - b.line;
+}
+
+function normalizedInputSelection(selection: InputSelection): [InputPoint, InputPoint] {
+  return compareInputPoints(selection.anchor, selection.focus) <= 0
+    ? [selection.anchor, selection.focus]
+    : [selection.focus, selection.anchor];
+}
+
+export function selectedInputText(lines: string[], selection: InputSelection): string {
+  const [start, end] = normalizedInputSelection(selection);
+  if (compareInputPoints(start, end) === 0) return '';
+  if (start.line === end.line) {
+    return (lines[start.line] ?? '').slice(start.col, end.col);
+  }
+
+  const selected = [(lines[start.line] ?? '').slice(start.col)];
+  for (let line = start.line + 1; line < end.line; line++) {
+    selected.push(lines[line] ?? '');
+  }
+  selected.push((lines[end.line] ?? '').slice(0, end.col));
+  return selected.join('\n');
+}
+
+function selectedRangeForLine(
+  selection: InputSelection | null,
+  line: number,
+  lineLength: number,
+): [number, number] | null {
+  if (!selection) return null;
+  const [start, end] = normalizedInputSelection(selection);
+  if (compareInputPoints(start, end) === 0 || line < start.line || line > end.line) return null;
+
+  const from = line === start.line ? Math.min(start.col, lineLength) : 0;
+  const to = line === end.line ? Math.min(end.col, lineLength) : lineLength;
+  return from < to ? [from, to] : null;
+}
 
 const SLASH_COMMANDS = [
   '/help', '/model', '/account', '/status', '/resume', '/rename', '/fork', '/search', '/bg',
@@ -32,9 +88,10 @@ interface Props {
   disabled?: boolean;
   placeholder?: string;
   cwd?: string;
+  onSelectionCopy?: (text: string) => boolean | void;
 }
 
-export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAttachment, attachments = [], disabled = false, placeholder, cwd }: Props) {
+export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAttachment, attachments = [], disabled = false, placeholder, cwd, onSelectionCopy }: Props) {
   const [lines, setLines] = useState<string[]>(['']);
   const [cursorLine, setCursorLine] = useState(0);
   const [cursorCol, setCursorCol] = useState(0);
@@ -54,6 +111,169 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
   const cursorLineRef = useRef(0);
   const lastEscapeRef = useRef(0);
   const pasteGuardRef = useRef(0); // защита от race condition при paste
+  const pendingSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputLinesRef = useRef<DOMElement | null>(null);
+  const [selection, setSelection] = useState<InputSelection | null>(null);
+  const selectionRef = useRef<InputSelection | null>(null);
+  const dragAnchorRef = useRef<InputPoint | null>(null);
+
+  const updateSelection = useCallback((next: InputSelection | null) => {
+    selectionRef.current = next;
+    setSelection(next);
+  }, []);
+
+  const copySelection = useCallback((): boolean => {
+    const current = selectionRef.current;
+    if (!current) return false;
+    const selected = selectedInputText(lines, current);
+    if (!selected || !selected.trim()) return false;
+    const copied = onSelectionCopy
+      ? onSelectionCopy(selected) !== false
+      : copyTextToClipboard(selected);
+    return copied;
+  }, [lines, onSelectionCopy]);
+
+  const moveCursor = useCallback((line: number, col: number) => {
+    cursorLineRef.current = line;
+    cursorColRef.current = col;
+    setCursorLine(line);
+    setCursorCol(col);
+  }, []);
+
+  const cancelPendingSubmit = useCallback(() => {
+    if (pendingSubmitTimerRef.current) {
+      clearTimeout(pendingSubmitTimerRef.current);
+      pendingSubmitTimerRef.current = null;
+    }
+  }, []);
+
+  const clearDraft = useCallback(() => {
+    cancelPendingSubmit();
+    setLines(['']);
+    moveCursor(0, 0);
+    updateSelection(null);
+    setHistoryIdx(-1);
+    draftRef.current = null;
+    setShowComplete(false);
+  }, [cancelPendingSubmit, moveCursor, updateSelection]);
+
+  const insertNewline = useCallback((removeBackslash = false) => {
+    cancelPendingSubmit();
+    setLines((prev) => {
+      const lineIdx = Math.min(cursorLineRef.current, prev.length - 1);
+      const line = prev[lineIdx] ?? '';
+      const col = Math.min(cursorColRef.current, line.length);
+      const newLines = [...prev];
+      const splitCol = removeBackslash && col > 0 ? col - 1 : col;
+      newLines[lineIdx] = line.slice(0, splitCol);
+      newLines.splice(lineIdx + 1, 0, line.slice(col));
+      moveCursor(lineIdx + 1, 0);
+      return newLines;
+    });
+  }, [cancelPendingSubmit, moveCursor]);
+
+  useEffect(() => () => cancelPendingSubmit(), [cancelPendingSubmit]);
+
+  // Нормализованные newline/Escape events из MouseFilterStream.
+  useEffect(() => {
+    const keysEmitter = (globalThis as any).__ha_keys as EventEmitter | undefined;
+    if (!keysEmitter || disabled) return;
+    const onNewline = () => insertNewline();
+    const onEscape = (event: ParsedEscapeKey = { modifiers: 1 }) => {
+      const hasShift = ((event.modifiers - 1) & 1) !== 0;
+      if (hasShift) return;
+      if (lines.some((line) => line.length > 0)) clearDraft();
+    };
+    keysEmitter.on('newline-key', onNewline);
+    keysEmitter.on('escape-key', onEscape);
+    return () => {
+      keysEmitter.off('newline-key', onNewline);
+      keysEmitter.off('escape-key', onEscape);
+    };
+  }, [disabled, insertNewline, lines, clearDraft]);
+
+  // Стрелки через custom events (Ink не парсит \x1b[D из Transform stream)
+  useEffect(() => {
+    const keysEmitter = (globalThis as any).__ha_keys as EventEmitter | undefined;
+    if (!keysEmitter || disabled) return;
+    const onArrow = (ev: ParsedNavigationKey) => {
+      const { direction, modifiers } = ev;
+      const lineIdx = cursorLineRef.current;
+      const col = cursorColRef.current;
+      const line = lines[lineIdx] ?? '';
+      const modifierBits = Math.max(0, modifiers - 1);
+      const hasSuper = (modifierBits & 8) !== 0;
+      const jumpsByWord = (modifierBits & (2 | 4)) !== 0;
+
+      if (direction === 'home') {
+        moveCursor(lineIdx, 0); return;
+      }
+      if (direction === 'end') {
+        moveCursor(lineIdx, line.length); return;
+      }
+      if (direction === 'left') {
+        if (hasSuper) {
+          moveCursor(lineIdx, 0);
+        } else if (jumpsByWord) { // Option/Ctrl+Left = word left
+          const before = line.slice(0, col);
+          const m = before.match(/\S+\s*$/);
+          const nc = m ? col - m[0].length : 0;
+          moveCursor(lineIdx, nc);
+        } else if (col > 0) {
+          moveCursor(lineIdx, col - 1);
+        } else if (lineIdx > 0) {
+          const prevLen = (lines[lineIdx - 1] ?? '').length;
+          moveCursor(lineIdx - 1, prevLen);
+        }
+        return;
+      }
+      if (direction === 'right') {
+        if (hasSuper) {
+          moveCursor(lineIdx, line.length);
+        } else if (jumpsByWord) { // Option/Ctrl+Right = word right
+          const after = line.slice(col);
+          const m = after.match(/^\s*\S+/);
+          const nc = m ? col + m[0].length : line.length;
+          moveCursor(lineIdx, nc);
+        } else if (col < line.length) {
+          moveCursor(lineIdx, col + 1);
+        } else if (lineIdx < lines.length - 1) {
+          moveCursor(lineIdx + 1, 0);
+        }
+        return;
+      }
+      if (direction === 'up') {
+        if (lineIdx > 0) {
+          const prevLen = (lines[lineIdx - 1] ?? '').length;
+          const nc = Math.min(col, prevLen);
+          moveCursor(lineIdx - 1, nc);
+        } else if (history.length > 0) {
+          const newIdx = historyIdx < history.length - 1 ? historyIdx + 1 : historyIdx;
+          if (historyIdx === -1) draftRef.current = lines.join('\n');
+          setHistoryIdx(newIdx);
+          setText(history[newIdx]);
+        }
+        return;
+      }
+      if (direction === 'down') {
+        if (lineIdx < lines.length - 1) {
+          const nextLen = (lines[lineIdx + 1] ?? '').length;
+          const nc = Math.min(col, nextLen);
+          moveCursor(lineIdx + 1, nc);
+        } else if (historyIdx > 0) {
+          const newIdx = historyIdx - 1;
+          setHistoryIdx(newIdx);
+          setText(history[newIdx]);
+        } else if (historyIdx === 0) {
+          setHistoryIdx(-1);
+          setText(draftRef.current ?? '');
+        }
+        return;
+      }
+    };
+    keysEmitter.on('arrow-key', onArrow);
+    return () => { keysEmitter.off('arrow-key', onArrow); };
+  }, [disabled, lines, history, historyIdx, moveCursor]);
 
   // Синхронизация ref → state, НО НЕ во время быстрого paste
   useEffect(() => {
@@ -75,13 +295,14 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       // Убираем лишние пробелы из hold (последние 4+)
       setLines((prev) => {
         const newLines = [...prev];
-        const line = newLines[cursorLine] ?? '';
-        const col = Math.min(cursorCol, line.length);
+        const lineIdx = Math.min(cursorLineRef.current, newLines.length - 1);
+        const line = newLines[lineIdx] ?? '';
+        const col = Math.min(cursorColRef.current, line.length);
         // Убираем до 4 пробелов перед курсором
         let removeStart = col;
         while (removeStart > 0 && line[removeStart - 1] === ' ' && col - removeStart < 5) removeStart--;
-        newLines[cursorLine] = line.slice(0, removeStart) + line.slice(col);
-        setCursorCol(removeStart);
+        newLines[lineIdx] = line.slice(0, removeStart) + line.slice(col);
+        moveCursor(lineIdx, removeStart);
         return newLines;
       });
       voiceRef.current = voiceRealtime(120, (p) => setVoiceText(p), (f) => setVoiceText(f));
@@ -97,11 +318,12 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
         if (vt.trim()) {
           setLines((prev) => {
             const newLines = [...prev];
-            const line = newLines[cursorLine] ?? '';
-            const col = Math.min(cursorCol, line.length);
+            const lineIdx = Math.min(cursorLineRef.current, newLines.length - 1);
+            const line = newLines[lineIdx] ?? '';
+            const col = Math.min(cursorColRef.current, line.length);
             const insert = (col > 0 && line[col - 1] !== ' ' ? ' ' : '') + vt.trim();
-            newLines[cursorLine] = line.slice(0, col) + insert + line.slice(col);
-            setCursorCol(col + insert.length);
+            newLines[lineIdx] = line.slice(0, col) + insert + line.slice(col);
+            moveCursor(lineIdx, col + insert.length);
             return newLines;
           });
         }
@@ -112,31 +334,12 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
     voiceEmitter.on('hold-start', onHoldStart);
     voiceEmitter.on('stop', onStop);
     return () => { voiceEmitter.off('hold-start', onHoldStart); voiceEmitter.off('stop', onStop); };
-  }, [cursorLine, cursorCol]);
+  }, [moveCursor]);
 
   // Ctrl+M = ручной toggle голос (альтернатива hold-space)
   useEffect(() => {
     // handled in useInput below
   }, []);
-
-  // Mouse click → курсор в поле ввода
-  useEffect(() => {
-    const mouseEmitter = (globalThis as any).__ha_mouse as EventEmitter | undefined;
-    if (!mouseEmitter) return;
-    const termRows = process.stdout.rows || 24;
-    const PREFIX = 4;
-    const handler = (ev: any) => {
-      if (ev.type !== 'press' || ev.button !== 'left') return;
-      const inputRow = termRows;
-      if (ev.row < inputRow - lines.length - 2 || ev.row > inputRow) return;
-      const lineIdx = Math.max(0, Math.min(ev.row - (inputRow - lines.length - 1), lines.length - 1));
-      const col = Math.max(0, Math.min(ev.col - PREFIX, (lines[lineIdx] ?? '').length));
-      setCursorLine(lineIdx);
-      setCursorCol(col);
-    };
-    mouseEmitter.on('event', handler);
-    return () => { mouseEmitter.off('event', handler); };
-  }, [lines]);
 
   useEffect(() => {
     const SIGNAL_FILE = '/tmp/ha-clipboard-paste';
@@ -172,7 +375,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       const col = Math.min(cursorColRef.current, line.length);
       const sep = col > 0 && line[col - 1] !== ' ' ? ' ' : '';
       newLines[cursorLineRef.current] = line.slice(0, col) + sep + text + ' ' + line.slice(col);
-      setCursorCol(col + sep.length + text.length + 1);
+      moveCursor(cursorLineRef.current, col + sep.length + text.length + 1);
       return newLines;
     });
   };
@@ -186,8 +389,14 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
     return () => { clearInterval(frameTimer); clearInterval(waveTimer); };
   }, [recording]);
 
-  // Mouse: клик двигает курсор в поле ввода
   const termRows = process.stdout.rows || 24;
+  const maxInputLines = Math.max(3, Math.min(lines.length, Math.floor(termRows / 3)));
+  const safeCursorLine = Math.max(0, Math.min(cursorLine, lines.length - 1));
+  const safeCursorCol = Math.max(0, Math.min(cursorCol, (lines[safeCursorLine] ?? '').length));
+  const startLine = Math.max(
+    0,
+    Math.min(safeCursorLine - maxInputLines + 1, lines.length - maxInputLines),
+  );
 
   useEffect(() => {
     const emitter = (globalThis as Record<string, unknown>).__ha_mouse as
@@ -195,24 +404,69 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       | undefined;
     if (!emitter) return;
 
-    const PREFIX = 4; // paddingX(1) + '› '(2) + 1-based→0-based(1)
-    const inputRow = termRows - 1;
+    const pointFromMouse = (ev: MouseEvent, clampOutside: boolean): InputPoint | null => {
+      if (disabled || recording) return null;
+      const inputNode = inputLinesRef.current;
+      if (!inputNode) return null;
+
+      const { left, top } = elementPosition(inputNode);
+      const mouseCol = ev.col - 1;
+      const mouseRow = ev.row - 1;
+      if (!clampOutside && (mouseRow < top || mouseRow >= top + maxInputLines)) return null;
+      const visibleRow = Math.max(0, Math.min(mouseRow - top, maxInputLines - 1));
+
+      const lineIdx = Math.max(
+        0,
+        Math.min(startLine + visibleRow, lines.length - 1),
+      );
+      const col = Math.max(
+        0,
+        Math.min(mouseCol - left, (lines[lineIdx] ?? '').length),
+      );
+      return { line: lineIdx, col };
+    };
+
+    const hitTest = (ev: MouseEvent) => dragAnchorRef.current !== null || pointFromMouse(ev, false) !== null;
+    const copyCurrentSelection = () => copySelection();
+    const globals = globalThis as Record<string, unknown>;
+    globals.__ha_input_mouse_hit = hitTest;
+    globals.__ha_input_copy_selection = copyCurrentSelection;
 
     const handler = (ev: MouseEvent) => {
-      if (disabled || recording) return;
-      if (ev.type !== 'press' || ev.button !== 'left') return;
-      // Клик в строке ввода (последняя строка перед нижней рамкой)
-      if (ev.row < inputRow - lines.length || ev.row > inputRow) return;
+      if (disabled || recording || ev.button !== 'left') return;
 
-      const lineIdx = Math.min(ev.row - (inputRow - lines.length + 1), lines.length - 1);
-      const col = Math.max(0, Math.min(ev.col - PREFIX, (lines[lineIdx] ?? '').length));
-      setCursorLine(Math.max(0, lineIdx));
-      setCursorCol(col);
+      if (ev.type === 'press') {
+        const point = pointFromMouse(ev, false);
+        if (!point) return;
+        dragAnchorRef.current = point;
+        updateSelection({ anchor: point, focus: point });
+        moveCursor(point.line, point.col);
+        return;
+      }
+
+      const anchor = dragAnchorRef.current;
+      if (!anchor) return;
+      const point = pointFromMouse(ev, true) ?? anchor;
+      const next = { anchor, focus: point };
+      updateSelection(next);
+      moveCursor(point.line, point.col);
+
+      if (ev.type === 'release') {
+        dragAnchorRef.current = null;
+        if (compareInputPoints(anchor, point) === 0) {
+          updateSelection(null);
+          return;
+        }
+      }
     };
 
     emitter.on('event', handler);
-    return () => { emitter.off('event', handler); };
-  }, [disabled, recording, lines, termRows]);
+    return () => {
+      emitter.off('event', handler);
+      if (globals.__ha_input_mouse_hit === hitTest) delete globals.__ha_input_mouse_hit;
+      if (globals.__ha_input_copy_selection === copyCurrentSelection) delete globals.__ha_input_copy_selection;
+    };
+  }, [disabled, recording, lines, maxInputLines, startLine, moveCursor, updateSelection, copySelection, onSelectionCopy]);
 
   const currentLine = lines[cursorLine] ?? '';
   const isSlash = lines.length === 1 && currentLine.startsWith('/');
@@ -253,15 +507,26 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
 
   const text = lines.join('\n');
 
+  useEffect(() => {
+    const globals = globalThis as Record<string, unknown>;
+    const hasText = () => lines.some((line) => line.length > 0);
+    globals.__ha_input_has_text = hasText;
+    return () => {
+      if (globals.__ha_input_has_text === hasText) delete globals.__ha_input_has_text;
+    };
+  }, [lines]);
+
   const setText = (value: string) => {
     const newLines = value.split('\n');
+    const line = newLines.length - 1;
+    const col = (newLines[line] ?? '').length;
     setLines(newLines);
-    setCursorLine(newLines.length - 1);
-    setCursorCol((newLines[newLines.length - 1] ?? '').length);
+    moveCursor(line, col);
   };
 
-  const handleSubmit = () => {
-    const value = text.trim();
+  const handleSubmit = (rawValue = text) => {
+    cancelPendingSubmit();
+    const value = rawValue.trim();
     if (!value) return;
 
     // Shell mode: ! команда
@@ -272,7 +537,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
         setHistoryIdx(-1);
         draftRef.current = null;
         setLines(['']);
-        setCursorLine(0);
+        moveCursor(0, 0);
         setShowComplete(false);
         onShellCommand(cmd);
         return;
@@ -283,7 +548,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
     setHistoryIdx(-1);
     draftRef.current = null;
     setLines(['']);
-    setCursorLine(0);
+    moveCursor(0, 0);
     setShowComplete(false);
     onSubmit(value);
   };
@@ -291,8 +556,13 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
   useInput((input, key) => {
     if (disabled) return;
 
+    if (key.meta && input.toLowerCase() === 'c' && copySelection()) return;
+    if (selectionRef.current && (input || key.backspace || key.delete || key.leftArrow || key.rightArrow || key.upArrow || key.downArrow)) {
+      updateSelection(null);
+    }
+
     // DEBUG: логируем каждую клавишу
-    dbg(`input=${JSON.stringify(input)} charCode=${input?.charCodeAt(0)} ctrl=${key.ctrl} meta=${key.meta} shift=${key.shift} return=${key.return} recording=${recordingRef.current}`);
+    dbg(`KEY input=${JSON.stringify(input)} charCode=${input?.charCodeAt(0)} left=${key.leftArrow} right=${key.rightArrow} up=${key.upArrow} down=${key.downArrow} escape=${key.escape} ctrl=${key.ctrl} meta=${key.meta} shift=${key.shift} return=${key.return} pageUp=${key.pageUp} pageDown=${key.pageDown} tab=${key.tab} backspace=${key.backspace} delete=${key.delete}`);
 
     // Пробел и голос теперь обрабатываются в MouseFilterStream (уровень потока)
     // Ctrl+M = ручной toggle голос
@@ -306,39 +576,63 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       return;
     }
 
-    // Трекаем Escape для Alt+Enter (терминал шлёт два события: Esc + Enter)
-    if (key.escape && !key.return) {
+    const isPlainEscape = key.escape
+      && !key.return
+      && !key.leftArrow
+      && !key.rightArrow
+      && !key.upArrow
+      && !key.downArrow;
+    const isAltEnterContinuation = key.return && Date.now() - lastEscapeRef.current < 200;
+
+    // Fallback для stdin без MouseFilterStream; основной путь — escape-key выше.
+    if (isPlainEscape) {
       lastEscapeRef.current = Date.now();
+      if (key.shift) return;
+      if (text.length > 0) clearDraft();
       return;
     }
 
-    // Новая строка: Shift+Enter / Cmd+Enter / Alt+Enter / Ctrl+Enter / Escape+Enter
+    // Новая строка: Shift+Enter / Cmd+Enter / Alt+Enter / Ctrl+Enter / Escape+Enter / Ctrl+J
     const isModifiedEnter = key.return && (key.shift || key.meta || key.ctrl || key.escape);
-    const isAltEnterViaEscape = key.return && (Date.now() - lastEscapeRef.current < 200);
-    const isCtrlEnterRaw = input === '\n' || (key.ctrl && input === 'j'); // Ctrl+J = \n в большинстве терминалов
+    const isAltEnterViaEscape = isAltEnterContinuation;
+    const isCtrlEnterRaw = input === '\n' || (key.ctrl && input === 'j');
 
-    if (isModifiedEnter || isAltEnterViaEscape || isCtrlEnterRaw) {
+    // \+Enter → newline (как в Claude Code / Gemini CLI)
+    const refLine = lines[cursorLineRef.current] ?? '';
+    const refCol = Math.min(cursorColRef.current, refLine.length);
+    const isBackslashEnter = key.return && refCol > 0 && refLine[refCol - 1] === '\\';
+
+    // Enter во время bracketed paste → newline (не submit)
+    const isPasteEnter = key.return && (globalThis as any).__ha_filter?.isPasting;
+
+    if (isModifiedEnter || isAltEnterViaEscape || isCtrlEnterRaw || isBackslashEnter || isPasteEnter) {
       lastEscapeRef.current = 0;
-      const col = Math.min(cursorCol, currentLine.length);
-      const newLines = [...lines];
-      newLines[cursorLine] = currentLine.slice(0, col);
-      newLines.splice(cursorLine + 1, 0, currentLine.slice(col));
-      setLines(newLines);
-      setCursorLine(cursorLine + 1);
-      setCursorCol(0);
+      insertNewline(isBackslashEnter);
       return;
     }
 
-    // Enter без модификаторов — submit
+    // Enter без модификаторов: ждём 50 мс, чтобы отличить двойной Enter.
     if (key.return) {
       if (showComplete && completions.length > 0) {
         setText(completions[completeIdx]);
         setShowComplete(false);
         return;
       }
-      handleSubmit();
+      if (!text.trim()) return;
+      if (pendingSubmitTimerRef.current) {
+        insertNewline();
+        return;
+      }
+      const pendingValue = text;
+      pendingSubmitTimerRef.current = setTimeout(() => {
+        pendingSubmitTimerRef.current = null;
+        handleSubmit(pendingValue);
+      }, 50);
       return;
     }
+
+    // Любой другой ввод до истечения окна отменяет отложенный submit.
+    cancelPendingSubmit();
 
     // Tab — autocomplete
     if (key.tab && completions.length > 0) {
@@ -363,7 +657,8 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
         return;
       }
       if (cursorLine > 0) {
-        setCursorLine(cursorLine - 1);
+        const prevLine = lines[cursorLine - 1] ?? '';
+        moveCursor(cursorLine - 1, Math.min(cursorCol, prevLine.length));
         return;
       }
       if (history.length > 0) {
@@ -382,7 +677,8 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
         return;
       }
       if (cursorLine < lines.length - 1) {
-        setCursorLine(cursorLine + 1);
+        const nextLine = lines[cursorLine + 1] ?? '';
+        moveCursor(cursorLine + 1, Math.min(cursorCol, nextLine.length));
         return;
       }
       if (historyIdx > 0) {
@@ -396,45 +692,53 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       return;
     }
 
-    // Backspace — functional update + немедленный ref
+    // Backspace — cursor updates ВЫНЕSEНЫ из setLines (React nested setState = race)
     if (key.backspace || key.delete) {
       if (text.trim() === '' && attachments.length > 0 && onRemoveAttachment) {
         onRemoveAttachment(attachments.length - 1);
         return;
       }
-      setLines((prev) => {
-        const lineIdx = cursorLineRef.current;
-        const col = cursorColRef.current;
-        const line = prev[lineIdx] ?? '';
-        const c = Math.min(col, line.length);
-        const newLines = [...prev];
+      const lineIdx = cursorLineRef.current;
+      const col = cursorColRef.current;
+      const line = lines[lineIdx] ?? '';
+      const c = Math.min(col, line.length);
+      const before = line.slice(0, c);
+      const tagMatch = before.match(/\[Image #\d+\]\s?$/);
 
-        // Проверяем [Image #N] тег — удаляем целиком
-        const before = line.slice(0, c);
-        const tagMatch = before.match(/\[Image #\d+\]\s?$/);
-        if (tagMatch) {
-          const removeLen = tagMatch[0].length;
-          newLines[lineIdx] = line.slice(0, c - removeLen) + line.slice(c);
-          const newCol = c - removeLen;
-          cursorColRef.current = newCol;
-          setCursorCol(newCol);
-          if (onRemoveAttachment && attachments.length > 0) onRemoveAttachment(attachments.length - 1);
-        } else if (c > 0) {
-          newLines[lineIdx] = line.slice(0, c - 1) + line.slice(c);
-          const newCol = c - 1;
-          cursorColRef.current = newCol;
-          setCursorCol(newCol);
-        } else if (lineIdx > 0) {
-          const prevLen = (prev[lineIdx - 1] ?? '').length;
-          newLines[lineIdx - 1] = (prev[lineIdx - 1] ?? '') + line;
+      let newLineIdx = lineIdx;
+      let newCol = c;
+
+      if (tagMatch) {
+        const removeLen = tagMatch[0].length;
+        newCol = c - removeLen;
+        setLines((prev) => {
+          const newLines = [...prev];
+          const l = prev[lineIdx] ?? '';
+          newLines[lineIdx] = l.slice(0, c - removeLen) + l.slice(c);
+          return newLines;
+        });
+        if (onRemoveAttachment && attachments.length > 0) onRemoveAttachment(attachments.length - 1);
+      } else if (c > 0) {
+        newCol = c - 1;
+        setLines((prev) => {
+          const newLines = [...prev];
+          const l = prev[lineIdx] ?? '';
+          newLines[lineIdx] = l.slice(0, c - 1) + l.slice(c);
+          return newLines;
+        });
+      } else if (lineIdx > 0) {
+        const prevLen = (lines[lineIdx - 1] ?? '').length;
+        newLineIdx = lineIdx - 1;
+        newCol = prevLen;
+        setLines((prev) => {
+          const newLines = [...prev];
+          newLines[lineIdx - 1] = (prev[lineIdx - 1] ?? '') + (prev[lineIdx] ?? '');
           newLines.splice(lineIdx, 1);
-          cursorLineRef.current = lineIdx - 1;
-          cursorColRef.current = prevLen;
-          setCursorLine(lineIdx - 1);
-          setCursorCol(prevLen);
-        }
-        return newLines;
-      });
+          return newLines;
+        });
+      }
+
+      moveCursor(newLineIdx, newCol);
       setShowComplete(false);
       return;
     }
@@ -458,7 +762,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
           const sep = col > 0 && currentLine[col - 1] !== ' ' ? ' ' : '';
           newLines[cursorLine] = currentLine.slice(0, col) + sep + tag + ' ' + currentLine.slice(col);
           setLines(newLines);
-          setCursorCol(col + sep.length + tag.length + 1);
+          moveCursor(cursorLine, col + sep.length + tag.length + 1);
           onImagePaste(imgPath);
           return;
         }
@@ -485,7 +789,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
             const sep = c > 0 && line[c - 1] !== ' ' ? ' ' : '';
             newLines[lineIdx] = line.slice(0, c) + sep + tag + ' ' + line.slice(c);
             dbg(`paste: after insert lineIdx=${lineIdx} c=${c} result=${JSON.stringify(newLines)}`);
-            setCursorCol(c + sep.length + tag.length + 1);
+            moveCursor(lineIdx, c + sep.length + tag.length + 1);
             return newLines;
           });
           onImagePaste(imgPath);
@@ -511,7 +815,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
               const c = Math.min(col, line.length);
               const sep = c > 0 && line[c - 1] !== ' ' ? ' ' : '';
               newLines[lineIdx] = line.slice(0, c) + sep + tag + ' ' + line.slice(c);
-              setCursorCol(c + sep.length + tag.length + 1);
+              moveCursor(lineIdx, c + sep.length + tag.length + 1);
               return newLines;
             });
             onImagePaste(filePath);
@@ -519,13 +823,32 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
           }
 
           dbg(`paste: text ${clipText.length} chars`);
+          // Нормализуем переносы и разбиваем на строки
+          const normalized = clipText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+          const pasteLines = normalized.split('\n');
           setLines((prev) => {
+            const lineIdx = cursorLineRef.current;
+            const line = prev[lineIdx] ?? '';
+            const c = Math.min(cursorColRef.current, line.length);
             const newLines = [...prev];
-            const line = newLines[lineIdx] ?? '';
-            const c = Math.min(col, line.length);
-            newLines[lineIdx] = line.slice(0, c) + clipText + line.slice(c);
-            cursorColRef.current = c + clipText.length;
-            setCursorCol(c + clipText.length);
+
+            if (pasteLines.length === 1) {
+              // Однострочный paste
+              newLines[lineIdx] = line.slice(0, c) + pasteLines[0] + line.slice(c);
+              moveCursor(lineIdx, c + pasteLines[0].length);
+            } else {
+              // Многострочный paste: разбиваем текущую строку
+              const before = line.slice(0, c);
+              const after = line.slice(c);
+              newLines[lineIdx] = before + pasteLines[0];
+              for (let pi = 1; pi < pasteLines.length - 1; pi++) {
+                newLines.splice(lineIdx + pi, 0, pasteLines[pi]);
+              }
+              newLines.splice(lineIdx + pasteLines.length - 1, 0, pasteLines[pasteLines.length - 1] + after);
+              const newLineIdx = lineIdx + pasteLines.length - 1;
+              const newCol = pasteLines[pasteLines.length - 1].length;
+              moveCursor(newLineIdx, newCol);
+            }
             return newLines;
           });
         }
@@ -538,48 +861,33 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
       const newLines = [...lines];
       newLines[cursorLine] = '';
       setLines(newLines);
+      moveCursor(cursorLine, 0);
       return;
     }
 
     // Ctrl+K — delete to end of line
     if (key.ctrl && input === 'k') {
       const newLines = [...lines];
-      newLines[cursorLine] = '';
+      newLines[cursorLine] = currentLine.slice(0, cursorCol);
       setLines(newLines);
+      moveCursor(cursorLine, Math.min(cursorCol, newLines[cursorLine].length));
       return;
     }
 
     // Ctrl+W — delete word
     if (key.ctrl && input === 'w') {
       const newLines = [...lines];
-      newLines[cursorLine] = currentLine.replace(/\S+\s*$/, '');
+      const before = currentLine.slice(0, cursorCol);
+      const after = currentLine.slice(cursorCol);
+      const kept = before.replace(/\S+\s*$/, '');
+      newLines[cursorLine] = kept + after;
       setLines(newLines);
-      setCursorCol(newLines[cursorLine].length);
+      moveCursor(cursorLine, kept.length);
       return;
     }
 
-    // Left/Right arrows — перемещение курсора
-    if (key.leftArrow) {
-      if (cursorCol > 0) {
-        setCursorCol(cursorCol - 1);
-      } else if (cursorLine > 0) {
-        setCursorLine(cursorLine - 1);
-        setCursorCol((lines[cursorLine - 1] ?? '').length);
-      }
-      return;
-    }
-    if (key.rightArrow) {
-      if (cursorCol < currentLine.length) {
-        setCursorCol(cursorCol + 1);
-      } else if (cursorLine < lines.length - 1) {
-        setCursorLine(cursorLine + 1);
-        setCursorCol(0);
-      }
-      return;
-    }
-    // Home/End — начало/конец строки
-    if (key.ctrl && input === 'a') { setCursorCol(0); return; }
-    if (key.ctrl && input === 'e') { setCursorCol(currentLine.length); return; }
+    // Left/Right/Up/Down/Home/End обрабатываются через arrow-key custom events (useEffect выше)
+    // useInput не получает стрелки от Ink через Transform stream
 
     // Regular character input — functional update + немедленный ref update
     // (фикс для Cmd+V paste: символы приходят быстрее чем React рендерит)
@@ -591,7 +899,7 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
         const line = newLines[lineIdx] ?? '';
         const col = Math.min(cursorColRef.current, line.length);
         newLines[lineIdx] = line.slice(0, col) + input + line.slice(col);
-        const newCol = col + 1;
+        const newCol = col + input.length;
         cursorColRef.current = newCol; // немедленно!
         setCursorCol(newCol);
         return newLines;
@@ -637,35 +945,57 @@ export function ChatInput({ onSubmit, onImagePaste, onShellCommand, onRemoveAtta
             <Text color="red">{voiceText ? ' ' + voiceText : ''}</Text>
             <Text color="red">▌</Text>
           </Box>
-        ) : text ? (
-          <Box>
-            <Text color="magenta" bold>› </Text>
-            <Box flexDirection="column">
-              {lines.map((line, i) => {
-                const col = i === cursorLine ? Math.min(cursorCol, line.length) : line.length;
-                const before = line.slice(0, col);
-                const after = line.slice(col);
-                // Подсветка [Image #N] синим
-                const renderWithTags = (s: string) => {
-                  const parts = s.split(/(\[Image #\d+\])/g);
-                  return parts.map((p, j) =>
-                    p.startsWith('[Image') ? <Text key={j} color="cyan" bold>{p}</Text> : <Text key={j}>{p}</Text>
-                  );
-                };
-                return (
-                  <Text key={i}>
-                    {renderWithTags(before)}
-                    {i === cursorLine && <Text color="magenta">▌</Text>}
-                    {renderWithTags(after)}
-                  </Text>
-                );
-              })}
-            </Box>
-          </Box>
         ) : (
           <Box>
             <Text color="magenta" bold>› </Text>
-            <Text dimColor>{placeholder ?? 'сообщение… (Ctrl+M — голос, /img — фото, ! shell)'}</Text>
+            <Box
+              key={`input-${lines.length}-${safeCursorLine}-${safeCursorCol}`}
+              ref={inputLinesRef}
+              flexDirection="column"
+            >
+              {(() => {
+                const visibleLines = lines.slice(startLine, startLine + maxInputLines);
+                // Заполнители: Ink не очищает строки при уменьшении высоты → артефакты
+                while (visibleLines.length < maxInputLines) visibleLines.push('\x00');
+                return visibleLines.map((line, vi) => {
+                  const i = startLine + vi;
+                  const isFiller = line === '\x00';
+                  if (isFiller) return <Text key={`filler-${vi}`} dimColor>{' '}</Text>;
+                  const col = i === safeCursorLine ? Math.min(safeCursorCol, line.length) : line.length;
+                  const before = line.slice(0, col);
+                  const after = line.slice(col);
+                  const selectedRange = selectedRangeForLine(selection, i, line.length);
+                  const renderWithTags = (s: string) => {
+                    if (!s) return [<Text key={0}>{''}</Text>];
+                    const parts = s.split(/(\[Image #\d+\])/g);
+                    return parts.map((p, j) =>
+                      p.startsWith('[Image') ? <Text key={j} color="cyan" bold>{p}</Text> : <Text key={j}>{p}</Text>
+                    );
+                  };
+                  // Пустая строка 0 без текста — placeholder + курсор
+                  const showPlaceholder = line.length === 0 && i === 0 && safeCursorLine === 0 && safeCursorCol === 0;
+                  const isEmpty = line.length === 0 && i !== safeCursorLine;
+                  return (
+                    <Text key={i}>
+                      {showPlaceholder ? <>
+                        <Text dimColor>{placeholder ?? 'сообщение… (Ctrl+M — голос, /img — фото, ! shell)'}</Text>
+                        <Text color="magenta">▌</Text>
+                      </> : isEmpty ? <Text dimColor>{' '}</Text> : <>
+                        {selectedRange ? <>
+                          {renderWithTags(line.slice(0, selectedRange[0]))}
+                          <Text inverse>{line.slice(selectedRange[0], selectedRange[1])}</Text>
+                          {renderWithTags(line.slice(selectedRange[1]))}
+                        </> : <>
+                          {renderWithTags(before)}
+                          {i === safeCursorLine && <Text color="magenta">▌</Text>}
+                          {renderWithTags(after)}
+                        </>}
+                      </>}
+                    </Text>
+                  );
+                });
+              })()}
+            </Box>
           </Box>
         )}
       </Box>

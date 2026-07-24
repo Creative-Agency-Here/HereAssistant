@@ -42,6 +42,7 @@ export interface Provider {
     model: string | null,
     progress: ProgressCallback,
     attachments?: string[],
+    historyPrompt?: string,
   ): Promise<ProviderResult>;
 }
 

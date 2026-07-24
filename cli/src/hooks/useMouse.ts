@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 export interface MouseEvent {
-  type: 'press' | 'release' | 'scroll';
+  type: 'press' | 'move' | 'release' | 'scroll';
   button: 'left' | 'right' | 'middle' | 'scroll-up' | 'scroll-down';
   col: number;
   row: number;

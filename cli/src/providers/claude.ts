@@ -11,10 +11,11 @@ export class ClaudeCodeProvider implements Provider {
   async run(
     prompt: string,
     cwd: string,
-    sessionId: string | null,
+    _sessionId: string | null,
     model: string | null,
     progress: ProgressCallback,
     attachments?: string[],
+    historyPrompt?: string,
   ): Promise<ProviderResult> {
     const cliHome = this.account.cli_home_path;
     fs.mkdirSync(cliHome, { recursive: true });
@@ -34,7 +35,6 @@ export class ClaudeCodeProvider implements Provider {
       'Отвечай на русском. Будь краток. Shell-команды начинай с rtk для сжатия вывода.',
     ];
     if (model) args.push('--model', model);
-    if (sessionId) args.push('--resume', sessionId);
 
     const child = spawn('claude', args, {
       cwd,
@@ -43,6 +43,7 @@ export class ClaudeCodeProvider implements Provider {
     });
     (globalThis as any).__ha_process = child;
 
+    if (historyPrompt) child.stdin.write(historyPrompt + '\n\n');
     child.stdin.write(prompt);
     if (attachments && attachments.length > 0) {
       child.stdin.write('\n\n[Прикреплённые изображения — абсолютные пути]\n');

@@ -1,12 +1,10 @@
 import type { Account } from './types.js';
 import { getAccounts } from './db.js';
 import { pasteImageFromClipboard } from './clipboard.js';
-import { listSessions, formatSessionAge } from './sessions.js';
+import { listHaSessions, deleteHaSession, haSessionTitle, type HaSession } from './ha-sessions.js';
 import { THEME_NAMES } from './themes.js';
 import { loadMcpConfig, addMcpServer, removeMcpServer, formatMcpServers, type McpServer } from './mcp.js';
 import { execSync } from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
 
 export interface CommandContext {
   account: Account;
@@ -18,10 +16,11 @@ export interface CommandContext {
   setModel: (m: string) => void;
   setAccount: (a: Account) => void;
   resetSession: () => void;
-  setSessionId: (id: string) => void;
+  resumeSession: (id: string) => void;
+  openSessionPicker: (sessions: HaSession[]) => void;
   renameSession: (name: string) => void;
-  setTheme: (name: string) => void;
   forkSession: () => void;
+  setTheme: (name: string) => void;
   backgroundPrompt: (prompt: string) => void;
   voiceInput: (text: string) => void;
   togglePlain: () => void;
@@ -32,12 +31,14 @@ export interface CommandContext {
   attachImage: (path: string) => void;
 }
 
+let lastSessionList: HaSession[] = [];
+
 const HELP = `Команды:
   /help              эта справка
   /model [имя]       показать/сменить модель
   /account [label]   показать/сменить аккаунт
   /status            сессия, модель, токены
-  /resume [id]       продолжить сессию (без id — список)
+  /resume [id|номер] продолжить сессию (без аргумента — список)
   /rename <имя>      переименовать текущую сессию
   /fork              форк сессии (копия контекста, новый ID)
   /search <query>    веб-поиск (через провайдер)
@@ -111,7 +112,7 @@ export function handleCommand(line: string, ctx: CommandContext): boolean {
       ctx.print(
         `▸ аккаунт: ${ctx.account.label} (${ctx.account.provider})\n` +
         `▸ модель: ${ctx.model || ctx.account.default_model || 'default'}\n` +
-        `▸ сессия: ${ctx.sessionId ? ctx.sessionId.slice(0, 16) : 'нет'}\n` +
+        `▸ сессия HA: ${ctx.sessionId ? ctx.sessionId.slice(0, 20) : 'нет'}\n` +
         `▸ токены: ${tokens > 0 ? (tokens / 1000).toFixed(1) + 'k' : '0'}\n` +
         `▸ проект: ${ctx.cwd}\n` +
         `▸ MCP: ${mcp.servers.length} серверов\n${formatMcpServers(mcp)}`,
@@ -126,17 +127,22 @@ export function handleCommand(line: string, ctx: CommandContext): boolean {
 
     case '/resume': {
       if (arg) {
-        ctx.setSessionId(arg);
-        ctx.print(`▸ продолжаю сессию ${arg.slice(0, 16)}`);
-      } else {
-        const sessions = listSessions(ctx.account.provider, ctx.account.cli_home_path, ctx.cwd);
-        if (sessions.length === 0) {
-          ctx.print('▸ нет прошлых сессий для этого провайдера');
+        const num = parseInt(arg, 10);
+        if (!isNaN(num) && num > 0 && num <= lastSessionList.length) {
+          const session = lastSessionList[num - 1];
+          ctx.resumeSession(session.id);
+          ctx.print(`▸ продолжаю сессию: ${haSessionTitle(session)}`);
         } else {
-          const list = sessions.slice(0, 10).map((s, i) =>
-            `  ${i + 1}. ${s.title}\n     ${formatSessionAge(s.updatedAt)} · ${s.id.slice(0, 12)}`,
-          ).join('\n');
-          ctx.print(`Прошлые сессии (${ctx.account.provider}):\n${list}\n\n/resume <id> — продолжить`);
+          ctx.resumeSession(arg);
+          ctx.print(`▸ продолжаю сессию ${arg.slice(0, 16)}`);
+        }
+      } else {
+        const sessions = listHaSessions(ctx.cwd);
+        lastSessionList = sessions;
+        if (sessions.length === 0) {
+          ctx.print('▸ нет прошлых сессий');
+        } else {
+          ctx.openSessionPicker(sessions);
         }
       }
       return true;
@@ -225,15 +231,10 @@ export function handleCommand(line: string, ctx: CommandContext): boolean {
     case '/archive': {
       const sid = arg || ctx.sessionId;
       if (!sid) { ctx.print('✗ нет активной сессии'); return true; }
-      const slug = ctx.cwd.replace(/[^a-zA-Z0-9]/g, '-');
-      const src = path.join(ctx.account.cli_home_path, 'projects', slug, `${sid}.jsonl`);
-      const archiveDir = path.join(ctx.account.cli_home_path, 'projects', slug, '.archive');
-      if (fs.existsSync(src)) {
-        fs.mkdirSync(archiveDir, { recursive: true });
-        fs.renameSync(src, path.join(archiveDir, `${sid}.jsonl`));
-        ctx.print(`▸ сессия ${sid.slice(0, 12)} архивирована`);
+      if (deleteHaSession(sid)) {
+        ctx.print(`▸ сессия ${sid.slice(0, 16)} архивирована (удалена из HA)`);
       } else {
-        ctx.print(`✗ файл сессии не найден`);
+        ctx.print(`✗ сессия не найдена в хранилище HA`);
       }
       return true;
     }
@@ -241,13 +242,10 @@ export function handleCommand(line: string, ctx: CommandContext): boolean {
     case '/delete': {
       const sid = arg || ctx.sessionId;
       if (!sid) { ctx.print('✗ нет активной сессии'); return true; }
-      const slug = ctx.cwd.replace(/[^a-zA-Z0-9]/g, '-');
-      const fp = path.join(ctx.account.cli_home_path, 'projects', slug, `${sid}.jsonl`);
-      if (fs.existsSync(fp)) {
-        fs.unlinkSync(fp);
-        ctx.print(`▸ сессия ${sid.slice(0, 12)} удалена`);
+      if (deleteHaSession(sid)) {
+        ctx.print(`▸ сессия ${sid.slice(0, 16)} удалена`);
       } else {
-        ctx.print(`✗ файл сессии не найден`);
+        ctx.print(`✗ сессия не найдена в хранилище HA`);
       }
       return true;
     }

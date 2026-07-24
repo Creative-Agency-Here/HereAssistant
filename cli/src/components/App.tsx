@@ -1,12 +1,27 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { EventEmitter } from 'node:events';
 import { Box, Text, useInput } from 'ink';
 import type { Account } from '../types.js';
 import { getAccounts } from '../db.js';
 import { FullscreenChat } from './FullscreenChat.js';
+import type { ParsedNavigationKey } from '../mouse-filter.js';
 
 function AccountPicker({ onSelect }: { onSelect: (a: Account) => void }) {
   const accounts = getAccounts();
   const [cursor, setCursor] = useState(0);
+
+  useEffect(() => {
+    const keysEmitter = (globalThis as Record<string, unknown>).__ha_keys as EventEmitter | undefined;
+    if (!keysEmitter) return;
+    const onArrow = ({ direction }: ParsedNavigationKey) => {
+      if (direction === 'up') setCursor((current) => Math.max(0, current - 1));
+      if (direction === 'down') setCursor((current) => Math.min(accounts.length - 1, current + 1));
+      if (direction === 'home') setCursor(0);
+      if (direction === 'end') setCursor(Math.max(0, accounts.length - 1));
+    };
+    keysEmitter.on('arrow-key', onArrow);
+    return () => { keysEmitter.off('arrow-key', onArrow); };
+  }, [accounts.length]);
 
   useInput((input, key) => {
     if (key.upArrow) setCursor((c) => Math.max(0, c - 1));
@@ -48,5 +63,5 @@ export function App({ preselected, resumeId, integrationId }: { preselected?: st
     return <AccountPicker onSelect={setAccount} />;
   }
 
-  return <FullscreenChat account={account} cwd={process.cwd()} integrationId={integrationId} />;
+  return <FullscreenChat account={account} cwd={process.cwd()} integrationId={integrationId} resumeId={resumeId} />;
 }

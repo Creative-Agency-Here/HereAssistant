@@ -208,6 +208,13 @@ class Controller {
   installationPath() { return this.configuration().get('installationPath', '').trim(); }
   apiBase() { return this.configuration().get('apiBase', '').trim(); }
   contourId() { return this.context.workspaceState.get(CONTOUR_ID_KEY); }
+  setTerminalContext(terminal = vscode.window.activeTerminal) {
+    void vscode.commands.executeCommand(
+      'setContext',
+      'hereAssistant.terminalActive',
+      Boolean(terminal && this.terminals.has(terminal)),
+    );
+  }
   contourLabel() {
     return cleanLine(this.configuration().get('contourName', ''), 80) || `VS Code · ${os.hostname()}`;
   }
@@ -258,6 +265,7 @@ class Controller {
         if (info.id === session.integrationId) {
           terminal.show();
           this.terminal = terminal;
+          this.setTerminalContext(terminal);
           this.localState = info.state || this.localState;
           this.render();
           return;
@@ -324,6 +332,11 @@ class Controller {
     }
   }
 
+  copySelection() {
+    const term = vscode.window.activeTerminal;
+    if (term) term.sendText('\x1b[99;9u', false);
+  }
+
   activeInfo() { return this.terminal ? this.terminals.get(this.terminal) : null; }
 
   async init() {
@@ -344,11 +357,13 @@ class Controller {
       if (!this.terminals.has(terminal)) return;
       this.terminals.delete(terminal);
       if (terminal === this.terminal) this.terminal = [...this.terminals.keys()].at(-1) || null;
+      this.setTerminalContext(vscode.window.activeTerminal);
       this.localState = this.activeInfo()?.state || null;
       void this.heartbeat(this.terminals.size === 0);
       this.render();
     }));
     this.context.subscriptions.push(vscode.window.onDidChangeActiveTerminal((terminal) => {
+      this.setTerminalContext(terminal);
       if (!terminal || !this.terminals.has(terminal)) return;
       this.terminal = terminal;
       this.localState = this.activeInfo()?.state || this.localState;
@@ -360,6 +375,7 @@ class Controller {
     }));
     this.registerCommands();
     await vscode.commands.executeCommand('setContext', 'hereAssistant.enabled', true);
+    this.setTerminalContext();
     await this.refresh();
     this.schedule();
     if (!this.installationPath() && !this.context.globalState.get('hereAssistant.onboardingSeen')) {
@@ -391,6 +407,7 @@ class Controller {
       openWeb: () => this.openWeb(),
       setAccessKey: () => this.setAccessKey(),
       manageAccounts: () => this.manageAccounts(),
+      copySelection: () => this.copySelection(),
       clipboardPaste: () => this.clipboardPaste(),
       newLine: () => { const t = vscode.window.activeTerminal; if (t) t.sendText('/nl\n', false); },
     };
@@ -683,6 +700,7 @@ class Controller {
     this.terminal = vscode.window.createTerminal({ cwd: workspace, location, env });
     this.terminals.set(this.terminal, { id: integrationId, stateMtime, state: null });
     this.terminal.show();
+    this.setTerminalContext(this.terminal);
     this.terminal.sendText('clear', true);
     this.terminal.sendText(args.join(' '), true);
     return this.terminal;

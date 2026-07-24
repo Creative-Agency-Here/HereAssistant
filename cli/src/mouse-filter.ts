@@ -2,10 +2,19 @@ import { Transform, type TransformCallback } from 'node:stream';
 import { EventEmitter } from 'node:events';
 
 export interface ParsedMouseEvent {
-  type: 'press' | 'release' | 'scroll';
+  type: 'press' | 'move' | 'release' | 'scroll';
   button: 'left' | 'right' | 'middle' | 'scroll-up' | 'scroll-down';
   col: number;
   row: number;
+}
+
+export interface ParsedNavigationKey {
+  direction: 'left' | 'right' | 'up' | 'down' | 'home' | 'end';
+  modifiers: number;
+}
+
+export interface ParsedEscapeKey {
+  modifiers: number;
 }
 
 /**
@@ -18,12 +27,14 @@ export interface ParsedMouseEvent {
 export class MouseFilterStream extends Transform {
   readonly mouse = new EventEmitter();
   readonly voice = new EventEmitter();
+  readonly keys = new EventEmitter();
   private buf = '';
   private spaceCount = 0;
   private lastSpaceTime = 0;
   private voiceMode = false;
   private voiceLastSpace = 0;
   private spaceTimer: ReturnType<typeof setTimeout> | null = null;
+  private escapeTimer: ReturnType<typeof setTimeout> | null = null;
   private pasting = false; // bracketed paste — отключаем hold-space
   private rapidInputUntil = 0; // детект быстрого ввода (paste без bracketed)
 
@@ -35,17 +46,46 @@ export class MouseFilterStream extends Transform {
     (this as any).setRawMode = (m: boolean) => { real.setRawMode?.(m); return this; };
     (this as any).ref = () => { real.ref?.(); return this; };
     (this as any).unref = () => { real.unref?.(); return this; };
-    (this as any).resume = () => { real.resume(); return this; };
-    (this as any).pause = () => { real.pause(); return this; };
     Object.defineProperty(this, 'columns', { get: () => process.stdout.columns });
     Object.defineProperty(this, 'rows', { get: () => process.stdout.rows });
   }
 
   stopVoice() { this.voiceMode = false; this.spaceCount = 0; }
   startVoice() { this.voiceMode = true; this.spaceCount = 0; this.voiceLastSpace = 0; }
+  get isPasting() { return this.pasting; }
+
+  private emitNavigationKey(terminator: string, modifiers = 1): boolean {
+    const directions: Record<string, ParsedNavigationKey['direction']> = {
+      A: 'up',
+      B: 'down',
+      C: 'right',
+      D: 'left',
+      H: 'home',
+      F: 'end',
+    };
+    const direction = directions[terminator.toUpperCase()];
+    if (!direction) return false;
+    this.keys.emit('arrow-key', { direction, modifiers } satisfies ParsedNavigationKey);
+    return true;
+  }
 
   _transform(chunk: Buffer, _enc: string, cb: TransformCallback): void {
-    this.buf += chunk.toString();
+    let incoming = chunk.toString();
+    // ESC и Enter могут прийти разными chunks: ждём короткое продолжение,
+    // чтобы отличить обычный Escape от legacy Alt+Enter.
+    if (this.escapeTimer) {
+      clearTimeout(this.escapeTimer);
+      this.escapeTimer = null;
+      if (incoming[0] === '\r' || incoming[0] === '\n') {
+        this.keys.emit('newline-key', { modifiers: 3 });
+        if (incoming[0] === '\r' && incoming[1] === '\n') incoming = incoming.slice(2);
+        else incoming = incoming.slice(1);
+      } else {
+        incoming = '\x1b' + incoming;
+      }
+    }
+
+    this.buf += incoming;
     let out = '';
     let i = 0;
 
@@ -58,6 +98,28 @@ export class MouseFilterStream extends Transform {
     while (i < this.buf.length) {
       const ch = this.buf[i];
 
+      // Legacy Alt+Enter одним chunk: ESC + CR/LF.
+      if (ch === '\x1b' && (this.buf[i + 1] === '\r' || this.buf[i + 1] === '\n')) {
+        this.keys.emit('newline-key', { modifiers: 3 });
+        i += 2;
+        if (this.buf[i - 1] === '\r' && this.buf[i] === '\n') i++;
+        continue;
+      }
+
+      // SS3 navigation keys: Terminal.app и некоторые xterm-профили.
+      if (ch === '\x1b' && this.buf[i + 1] === 'O') {
+        if (i + 2 >= this.buf.length) {
+          this.buf = this.buf.slice(i);
+          if (out) this.push(out);
+          cb();
+          return;
+        }
+        if (this.emitNavigationKey(this.buf[i + 2])) {
+          i += 3;
+          continue;
+        }
+      }
+
       // SGR mouse: \x1b[<btn;col;rowM/m
       if (ch === '\x1b' && this.buf[i + 1] === '[' && this.buf[i + 2] === '<') {
         let seqEnd = -1;
@@ -69,9 +131,9 @@ export class MouseFilterStream extends Transform {
         const m = seq.match(/\x1b\[<(\d+);(\d+);(\d+)([Mm])/);
         if (m) {
           const bc = parseInt(m[1]);
-          // Shift+mouse (bc & 4) → пропускаем для нативного выделения терминалом
+          // Терминалы обычно сами оставляют Shift+drag для нативного выделения.
+          // Если последовательность всё же пришла приложению, поглощаем её.
           if (bc & 4) {
-            out += seq; // пропускаем в Ink/терминал
             i = seqEnd + 1;
             continue;
           }
@@ -79,8 +141,11 @@ export class MouseFilterStream extends Transform {
           let btn: ParsedMouseEvent['button'], type: ParsedMouseEvent['type'];
           if (bc === 64) { btn = 'scroll-up'; type = 'scroll'; }
           else if (bc === 65) { btn = 'scroll-down'; type = 'scroll'; }
-          else if (bc <= 2) { btn = (['left','middle','right'] as const)[bc]; type = rel ? 'release' : 'press'; }
-          else { btn = 'left'; type = rel ? 'release' : 'press'; }
+          else {
+            const buttonCode = bc & 3;
+            btn = (['left', 'middle', 'right', 'left'] as const)[buttonCode];
+            type = rel ? 'release' : (bc & 32) ? 'move' : 'press';
+          }
           this.mouse.emit('event', { type, button: btn, col, row });
         }
         i = seqEnd + 1;
@@ -102,24 +167,149 @@ export class MouseFilterStream extends Transform {
         }
         const csiSeq = this.buf.slice(i, csiEnd + 1);
         const inner = csiSeq.slice(2, -1); // между [ и terminator
+        const terminator = csiSeq[csiSeq.length - 1];
 
-        // Bracketed paste — пропускаем и обрабатываем
-        if (csiSeq === '\x1b[200~') { this.pasting = true; out += csiSeq; i = csiEnd + 1; continue; }
-        if (csiSeq === '\x1b[201~') { this.pasting = false; this.spaceCount = 0; out += csiSeq; i = csiEnd + 1; continue; }
+        // Bracketed paste — НЕ пропускаем в Ink (иначе [200~ протекает как текст)
+        if (csiSeq === '\x1b[200~') { this.pasting = true; (globalThis as any).__ha_pasting = true; i = csiEnd + 1; continue; }
+        if (csiSeq === '\x1b[201~') { this.pasting = false; (globalThis as any).__ha_pasting = false; this.spaceCount = 0; i = csiEnd + 1; continue; }
 
-        // Простые CSI (стрелки, Home, End): \x1b[A \x1b[B \x1b[H \x1b[F — пропускаем
-        if (/^[A-Z]$/i.test(inner)) { out += csiSeq; i = csiEnd + 1; continue; }
+        // В CSI буква направления — terminator, а не inner:
+        // \x1b[D => inner="", terminator="D".
+        if ((inner === '' || /^\d+$/.test(inner)) && this.emitNavigationKey(terminator)) {
+          i = csiEnd + 1;
+          continue;
+        }
 
-        // Модифицированные стрелки: \x1b[1;2A \x1b[1;5C — пропускаем
-        if (/^\d+;\d+[A-Z]$/i.test(inner)) { out += csiSeq; i = csiEnd + 1; continue; }
+        // Модифицированные стрелки/Home/End → custom event
+        const modifiedNavigation = inner.match(/^\d+;(\d+)$/);
+        if (modifiedNavigation && this.emitNavigationKey(terminator, parseInt(modifiedNavigation[1], 10))) {
+          i = csiEnd + 1;
+          continue;
+        }
+
+        // CSI с ~ терминатором (Delete, PageUp/Down, Insert, Home/End, модифицированные)
+        if (terminator === '~') {
+          // Option+Delete → удалить слово назад. Проверка должна идти до общих Delete.
+          if (inner === '3;3') {
+            out += '\x17'; // Ctrl+W
+            i = csiEnd + 1;
+            continue;
+          }
+          // Cmd+Delete / Shift+Delete на macOS: \x1b[3;2~ или \x1b[27;2;127~ → Ctrl+U (удалить до начала строки)
+          if (inner === '3;2' || inner === '27;2;127') {
+            out += '\x15'; // Ctrl+U
+            i = csiEnd + 1;
+            continue;
+          }
+          // Остальные ~ (Delete, PageUp/Down, Insert, Home/End) — пропускаем в Ink
+          out += csiSeq;
+          i = csiEnd + 1;
+          continue;
+        }
+
+        // Kitty keyboard protocol (CSI u): \x1b[{codepoint};{modifiers}u
+        if (terminator === 'u' && /^\d+(;\d+)?$/.test(inner)) {
+          const parts = inner.split(';');
+          const codepoint = parseInt(parts[0], 10);
+          const modifiers = parts[1] ? parseInt(parts[1], 10) : 1;
+          const modifierBits = Math.max(0, modifiers - 1);
+          const hasSuper = (modifierBits & 8) !== 0;
+          // Kitty protocol: Cmd+C (Super+C) → явное копирование HA-selection.
+          if (hasSuper && String.fromCodePoint(codepoint).toLowerCase() === 'c') {
+            this.keys.emit('copy-key');
+            i = csiEnd + 1;
+            continue;
+          }
+          // Enter (13) с модификаторами → newline
+          if (codepoint === 13 && modifiers > 1) {
+            this.keys.emit('newline-key', { modifiers });
+            i = csiEnd + 1;
+            continue;
+          }
+          // Tab (9) с модификаторами → пропускаем как обычный Tab
+          if (codepoint === 9) { out += '\t'; i = csiEnd + 1; continue; }
+          // Backspace (127) с модификаторами
+          if (codepoint === 127) { out += '\x7f'; i = csiEnd + 1; continue; }
+          // Escape (27) с модификаторами → отдельное событие, чтобы Shift+Esc
+          // можно было отличить от обычного Escape.
+          if (codepoint === 27) {
+            this.keys.emit('escape-key', { modifiers } satisfies ParsedEscapeKey);
+            i = csiEnd + 1;
+            continue;
+          }
+          // Printable ASCII с модификаторами (Ctrl+key и т.д.)
+          if (codepoint >= 32 && codepoint <= 126) {
+            if (modifiers >= 5 && modifiers <= 8) {
+              // Ctrl+key: стандартная формула ASCII control chars
+              const ctrlChar = String.fromCharCode(codepoint & 0x1f);
+              out += ctrlChar;
+            } else {
+              out += String.fromCharCode(codepoint);
+            }
+            i = csiEnd + 1;
+            continue;
+          }
+          // Kitty navigation keys идут напрямую в общий обработчик:
+          // повторно пропущенный CSI stock Ink всё равно не распознаёт.
+          const KITTY_NAVIGATION: Record<number, ParsedNavigationKey['direction']> = {
+            57350: 'left',
+            57351: 'right',
+            57352: 'up',
+            57353: 'down',
+            57354: 'home',
+            57355: 'end',
+          };
+          const KITTY_FUNC_TILDE: Record<number, string> = {
+            57356: '5', 57357: '6', 57358: '2', 57359: '3', // PgUp, PgDn, Ins, Del
+          };
+          if (KITTY_NAVIGATION[codepoint]) {
+            this.keys.emit('arrow-key', {
+              direction: KITTY_NAVIGATION[codepoint],
+              modifiers,
+            } satisfies ParsedNavigationKey);
+            i = csiEnd + 1;
+            continue;
+          }
+          if (KITTY_FUNC_TILDE[codepoint]) {
+            const num = KITTY_FUNC_TILDE[codepoint];
+            out += modifiers > 1 ? `\x1b[${num};${modifiers}~` : `\x1b[${num}~`;
+            i = csiEnd + 1;
+            continue;
+          }
+          // Остальные CSI u — дропаем
+          i = csiEnd + 1;
+          continue;
+        }
 
         // Всё остальное (модифицированный Enter/Tab/F-keys): DROP
         i = csiEnd + 1;
         continue;
       }
 
-      // Одиночный Escape — пропускаем (для Alt+Enter detection)
-      if (ch === '\x1b' && (i + 1 >= this.buf.length || (this.buf[i + 1] !== '[' && this.buf[i + 1] !== 'O'))) {
+      // Внутри bracketed paste CR/LF должны стать переносом строки, а не submit.
+      // Нормализуем их в Ctrl+J, который ChatInput однозначно трактует как newline.
+      if (this.pasting && (ch === '\r' || ch === '\n')) {
+        out += '\n';
+        if (ch === '\r' && this.buf[i + 1] === '\n') i++;
+        i++;
+        continue;
+      }
+
+      // Одиночный Escape: на 30 мс ждём Enter-продолжение, затем создаём
+      // отдельное событие вместо передачи неоднозначного байта в Ink.
+      if (ch === '\x1b' && i + 1 >= this.buf.length) {
+        this.buf = '';
+        if (out) this.push(out);
+        this.escapeTimer = setTimeout(() => {
+          this.escapeTimer = null;
+          this.keys.emit('escape-key', { modifiers: 1 } satisfies ParsedEscapeKey);
+        }, 30);
+        cb();
+        return;
+      }
+
+      // Alt+прочая клавиша — оставляем Ink.
+      if (ch === '\x1b' && this.buf[i + 1] !== '[' && this.buf[i + 1] !== 'O') {
         out += ch;
         i++;
         continue;
@@ -172,6 +362,11 @@ export class MouseFilterStream extends Transform {
   }
 
   _flush(cb: TransformCallback): void {
+    if (this.escapeTimer) {
+      clearTimeout(this.escapeTimer);
+      this.escapeTimer = null;
+      this.keys.emit('escape-key', { modifiers: 1 } satisfies ParsedEscapeKey);
+    }
     if (this.buf) { this.push(this.buf); this.buf = ''; }
     cb();
   }
