@@ -31,6 +31,7 @@ from webapp.api.routes import crm_auth as route_crm_auth
 from webapp.api.routes import git_connections as route_git_connections
 from webapp.api.routes import history as route_history
 from webapp.api.routes import now as route_now
+from webapp.api.routes import remote_control as route_remote_control
 from webapp.api.routes import rtk as route_rtk
 from webapp.api.routes import status as route_status
 from webapp.api.routes import tasks as route_tasks
@@ -181,6 +182,16 @@ def create_app() -> web.Application:
         route_crm_activity.feed_handler,
     )
     app.router.add_get("/api/rtk", route_rtk.handler)
+    # Удалённое управление /rc: браузерный прокси к HereCRM (allowlist, серверный
+    # токен никогда не отдаётся браузеру).
+    app.router.add_get("/api/rc/publications", route_remote_control.list_handler)
+    app.router.add_post(
+        "/api/rc/publications/{publication_id}/commands",
+        route_remote_control.create_command_handler,
+    )
+    app.router.add_delete(
+        "/api/rc/publications/{publication_id}", route_remote_control.close_handler
+    )
     app.router.add_get("/api/git/connections", route_git_connections.list_handler)
     app.router.add_post("/api/git/connections/start", route_git_connections.start_handler)
     app.router.add_get("/api/git/oauth/callback/gitea", route_git_connections.callback_handler)
