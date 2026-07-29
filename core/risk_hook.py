@@ -1,11 +1,17 @@
-"""Установка блокирующего PreToolUse-хука в auth home аккаунта Claude.
+"""Установка блокирующего PreToolUse-хука в auth home аккаунта.
 
 Хук — единственное место, где шлюз может остановить разрушительную команду до
 её выполнения. Всё остальное в проекте только наблюдает.
 
-Границы честно: работает лишь у Claude Code (у Gemini и Codex механизма нет,
-у Qwen контракт не проверен), блокирует только катастрофический уровень и
-обходится любой динамикой вроде `base64 -d | sh`. Подробности — в SECURITY.md.
+Поддержаны Claude Code и Qwen Code: контракт ответа у них совпадает
+(`hookSpecificOutput.permissionDecision = deny`). У Gemini и Codex механизма нет.
+
+Различия, которые нельзя перепутать: у Claude таймаут хука задаётся в СЕКУНДАХ,
+у Qwen — в МИЛЛИСЕКУНДАХ (умолчание 60000). Одинаковое число означало бы у Qwen
+десять миллисекунд и неработающую защиту.
+
+Блокируется только катастрофический уровень; обходится любой динамикой вроде
+`base64 -d | sh`. Подробности и измеренные границы — в SECURITY.md.
 """
 
 from __future__ import annotations
@@ -19,6 +25,11 @@ HOOK_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "claude_risk_hoo
 # Хук обязан отвечать мгновенно: при таймауте Claude выполняет команду (fail-open),
 # поэтому запас времени маленький и осмысленный только для холодного старта Python.
 HOOK_TIMEOUT_SEC = 10
+# Тот же запас для Qwen, но в его единицах — миллисекундах.
+HOOK_TIMEOUT_MS = HOOK_TIMEOUT_SEC * 1000
+# Имя shell-инструмента, на которое вешается matcher, у CLI разное.
+CLAUDE_SHELL_TOOL = "Bash"
+QWEN_SHELL_TOOL = "run_shell_command"
 HOOK_MARKER = "claude_risk_hook.py"
 
 
@@ -34,7 +45,23 @@ def hook_command(python: str | Path | None = None) -> str:
 
 
 def configure_claude_hook(cli_home: str | Path, *, python: str | Path | None = None) -> bool:
-    """Идемпотентно подключает блокирующий хук к профилю Claude аккаунта.
+    """Подключает блокирующий хук к профилю Claude (таймаут в секундах)."""
+    return _configure(cli_home, matcher=CLAUDE_SHELL_TOOL, timeout=HOOK_TIMEOUT_SEC, python=python)
+
+
+def configure_qwen_hook(cli_home: str | Path, *, python: str | Path | None = None) -> bool:
+    """Подключает тот же хук к профилю Qwen Code (таймаут в миллисекундах)."""
+    return _configure(cli_home, matcher=QWEN_SHELL_TOOL, timeout=HOOK_TIMEOUT_MS, python=python)
+
+
+def _configure(
+    cli_home: str | Path,
+    *,
+    matcher: str,
+    timeout: int,
+    python: str | Path | None = None,
+) -> bool:
+    """Идемпотентно подключает блокирующий хук к профилю аккаунта.
 
     Возвращает True, если после вызова хук установлен (в том числе если он уже
     был). Чужие хуки и настройки сохраняются.
@@ -70,8 +97,8 @@ def configure_claude_hook(cli_home: str | Path, *, python: str | Path | None = N
     if not already:
         pre_tool.append(
             {
-                "matcher": "Bash",
-                "hooks": [{"type": "command", "command": command, "timeout": HOOK_TIMEOUT_SEC}],
+                "matcher": matcher,
+                "hooks": [{"type": "command", "command": command, "timeout": timeout}],
             }
         )
 

@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""PreToolUse-хук Claude Code: отклоняет команды с катастрофическим радиусом.
+"""PreToolUse-хук Claude Code и Qwen Code: отклоняет команды с катастрофическим радиусом.
 
 Единственное место, где HereAssistant может реально остановить действие агента,
 а не сообщить о нём постфактум. Всё остальное — наблюдение.
+
+Один и тот же скрипт годится обоим CLI: контракт ответа совпадает —
+`hookSpecificOutput.permissionDecision = deny`.
 
 Дизайн продиктован проверенным поведением Claude Code (см. SECURITY.md):
 при таймауте хука команда ВЫПОЛНЯЕТСЯ. Поэтому здесь нет ни сети, ни обращений
@@ -30,7 +33,8 @@ from core.command_risk import RiskLevel, assess, describe_rule  # noqa: E402
 
 # Ограничение на размер входа: хук читает stdin от чужого процесса.
 _MAX_INPUT_BYTES = 1_000_000
-_SHELL_TOOLS = frozenset({"Bash", "PowerShell", "Shell"})
+# Имена shell-инструмента различаются: Claude — Bash, Qwen Code — run_shell_command.
+_SHELL_TOOLS = frozenset({"Bash", "PowerShell", "Shell", "run_shell_command"})
 
 
 def _allow() -> None:

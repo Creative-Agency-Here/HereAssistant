@@ -144,3 +144,49 @@ def test_configure_survives_broken_settings(tmp_path: Path, broken: dict) -> Non
     (home / "settings.json").write_text(json.dumps(broken), encoding="utf-8")
 
     risk_hook.configure_claude_hook(home)
+
+
+def test_qwen_tool_name_is_covered() -> None:
+    """У Qwen Code shell-инструмент называется иначе, чем у Claude."""
+    payload = {
+        "tool_name": "run_shell_command",
+        "tool_input": {"command": "rm -rf ~/.ssh"},
+        "cwd": "/tmp",
+    }
+
+    assert decision(payload) == "deny"
+
+
+def test_qwen_timeout_is_in_milliseconds() -> None:
+    """У Claude таймаут в секундах, у Qwen — в миллисекундах.
+
+    Одинаковое число означало бы у Qwen десять миллисекунд: хук не успел бы
+    ответить, и защиты бы не было.
+    """
+    assert risk_hook.HOOK_TIMEOUT_MS == risk_hook.HOOK_TIMEOUT_SEC * 1000
+
+
+def test_qwen_hook_uses_its_own_matcher(tmp_path: Path) -> None:
+    home = tmp_path / "qwen_home"
+    home.mkdir()
+
+    assert risk_hook.configure_qwen_hook(home)
+
+    payload = json.loads((home / "settings.json").read_text(encoding="utf-8"))
+    entry = payload["hooks"]["PreToolUse"][0]
+    assert entry["matcher"] == "run_shell_command"
+    assert entry["hooks"][0]["timeout"] == risk_hook.HOOK_TIMEOUT_MS
+    assert risk_hook.is_configured(home)
+
+
+def test_claude_hook_keeps_seconds(tmp_path: Path) -> None:
+    home = tmp_path / "claude_home"
+    home.mkdir()
+
+    assert risk_hook.configure_claude_hook(home)
+
+    entry = json.loads((home / "settings.json").read_text(encoding="utf-8"))["hooks"]["PreToolUse"][
+        0
+    ]
+    assert entry["matcher"] == "Bash"
+    assert entry["hooks"][0]["timeout"] == risk_hook.HOOK_TIMEOUT_SEC

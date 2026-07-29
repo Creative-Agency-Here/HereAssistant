@@ -184,6 +184,8 @@ def do_login(prov: ProviderSpec, cli_home: Path) -> None:
             print(f"{G}✓ RTK hook и безопасные read/test permissions подключены.{X}")
         if prov["key"] == "claude_code" and risk_hook.configure_claude_hook(cli_home):
             print(f"{G}✓ Блокировка катастрофических команд подключена (см. SECURITY.md).{X}")
+        if prov["key"] == "qwen_code" and risk_hook.configure_qwen_hook(cli_home):
+            print(f"{G}✓ Блокировка катастрофических команд подключена (см. SECURITY.md).{X}")
     else:
         print(f"\n{Y}⚠ Не вижу auth-файлов в {cli_home}{X}")
         print(f"{D}Возможно ты не завершил логин в TUI/браузере.{X}")
