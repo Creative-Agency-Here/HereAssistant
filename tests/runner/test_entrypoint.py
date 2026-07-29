@@ -438,3 +438,50 @@ def test_credentialed_git_requires_immutable_control_files(
 
     monkeypatch.setattr(runner_entrypoint, "_is_immutable_file", lambda _path: True)
     audit_git_configuration(configured, root, ["git", "push", "origin", "HEAD"])
+
+
+def test_relative_git_destination_is_resolved_against_target_cwd(
+    git_runner_config: RunnerConfig, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Относительный destination обязан считаться от --cwd, а не от cwd runner.
+
+    Runner не делает chdir, поэтому его рабочий каталог в общем случае глубже
+    внутри project_roots, чем переданный --cwd. Раньше проверка резолвила путь
+    относительно своего каталога и пропускала `../../../escape`, а git писал
+    наружу от --cwd.
+    """
+    root = git_runner_config.project_roots[0]
+    deep = root / "aaa" / "bbb" / "ccc"
+    deep.mkdir(parents=True)
+    workdir = root / "u1"
+    workdir.mkdir()
+    # Рабочий каталог самого runner — глубоко внутри разрешённого дерева.
+    monkeypatch.chdir(deep)
+
+    with pytest.raises(RunnerDenied, match="вне project_roots"):
+        validate_git_request(
+            git_runner_config,
+            user_id=100,
+            cwd=str(workdir),
+            command=["git", "clone", "--", "https://github.com/x/y.git", "../../../escape"],
+        )
+
+
+def test_relative_git_destination_inside_root_still_allowed(
+    git_runner_config: RunnerConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Обычный относительный путь внутри проекта должен работать."""
+    root = git_runner_config.project_roots[0]
+    workdir = root / "u2"
+    workdir.mkdir()
+    monkeypatch.chdir(root)
+
+    assert (
+        validate_git_request(
+            git_runner_config,
+            user_id=100,
+            cwd=str(workdir),
+            command=["git", "clone", "--", "https://github.com/x/y.git", "sub"],
+        )
+        == workdir
+    )

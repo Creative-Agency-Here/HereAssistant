@@ -450,7 +450,13 @@ def validate_git_request(
         target = Path(command[5])
     else:
         raise RunnerDenied("Git command не входит в allowlist")
-    resolved_target = target.parent.resolve(strict=True) / target.name
+    # Относительный путь обязан раскрываться относительно того каталога, в котором
+    # git будет запущен (`actual_cwd`), а не рабочего каталога самого runner:
+    # chdir здесь не делается, и эти каталоги в общем случае разные. Раньше
+    # проверка смотрела на один путь, а git писал в другой — граница project_roots
+    # обходилась относительным destination вида `../../../escape`.
+    candidate = target if target.is_absolute() else actual_cwd / target
+    resolved_target = candidate.parent.resolve(strict=True) / candidate.name
     if not any(_inside(resolved_target, root) for root in config.project_roots):
         raise RunnerDenied("Git destination вне project_roots")
     return actual_cwd
