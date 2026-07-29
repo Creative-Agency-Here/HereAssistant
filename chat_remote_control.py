@@ -11,18 +11,22 @@
 * удалённая сторона не меняет провайдера/аккаунт/модель/cwd/режим разрешений —
   удалённый ввод это только prompt, идущий тем же путём, что и локальный.
 
-Сетевая логика сюда не кладётся: координатор лишь вызывает ядро.
+Сетевая логика сюда не кладётся: координатор лишь вызывает готовые куски ядра
+(``ControlPlaneClient``, ``git_actions``, ``credential_store``) — сам протокол и
+транспорт им не переписываются.
 """
 
 from __future__ import annotations
 
 import asyncio
+import getpass
 import hashlib
+import json
 import logging
 import socket
 import sqlite3
 import sys
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Optional, TextIO
 
@@ -30,7 +34,9 @@ from chat_renderer import B, C, D, G, R, W, X, Y
 from chat_sessions import Session
 from core import project_config
 from core.remote_control import config as rc_config
-from core.remote_control import events, publications, receipts
+from core.remote_control import credential_store, events, git_actions, publications, receipts
+from core.remote_control.control_plane_client import ControlPlaneClient
+from core.remote_control.credential_store import CredentialStoreError, DeviceCredential
 
 # Запуск одного промпта: принимает текст, возвращает признак успешного завершения.
 # Запуск промпта возвращает (завершено, текст ответа): текст нужен предпросмотру
@@ -43,6 +49,41 @@ _log = logging.getLogger("bridge.remote_control.coordinator")
 
 _SOURCE_RANK = {"local": 0, "remote": 1}
 _SOURCE_LABEL = {"local": "локально", "remote": "удалённо"}
+
+# Типы Git-команд из фиксированного набора receipts.ALLOWED_COMMAND_TYPES,
+# которые исполняются через готовый core/remote_control/git_actions.py.
+_GIT_ACTION_TYPES = frozenset({"git_preflight", "git_commit", "git_push"})
+
+
+def _hash_payload(payload: dict[str, Any]) -> str:
+    """Детерминированный hash payload для идемпотентности receipt.
+
+    Используется, только когда control-plane не прислал готовый payload_hash
+    сам (например, в тестах). Реальный сервер обычно подписывает hash сам.
+    """
+    serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def resolve_control_client(
+    *,
+    credential_loader: Optional[Callable[[], Optional[DeviceCredential]]] = None,
+) -> tuple[Optional[ControlPlaneClient], Optional[str]]:
+    """Строит клиент control-plane, только если URL И credential заданы разом.
+
+    Инвариант режима /rc: пустой ``RC_CONTROL_PLANE_URL`` или отсутствующий
+    credential устройства — сеть выключена целиком. В этом случае
+    ``ControlPlaneClient`` не создаётся вовсе (не просто «не используется») —
+    вызвать его конструктор в обход этой функции неоткуда, поэтому без обоих
+    условий сразу не может произойти ни одного сетевого обращения.
+    """
+    if not rc_config.configured():
+        return None, None
+    loader = credential_loader or (lambda: credential_store.default_store().load())
+    credential = loader()
+    if credential is None:
+        return None, None
+    return ControlPlaneClient(credential=credential), credential.device_id
 
 
 @dataclass
@@ -85,6 +126,10 @@ class RemoteControlCoordinator:
         device_id: Optional[str] = None,
         device_name: str = "Это устройство",
         device_kind: str = "desktop",
+        credential_store_factory: Callable[
+            [], credential_store.CredentialStore
+        ] = credential_store.default_store,
+        secret_reader: Optional[Callable[[str], str]] = None,
     ) -> None:
         self._session = session
         self._run_prompt = run_prompt
@@ -94,6 +139,13 @@ class RemoteControlCoordinator:
         self._device_id = device_id or stable_device_id(session)
         self._device_name = device_name
         self._device_kind = device_kind
+        # Хранилище device credential инжектируется для тестируемости; по
+        # умолчанию — то же Keychain/файл-0600, что и у остального /rc.
+        self._credential_store_factory = credential_store_factory
+        # Чтение секрета скрытым полем (без эха и без истории readline).
+        # getpass.getpass — единственный дефолт: он не проходит через
+        # prompt_toolkit и не попадает в его InMemoryHistory.
+        self._secret_reader = secret_reader or getpass.getpass
         # Единый замок исполнения: держится ровно на время одного запуска.
         self._exec_lock = asyncio.Lock()
         self._queue: list[QueuedItem] = []
@@ -204,6 +256,80 @@ class RemoteControlCoordinator:
             self._print(f"{Y}⏹ останавливаю текущий запуск{X}")
         else:
             self._print(f"{D}сейчас ничего не выполняется{X}")
+
+    # ---------- device credential ----------
+    def connect_device(self) -> None:
+        """Подключает устройство: credential вводится скрытым полем.
+
+        Секрет никогда не приходит аргументом команды и не проходит через
+        историю ввода терминала — только через ``getpass``-подобное скрытое
+        поле, читаемое прямо с tty.
+        """
+        try:
+            raw = self._secret_reader(
+                "вставь выданный control-plane credential (ввод скрыт) › "
+            )
+        except (EOFError, KeyboardInterrupt):
+            self._print(f"\n{D}подключение отменено{X}")
+            return
+        raw = raw.strip()
+        if not raw:
+            self._print(f"{D}пустой ввод — подключение отменено{X}")
+            return
+        try:
+            credential = DeviceCredential.from_json(raw)
+        except (CredentialStoreError, ValueError):
+            self._print(f"{R}некорректный credential — не удалось разобрать{X}")
+            return
+        finally:
+            # Сырая строка секрета не должна задерживаться в кадре дольше нужного.
+            raw = ""
+        try:
+            self._credential_store_factory().save(credential)
+        except CredentialStoreError as error:
+            self._print(f"{R}не удалось сохранить credential: {error}{X}")
+            return
+        client, device_id = resolve_control_client(credential_loader=lambda: credential)
+        if client is not None:
+            self._client = client
+            self._device_id = device_id or self._device_id
+            self._print(
+                f"{G}▸ устройство подключено{X} "
+                f"{D}(control-plane активируется при следующей публикации /rc){X}"
+            )
+        else:
+            self._print(
+                f"{G}▸ credential сохранён{X} "
+                f"{D}(RC_CONTROL_PLANE_URL не задан — сеть остаётся выключенной){X}"
+            )
+
+    def disconnect_device(self) -> None:
+        """Удаляет credential устройства и немедленно останавливает сеть."""
+        store = self._credential_store_factory()
+        had_credential = store.load() is not None
+        store.delete()
+        if self._client is not None:
+            self._stop_network()
+            self._client = None
+        if had_credential:
+            self._print(f"{G}▸ устройство отключено — credential удалён{X}")
+        else:
+            self._print(f"{D}устройство не было подключено{X}")
+
+    def device_status(self) -> None:
+        """Показывает состояние device credential без раскрытия секрета."""
+        credential = self._credential_store_factory().load()
+        if credential is None:
+            self._print(f"{D}устройство не подключено{X} {D}(/rc connect){X}")
+            return
+        scopes = ", ".join(credential.scopes) or "—"
+        expiry = str(credential.expires_at) if credential.expires_at else "без срока"
+        self._print(
+            f"{B}устройство подключено{X}\n"
+            f"  {D}device id{X}   {W}{credential.device_id}{X}\n"
+            f"  {D}scopes{X}      {W}{scopes}{X}\n"
+            f"  {D}истекает{X}    {W}{expiry}{X}"
+        )
 
     # ---------- приём ввода ----------
     def submit_local(self, prompt: str) -> SubmitResult:
@@ -321,12 +447,89 @@ class RemoteControlCoordinator:
             self._emit_command_status(
                 item.command_id, "succeeded" if completed else "failed"
             )
+            if completed:
+                # Сводка правок и вызовы инструментов — из meta провайдера,
+                # которую _run_prompt уже записал в session.last_meta к этому
+                # моменту. Собственного источника диффа/tool-call у координатора
+                # нет — он берёт то же, что уже видит /diff в терминале.
+                self._emit_diff_summary(item.command_id)
+                self._emit_tool_calls(item.command_id)
         self._maybe_start()
 
-    def _emit_command_status(self, command_id: Optional[str], state: str) -> None:
+    def _emit_command_status(
+        self,
+        command_id: Optional[str],
+        state: str,
+        *,
+        commit_sha: Optional[str] = None,
+        commit_message: Optional[str] = None,
+    ) -> None:
         """Ставит событие смены статуса команды в outbox (гейты — в ядре)."""
         policy = self._policy_lookup(self._session.cwd)
-        events.emit_command_status(policy, command_id=command_id, state=state)
+        events.emit_command_status(
+            policy,
+            command_id=command_id,
+            state=state,
+            commit_sha=commit_sha,
+            commit_message=commit_message,
+        )
+
+    def _emit_diff_summary(self, command_id: Optional[str]) -> None:
+        """Сводка правок последнего запуска (только счётчики и пути, без содержимого)."""
+        last_meta = self._session.last_meta
+        raw_edits = last_meta.get("edits") if isinstance(last_meta, Mapping) else None
+        edits = raw_edits if isinstance(raw_edits, list) else []
+        if not edits:
+            return
+        files_changed = 0
+        insertions = 0
+        deletions = 0
+        paths: list[str] = []
+        for raw_edit in edits:
+            edit = raw_edit if isinstance(raw_edit, Mapping) else {}
+            files_changed += 1
+            added = edit.get("added")
+            removed = edit.get("removed")
+            insertions += added if isinstance(added, int) and not isinstance(added, bool) else 0
+            deletions += removed if isinstance(removed, int) and not isinstance(removed, bool) else 0
+            path = edit.get("file")
+            if path:
+                paths.append(str(path))
+        policy = self._policy_lookup(self._session.cwd)
+        events.emit_diff_summary(
+            policy,
+            command_id=command_id,
+            files_changed=files_changed,
+            insertions=insertions,
+            deletions=deletions,
+            paths=paths,
+            project_root=self._session.cwd,
+        )
+
+    def _emit_tool_calls(self, command_id: Optional[str]) -> None:
+        """События по инструментам последнего запуска — из session.last_meta.
+
+        Пошаговый прогресс (``meta["steps"]``) сегодня репортит только парсер
+        Claude Code; у провайдеров без него список пуст и событий не будет —
+        придумывать источник для них координатор не должен.
+        """
+        last_meta = self._session.last_meta
+        raw_steps = last_meta.get("steps") if isinstance(last_meta, Mapping) else None
+        steps = raw_steps if isinstance(raw_steps, list) else []
+        if not steps:
+            return
+        policy = self._policy_lookup(self._session.cwd)
+        for raw_step in steps:
+            step = raw_step if isinstance(raw_step, Mapping) else {}
+            tool = step.get("name")
+            if not tool:
+                continue
+            events.emit_tool_call(
+                policy,
+                command_id=command_id,
+                tool=str(tool),
+                status=str(step.get("status") or "done"),
+            )
 
     # ---------- сеть (best effort, инертна без конфигурации) ----------
     def _start_network(self) -> None:
@@ -382,17 +585,51 @@ class RemoteControlCoordinator:
             self._ingest_remote_command(command)
 
     def _ingest_remote_command(self, command: dict[str, Any]) -> None:
+        """Диспетчер входящих команд control-plane по фиксированному типу.
+
+        Единственные исполняемые типы — ``receipts.ALLOWED_COMMAND_TYPES``
+        (``prompt``, ``stop``, ``approval_decision``, ``git_preflight``,
+        ``git_commit``, ``git_push``); всё остальное отклоняется fail-closed
+        внутри ``receipts.claim`` (``unknown_command_type``), сюда шелл или
+        произвольная команда попасть не может в принципе.
+        """
         command_id = str(command.get("id") or "")
-        sequence = int(command.get("sequence") or 0)
-        payload = command.get("payload") or {}
-        prompt = str(payload.get("prompt") or "")
-        payload_hash = str(
-            command.get("payload_hash")
-            or hashlib.sha256(prompt.encode("utf-8")).hexdigest()
-        )
         if not command_id:
             return
+        sequence = int(command.get("sequence") or 0)
+        command_type = str(command.get("commandType") or command.get("type") or "prompt")
+        payload = command.get("payload") or {}
+        if not isinstance(payload, dict):
+            payload = {}
         publications.advance_sequence(self._key(), sequence)
+
+        if command_type == "prompt":
+            self._ingest_prompt_command(command_id, sequence, payload, command.get("payload_hash"))
+            return
+
+        payload_hash = str(command.get("payload_hash") or _hash_payload(payload))
+        if command_type == "stop":
+            self._ingest_stop_command(command_id, sequence, payload_hash)
+        elif command_type == "approval_decision":
+            self._ingest_approval_decision(command_id, sequence, payload_hash)
+        elif command_type in _GIT_ACTION_TYPES:
+            self._ingest_git_action(command_id, sequence, command_type, payload, payload_hash)
+        else:
+            # Неизвестный тип: receipts.claim отклонит его до какого-либо
+            # исполнения (unknown_command_type), receipt не создаётся вовсе.
+            receipts.claim(
+                command_id, sequence=sequence, command_type=command_type, payload_hash=payload_hash
+            )
+
+    def _ingest_prompt_command(
+        self,
+        command_id: str,
+        sequence: int,
+        payload: dict[str, Any],
+        raw_payload_hash: Optional[str],
+    ) -> None:
+        prompt = str(payload.get("prompt") or "")
+        payload_hash = str(raw_payload_hash or hashlib.sha256(prompt.encode("utf-8")).hexdigest())
         policy = self._policy_lookup(self._session.cwd)
         if not project_config.can_receive_remote_prompts(policy):
             # Приватный проект не исполняет удалённый prompt — fail closed.
@@ -403,6 +640,116 @@ class RemoteControlCoordinator:
             return
         self.submit_remote(
             prompt, command_id=command_id, sequence=sequence, payload_hash=payload_hash
+        )
+
+    def _ingest_stop_command(self, command_id: str, sequence: int, payload_hash: str) -> None:
+        """``stop`` — идемпотентная отмена текущего запуска, очередь не трогает."""
+        claim = receipts.claim(
+            command_id, sequence=sequence, command_type="stop", payload_hash=payload_hash
+        )
+        if not claim.should_execute:
+            return
+        receipts.mark_running(command_id)
+        self.stop_run()
+        receipts.finish(command_id, state="succeeded")
+        if self._active:
+            self._emit_command_status(command_id, "succeeded")
+
+    def _ingest_approval_decision(
+        self, command_id: str, sequence: int, payload_hash: str
+    ) -> None:
+        """``approval_decision`` без живого канала подтверждения — fail closed.
+
+        Ни один провайдер здесь не поддерживает промежуточное подтверждение
+        инструмента: Codex запускается с ``approval_policy=never``, Claude —
+        неинтерактивно (см. ``chat_sessions.Session.permission_mode``). Живого
+        approval-канала на устройстве физически нет, поэтому команда всегда
+        отклоняется явным отказом, а не автоодобрением — иначе это значило бы
+        согласие на действие, которое никто не видел.
+        """
+        claim = receipts.claim(
+            command_id,
+            sequence=sequence,
+            command_type="approval_decision",
+            payload_hash=payload_hash,
+        )
+        if not claim.should_execute:
+            return
+        receipts.mark_running(command_id)
+        receipts.finish(command_id, state="rejected")
+        if self._active:
+            self._emit_command_status(command_id, "rejected")
+
+    def _ingest_git_action(
+        self,
+        command_id: str,
+        sequence: int,
+        action: str,
+        payload: dict[str, Any],
+        payload_hash: str,
+    ) -> None:
+        claim = receipts.claim(
+            command_id, sequence=sequence, command_type=action, payload_hash=payload_hash
+        )
+        if not claim.should_execute:
+            return
+        try:
+            asyncio.create_task(self._run_git_action(command_id, action, payload))
+        except RuntimeError:
+            pass  # нет работающего цикла — как и для очереди промптов
+
+    async def _run_git_action(
+        self, command_id: str, action: str, payload: dict[str, Any]
+    ) -> None:
+        """Исполняет typed-intent git_actions; сам git_actions несёт privacy-гейт."""
+        receipts.mark_running(command_id)
+        if self._active:
+            self._emit_command_status(command_id, "running")
+        policy = self._policy_lookup(self._session.cwd)
+        try:
+            if action == "git_preflight":
+                result = await git_actions.git_preflight(
+                    policy,
+                    user_id=self._session.user_id,
+                    root=self._session.cwd,
+                    remote=str(payload.get("remote") or "origin"),
+                )
+            elif action == "git_commit":
+                raw_paths = payload.get("paths") or []
+                paths = [str(p) for p in raw_paths] if isinstance(raw_paths, list) else []
+                result = await git_actions.git_commit(
+                    policy,
+                    user_id=self._session.user_id,
+                    root=self._session.cwd,
+                    paths=paths,
+                    message=str(payload.get("message") or ""),
+                )
+            else:  # action == "git_push" (третий и последний тип в _GIT_ACTION_TYPES)
+                result = await git_actions.git_push(
+                    policy,
+                    user_id=self._session.user_id,
+                    root=self._session.cwd,
+                    remote=str(payload.get("remote") or "origin"),
+                )
+        except (OSError, RuntimeError, ValueError, TypeError, KeyError, asyncio.TimeoutError):
+            _log.exception("сбой удалённого git-действия /rc: %s", action)
+            receipts.finish(command_id, state="failed")
+            if self._active:
+                self._emit_command_status(command_id, "failed")
+            return
+
+        state = "succeeded" if result.ok else "failed"
+        result_hash = _hash_payload(result.payload())
+        receipts.finish(command_id, state=state, result_hash=result_hash)
+        if not self._active:
+            return
+        commit_sha = result.data.get("sha") if action == "git_commit" and result.ok else None
+        commit_message = payload.get("message") if commit_sha else None
+        self._emit_command_status(
+            command_id,
+            state,
+            commit_sha=str(commit_sha) if commit_sha else None,
+            commit_message=str(commit_message) if commit_message else None,
         )
 
     # ---------- служебное ----------
@@ -417,10 +764,17 @@ class RemoteControlCoordinator:
             self.status()
         elif arg == "stop":
             self.stop_run()
+        elif arg == "connect":
+            self.connect_device()
+        elif arg == "disconnect":
+            self.disconnect_device()
+        elif arg == "device":
+            self.device_status()
         else:
             self._print(
                 f"{R}неизвестная команда /rc {argument}{X} — "
-                f"{C}/rc{X}, {C}/rc status{X}, {C}/rc stop{X}, {C}/rc off{X}"
+                f"{C}/rc{X}, {C}/rc status{X}, {C}/rc stop{X}, {C}/rc off{X}, "
+                f"{C}/rc connect{X}, {C}/rc device{X}, {C}/rc disconnect{X}"
             )
 
     def _print(self, text: str) -> None:

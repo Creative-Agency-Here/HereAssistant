@@ -30,7 +30,7 @@ import providers
 from chat_commands import COMMAND_SPECS, CommandRouter
 from chat_identity import find_user as _find_user
 from chat_identity import user_display as _user_display
-from chat_remote_control import RemoteControlCoordinator
+from chat_remote_control import RemoteControlCoordinator, resolve_control_client
 from chat_renderer import (
     ITALIC,
     TTY,
@@ -49,6 +49,7 @@ from chat_renderer import (
 from chat_sessions import Session
 from chat_sessions import list_resumable as _list_resumable
 from core import config, crm_sync, db, integration_state, launch_context, project_config
+from core.remote_control import outbox as rc_outbox
 from core.workspace_status import task_summary, workspace_overview
 from terminal_input import TerminalPrompt
 from terminal_title import TerminalActivity, TerminalTitle
@@ -253,7 +254,13 @@ def _farewell():
 
 
 # ---------- REPL ----------
-async def _repl(sess: Session, integration_id: str | None = None):
+async def _repl(
+    sess: Session,
+    integration_id: str | None = None,
+    *,
+    control_client=None,
+    control_device_id: str | None = None,
+):
     client_surface = launch_context.hereassistant_surface(integration_id)
     terminal_app = launch_context.detect_terminal_app()
     terminal_prompt = TerminalPrompt(commands=COMMAND_SPECS)
@@ -268,7 +275,15 @@ async def _repl(sess: Session, integration_id: str | None = None):
             terminal_app=terminal_app,
         )
 
-    coordinator = RemoteControlCoordinator(sess, run_prompt=_run_one)
+    # control_client — только если разом заданы RC_CONTROL_PLANE_URL и
+    # credential устройства (core.remote_control.credential_store); иначе None
+    # и сетевой цикл координатора не стартует ни разу (см. resolve_control_client).
+    coordinator = RemoteControlCoordinator(
+        sess,
+        run_prompt=_run_one,
+        control_client=control_client,
+        device_id=control_device_id,
+    )
     commands = CommandRouter(
         accounts=_db_accounts,
         users=_db_users,
@@ -397,13 +412,33 @@ def _run():
 
 async def _run_with_sync(sess: Session, integration_id: str | None = None) -> None:
     sync_task = asyncio.create_task(crm_sync.worker()) if crm_sync.configured() else None
+    # /rc: клиент строится только при разом заданных URL + credential устройства
+    # (см. chat_remote_control.resolve_control_client) — без них ни клиент, ни
+    # фоновый слив outbox не создаются, сетевых вызовов нет вовсе.
+    control_client, control_device_id = resolve_control_client()
+    outbox_task = (
+        asyncio.create_task(rc_outbox.worker(control_client))
+        if control_client is not None and control_client.configured()
+        else None
+    )
     try:
-        await _repl(sess, integration_id)
+        await _repl(
+            sess,
+            integration_id,
+            control_client=control_client,
+            control_device_id=control_device_id,
+        )
     finally:
         if sync_task is not None:
             sync_task.cancel()
             try:
                 await sync_task
+            except asyncio.CancelledError:
+                pass
+        if outbox_task is not None:
+            outbox_task.cancel()
+            try:
+                await outbox_task
             except asyncio.CancelledError:
                 pass
         if integration_id:
