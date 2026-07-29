@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -38,6 +39,7 @@ from .message_final import prepare_final_payload
 from .message_final_delivery import FinalDelivery, FinalDeliveryRequest
 from .message_formatting import format_signature, should_skip_edit
 from .message_live import LiveSessionPolicy, MessageLiveSession
+from .message_queue import QueuedRun, pop_run, queue_run
 from .message_rich_final import deliver_rich_final, prepare_classic_tables
 from .message_state import runtime
 
@@ -161,6 +163,14 @@ async def _flush_pending(bot: Bot, key: tuple[int, int, int]):
             thread_id,
         )
 
+    run = QueuedRun(
+        conv=conv,
+        text=user_text,
+        message=message,
+        main_attachment=main_attachment,
+        attachments=attachments or [],
+    )
+
     # --- ПРЕРЫВАНИЕ ПРЕДЫДУЩЕЙ ЗАДАЧИ ---
     prev = runtime.active_tasks.get(key)
     if prev and not prev.done():
@@ -176,14 +186,52 @@ async def _flush_pending(bot: Bot, key: tuple[int, int, int]):
             except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
                 pass
         else:
-            await message.answer("⏳ Уже выполняю задачу — поставил в очередь.")
+            # Второй CLI в том же проекте не запускаем: откладываем до конца turn-а.
+            # Кладём в очередь ДО ответа: даже если Telegram не примет сообщение,
+            # запрос не потеряется и стартует по завершении текущего turn-а.
+            queue_run(runtime, key=key, run=run)
+            log.info("queued next turn for chat=%s thread=%s", chat_id, thread_id)
+            try:
+                await message.answer("⏳ Уже выполняю задачу — поставил в очередь.")
+            except TelegramAPIError as exc:
+                log.warning("не удалось подтвердить постановку в очередь: %s", exc)
+            return
 
+    _start_run(bot, key, run)
+
+
+def _start_run(bot: Bot, key: tuple[int, int, int], run: QueuedRun) -> asyncio.Task:
+    """Запускает turn и вешает передачу эстафеты отложенному запросу."""
     task = asyncio.create_task(
         _process_message(
-            bot, message, conv, user_text, main_attachment, all_attachments=attachments
+            bot,
+            run.message,
+            run.conv,
+            run.text,
+            run.main_attachment,
+            all_attachments=run.attachments,
         )
     )
     runtime.active_tasks[key] = task
+    task.add_done_callback(lambda finished: _run_next_queued(bot, key, finished))
+    return task
+
+
+def _run_next_queued(bot: Bot, key: tuple[int, int, int], finished: asyncio.Task) -> None:
+    """Стартует отложенный запрос после завершения текущего turn-а."""
+    # За время работы могла появиться более новая задача (режим прерывания) —
+    # тогда эстафету передаёт она, а не эта.
+    if runtime.active_tasks.get(key) is not finished:
+        return
+    run = pop_run(runtime, key)
+    if run is None:
+        return
+    if finished.cancelled():
+        # Turn остановлен человеком или выключением бота: продолжать цепочку нельзя.
+        log.info("dropping queued turn after cancel for chat=%s thread=%s", key[1], key[2])
+        return
+    log.info("starting queued turn for chat=%s thread=%s", key[1], key[2])
+    _start_run(bot, key, run)
 
 
 async def _process_message(

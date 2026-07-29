@@ -49,6 +49,29 @@ async def write_stdin(proc: asyncio.subprocess.Process, stdin_data: str | None) 
             pass
 
 
+async def cancel_and_reap(proc: asyncio.subprocess.Process, timeout: float = 5) -> None:
+    """Немедленно убивает процесс и забирает его статус.
+
+    Нужен на путях timeout и отмены задачи: без reap дочерний CLI остаётся
+    сиротой/зомби и продолжает работать в проекте пользователя. Операция
+    идемпотентна: уже завершённый процесс не трогаем, гонку kill-после-выхода
+    гасим. Вызывается в том числе из обработчика ``CancelledError``, поэтому
+    ожидание ограничено по времени и само не выбрасывает наружу.
+    """
+    if proc.returncode is not None:
+        return
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        # Процесс успел завершиться сам между проверкой и kill.
+        pass
+    try:
+        await asyncio.wait_for(asyncio.shield(proc.wait()), timeout=timeout)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        # Повторная отмена или зависший reap не должны подменять исходную причину.
+        pass
+
+
 async def finish_process(proc: asyncio.subprocess.Process, timeout: float = 5) -> None:
     """Дожидается процесса; после timeout гарантированно посылает kill и reap."""
     if proc.returncode is not None:

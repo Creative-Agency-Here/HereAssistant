@@ -24,6 +24,9 @@ class PendingMessage(TypedDict):
 class MessageRuntimeState:
     active_tasks: dict[ThreadKey, asyncio.Task[None]] = field(default_factory=dict)
     pending: dict[ThreadKey, PendingMessage] = field(default_factory=dict)
+    # Запросы, отложенные до конца текущего turn-а (см. handlers/message_queue.py).
+    # Тип значения — QueuedRun; аннотация object, чтобы не заводить циклический импорт.
+    queued: dict[ThreadKey, object] = field(default_factory=dict)
     busy_counter: int = 0
 
     def is_busy(self) -> bool:
@@ -31,6 +34,7 @@ class MessageRuntimeState:
             self.busy_counter > 0
             or any(not task.done() for task in self.active_tasks.values())
             or bool(self.pending)
+            or bool(self.queued)
         )
 
     def mark_started(self) -> None:

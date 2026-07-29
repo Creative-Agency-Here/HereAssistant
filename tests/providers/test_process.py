@@ -89,3 +89,52 @@ async def test_finish_process_kills_and_reaps_after_timeout() -> None:
     assert child.killed
     assert child.returncode == -9
     assert child.wait_calls == 2
+
+
+@pytest.mark.asyncio
+async def test_cancel_and_reap_kills_running_child() -> None:
+    child: Any = HangingProcess()
+
+    await process.cancel_and_reap(child, timeout=1)
+
+    assert child.killed
+    assert child.returncode == -9
+    assert child.wait_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_cancel_and_reap_skips_finished_child() -> None:
+    child: Any = HangingProcess()
+    child.returncode = 0
+
+    await process.cancel_and_reap(child, timeout=0.001)
+
+    assert not child.killed
+    assert child.wait_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_cancel_and_reap_survives_kill_race() -> None:
+    class VanishedProcess(HangingProcess):
+        def kill(self) -> None:
+            # Процесс завершился сам между проверкой и kill.
+            raise ProcessLookupError
+
+    child: Any = VanishedProcess()
+
+    await process.cancel_and_reap(child, timeout=0.001)
+
+    assert not child.killed
+
+
+@pytest.mark.asyncio
+async def test_cancel_and_reap_does_not_hang_when_child_ignores_kill() -> None:
+    class UnreapableProcess(HangingProcess):
+        def kill(self) -> None:
+            self.killed = True
+
+    child: Any = UnreapableProcess()
+
+    await process.cancel_and_reap(child, timeout=0.01)
+
+    assert child.killed

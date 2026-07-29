@@ -11,6 +11,7 @@ from core import config, rtk
 from core.models import AccountLike
 from providers.models import ProgressCallback, ProviderMeta
 from providers.os_runner import ProcessBoundary
+from providers.process import cancel_and_reap
 
 log = logging.getLogger("bridge.provider")
 
@@ -117,9 +118,14 @@ class CLIProvider:
                 timeout=config.CLI_TIMEOUT,
             )
         except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
+            await cancel_and_reap(proc)
             raise RuntimeError(f"CLI timeout after {config.CLI_TIMEOUT}s")
+        except asyncio.CancelledError:
+            # Отмена задачи (новое сообщение, /stop, shutdown) обязана убить дочерний CLI:
+            # иначе он остаётся сиротой и продолжает править файлы проекта.
+            log.info("exec %s cancelled | убиваю дочерний процесс", argv[0])
+            await cancel_and_reap(proc)
+            raise
 
         out_text = stdout.decode(errors="replace")
         err_text = stderr.decode(errors="replace")
