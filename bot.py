@@ -197,6 +197,23 @@ COMMANDS = [
 ]
 
 
+# Ссылки на фоновые службы: см. комментарий в месте создания.
+_background_tasks: set[asyncio.Task[None]] = set()
+
+
+def _report_background_exit(task: asyncio.Task[None]) -> None:
+    """Сообщает, что фоновая служба остановилась, вместо тихой пропажи."""
+    log = logging.getLogger("bridge")
+    _background_tasks.discard(task)
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is not None:
+        log.error("фоновая служба %s остановлена: %r", task.get_name(), error)
+    else:
+        log.warning("фоновая служба %s завершилась", task.get_name())
+
+
 async def main():
     log = logging_setup.setup()
     ensure_single_instance()  # выйдет с понятным сообщением, если уже запущен
@@ -252,10 +269,19 @@ async def main():
     except Exception as e:
         log.warning("save_snapshot failed: %s", e)
 
-    # фоновая таска для отложенного self-restart
-    asyncio.create_task(restart_watcher(bot))
-    asyncio.create_task(crm_sync.worker())
-    asyncio.create_task(control_watcher())
+    # Фоновые службы: /restart, доставка в CRM, команды остановки.
+    # Ссылки держим намеренно. Без них задачу может собрать сборщик мусора, а
+    # её исключение уйдёт в «Task exception was never retrieved» — служба молча
+    # перестанет работать, и заметить это можно только по логам.
+    _background_tasks.update(
+        {
+            asyncio.create_task(restart_watcher(bot), name="restart_watcher"),
+            asyncio.create_task(crm_sync.worker(), name="crm_sync_worker"),
+            asyncio.create_task(control_watcher(), name="control_watcher"),
+        }
+    )
+    for task in _background_tasks:
+        task.add_done_callback(_report_background_exit)
 
     if config.ADMIN_ID is None:
         try:

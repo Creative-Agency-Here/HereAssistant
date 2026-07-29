@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shlex
 import shutil
@@ -17,6 +18,9 @@ from typing import Any, Iterable
 from . import config
 
 MANAGED_HOOK_NAME = "hereassistant-native-session-sync"
+
+
+log = logging.getLogger("bridge.hooks")
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,8 +112,20 @@ def _is_managed(group: object) -> bool:
     )
 
 
+class ForeignSettingsShape(Exception):
+    """Файл настроек имеет форму, которую мы не умеем менять безопасно.
+
+    Лучше отказаться от установки, чем переписать чужой файл: там могут быть
+    hooks, которые пользователь настраивал руками.
+    """
+
+
 def _without_managed(groups: object) -> list[object]:
-    return [group for group in groups if not _is_managed(group)] if isinstance(groups, list) else []
+    if groups is None:
+        return []
+    if not isinstance(groups, list):
+        raise ForeignSettingsShape("hooks-событие задано не списком групп")
+    return [group for group in groups if not _is_managed(group)]
 
 
 def _next_settings(
@@ -121,6 +137,10 @@ def _next_settings(
 ) -> dict[str, Any]:
     next_settings = dict(settings)
     raw_hooks = settings.get("hooks")
+    if raw_hooks is not None and not isinstance(raw_hooks, dict):
+        # Раньше здесь молча подставлялся пустой словарь, и все чужие hooks
+        # исчезали при первой же установке.
+        raise ForeignSettingsShape("поле hooks задано не объектом")
     hooks: dict[str, Any] = (
         {str(key): value for key, value in raw_hooks.items()} if isinstance(raw_hooks, dict) else {}
     )
@@ -190,7 +210,15 @@ def install(
     for spec in selected_clients(providers):
         path = _settings_path(spec, home)
         current = _read_settings(path)
-        updated = _next_settings(current, spec, enabled=True, python_executable=python_executable)
+        try:
+            updated = _next_settings(
+                current, spec, enabled=True, python_executable=python_executable
+            )
+        except ForeignSettingsShape as error:
+            # Чужой файл в незнакомой форме не переписываем: сообщаем и пропускаем.
+            log.warning("hooks %s не установлены, %s: %s", spec.provider, path, error)
+            changed[spec.provider] = False
+            continue
         changed[spec.provider] = updated != current
         if updated != current:
             _backup(path, backup_root)
@@ -211,7 +239,12 @@ def uninstall(
             changed[spec.provider] = False
             continue
         current = _read_settings(path)
-        updated = _next_settings(current, spec, enabled=False)
+        try:
+            updated = _next_settings(current, spec, enabled=False)
+        except ForeignSettingsShape as error:
+            log.warning("hooks %s не сняты, %s: %s", spec.provider, path, error)
+            changed[spec.provider] = False
+            continue
         changed[spec.provider] = updated != current
         if updated != current:
             _backup(path, backup_root)
