@@ -30,7 +30,7 @@ from chat_renderer import B, C, D, G, R, W, X, Y
 from chat_sessions import Session
 from core import project_config
 from core.remote_control import config as rc_config
-from core.remote_control import publications, receipts
+from core.remote_control import events, publications, receipts
 
 # Запуск одного промпта: принимает текст, возвращает признак успешного завершения.
 # Запуск промпта возвращает (завершено, текст ответа): текст нужен предпросмотру
@@ -293,6 +293,7 @@ class RemoteControlCoordinator:
                 receipts.mark_running(item.command_id)
             if self._active:
                 publications.set_state(self._key(), "running")
+                self._emit_command_status(item.command_id, "running")
             completed = False
             answer = ""
             try:
@@ -317,7 +318,15 @@ class RemoteControlCoordinator:
                     item.done.set_result((completed, answer))
         if self._active:
             publications.set_state(self._key(), "published_idle")
+            self._emit_command_status(
+                item.command_id, "succeeded" if completed else "failed"
+            )
         self._maybe_start()
+
+    def _emit_command_status(self, command_id: Optional[str], state: str) -> None:
+        """Ставит событие смены статуса команды в outbox (гейты — в ядре)."""
+        policy = self._policy_lookup(self._session.cwd)
+        events.emit_command_status(policy, command_id=command_id, state=state)
 
     # ---------- сеть (best effort, инертна без конфигурации) ----------
     def _start_network(self) -> None:
