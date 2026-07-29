@@ -194,6 +194,49 @@ class ControlPlaneClient:
 
     # ---------- операции раннера (cli-agent/runner/publications/:id/...) ----------
 
+    async def create_publication(
+        self,
+        *,
+        public_id: str,
+        privacy_mode: str,
+        capabilities: Optional[dict[str, Any]] = None,
+        ttl_minutes: Optional[int] = None,
+    ) -> Optional[str]:
+        """Публикует сессию на сервере и возвращает серверный UUID публикации.
+
+        Без него все остальные операции раннера невозможны: сервер адресует
+        команды, heartbeat и события именно по этому идентификатору.
+        Поля тела — ровно из ``RunnerPublishDto`` контроллера ``cli-agent/runner``.
+        """
+        payload: dict[str, Any] = {"publicId": public_id, "privacyMode": privacy_mode}
+        if capabilities is not None:
+            payload["capabilities"] = capabilities
+        if ttl_minutes is not None:
+            payload["ttlMinutes"] = int(ttl_minutes)
+        try:
+            result = await self._request(
+                "POST", f"{_RUNNER_PREFIX}/publications", payload=payload
+            )
+        except ControlPlaneError as error:
+            log.warning("RC публикация не создана (%s)", error.code)
+            return None
+        if isinstance(result, dict):
+            publication_id = result.get("id") or result.get("publicationId")
+            if isinstance(publication_id, str) and publication_id:
+                return publication_id
+        return None
+
+    async def close_publication(self, *, publication_id: str) -> bool:
+        """Снимает публикацию на сервере (``/rc off`` и выход из чата)."""
+        try:
+            await self._request(
+                "DELETE", f"{_RUNNER_PREFIX}/publications/{publication_id}"
+            )
+        except ControlPlaneError as error:
+            log.warning("RC публикация не закрыта (%s)", error.code)
+            return False
+        return True
+
     async def list_commands(
         self, *, publication_id: str, after_sequence: int = 0
     ) -> list[dict[str, Any]]:

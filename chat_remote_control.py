@@ -204,6 +204,7 @@ class RemoteControlCoordinator:
         if not self._active:
             self._print(f"{D}публикации нет — снимать нечего{X}")
             return
+        self._close_remote_publication()
         publications.close(self._key())
         self._active = False
         self._session.rc_publication = None
@@ -215,6 +216,10 @@ class RemoteControlCoordinator:
 
     def shutdown(self) -> None:
         """Гарантированное снятие публикации (зовётся из finally чата)."""
+        if self._active:
+            # Сначала просим сервер закрыть публикацию, потом гасим сеть:
+            # иначе задача отправки не успеет стартовать.
+            self._close_remote_publication()
         self._stop_network()
         if self._active:
             try:
@@ -436,10 +441,9 @@ class RemoteControlCoordinator:
                 self._running_item = None
                 self._running_task = None
                 if item.command_id:
-                    receipts.finish(
-                        item.command_id,
-                        state="succeeded" if completed else "failed",
-                    )
+                    state = "succeeded" if completed else "failed"
+                    receipts.finish(item.command_id, state=state)
+                    self._schedule_result_report(item.command_id, state)
                 if item.done is not None and not item.done.done():
                     item.done.set_result((completed, answer))
         if self._active:
@@ -547,6 +551,22 @@ class RemoteControlCoordinator:
         except RuntimeError:
             self._net_task = None
 
+    def _close_remote_publication(self) -> None:
+        """Снимает публикацию на сервере при ``/rc off`` и выходе из чата."""
+        client = self._client
+        if client is None or not client.configured():
+            return
+        publication = publications.get(self._key()) or {}
+        remote_publication_id = publication.get("remote_public_id")
+        if not remote_publication_id:
+            return
+        try:
+            asyncio.create_task(
+                client.close_publication(publication_id=str(remote_publication_id))
+            )
+        except RuntimeError:
+            pass  # цикла нет — публикация всё равно истечёт по TTL на сервере
+
     def _stop_network(self) -> None:
         self._stop.set()
         if self._net_task is not None:
@@ -562,6 +582,7 @@ class RemoteControlCoordinator:
             return
         while not self._stop.is_set():
             try:
+                await self._ensure_remote_publication(client)
                 await self._reconcile(client)
                 publication = publications.get(self._key()) or {}
                 remote_publication_id = publication.get("remote_public_id")
@@ -580,6 +601,67 @@ class RemoteControlCoordinator:
                 )
             except asyncio.TimeoutError:
                 pass
+
+    async def _ensure_remote_publication(self, client: Any) -> None:
+        """Регистрирует публикацию на сервере, если этого ещё не произошло.
+
+        Без серверного UUID остальные операции раннера адресовать некуда,
+        поэтому регистрация идёт первым шагом каждого цикла и повторяется,
+        пока control-plane недоступен.
+        """
+        if not self._active:
+            return
+        publication = publications.get(self._key()) or {}
+        if publication.get("remote_public_id"):
+            return
+        policy = self._policy_lookup(self._session.cwd)
+        remote_id = await client.create_publication(
+            public_id=self._key(),
+            privacy_mode=str(publication.get("privacy_mode") or "private"),
+            capabilities=publications.compile_capabilities(policy),
+            ttl_minutes=policy.rc_ttl_minutes,
+        )
+        if remote_id:
+            publications.attach_remote_id(self._key(), remote_id)
+            _log.info("RC публикация зарегистрирована на control-plane")
+
+    async def _report_command_result(
+        self, command_id: Optional[str], state: str, summary: str = ""
+    ) -> None:
+        """Сообщает серверу терминальный статус команды.
+
+        События прогресса — эфемерный поток; источником истины по статусу
+        сервер считает только сохранённый результат команды.
+        """
+        client = self._client
+        if client is None or not command_id or not client.configured():
+            return
+        publication = publications.get(self._key()) or {}
+        remote_publication_id = publication.get("remote_public_id")
+        if not remote_publication_id:
+            return
+        try:
+            await client.submit_command_result(
+                publication_id=str(remote_publication_id),
+                command_id=str(command_id),
+                status=state,
+                result_summary={"summary": summary} if summary else None,
+            )
+        except (OSError, RuntimeError, ValueError, asyncio.TimeoutError) as error:
+            _log.debug("RC результат команды не доставлен: %s", error)
+
+    def _schedule_result_report(
+        self, command_id: Optional[str], state: str, summary: str = ""
+    ) -> None:
+        """Планирует отправку терминального статуса, не блокируя исполнение."""
+        if self._client is None or not command_id:
+            return
+        try:
+            asyncio.create_task(
+                self._report_command_result(command_id, state, summary)
+            )
+        except RuntimeError:
+            pass  # нет работающего цикла — отчёт уйдёт при следующем reconcile
 
     async def _reconcile(self, client: Any) -> None:
         publication = publications.get(self._key()) or {}
@@ -674,6 +756,7 @@ class RemoteControlCoordinator:
         receipts.mark_running(command_id)
         self.stop_run()
         receipts.finish(command_id, state="succeeded")
+        self._schedule_result_report(command_id, "succeeded")
         if self._active:
             self._emit_command_status(command_id, "succeeded")
 
@@ -699,6 +782,7 @@ class RemoteControlCoordinator:
             return
         receipts.mark_running(command_id)
         receipts.finish(command_id, state="rejected")
+        self._schedule_result_report(command_id, "rejected")
         if self._active:
             self._emit_command_status(command_id, "rejected")
 
@@ -756,6 +840,7 @@ class RemoteControlCoordinator:
         except (OSError, RuntimeError, ValueError, TypeError, KeyError, asyncio.TimeoutError):
             _log.exception("сбой удалённого git-действия /rc: %s", action)
             receipts.finish(command_id, state="failed")
+            self._schedule_result_report(command_id, "failed")
             if self._active:
                 self._emit_command_status(command_id, "failed")
             return
@@ -763,6 +848,7 @@ class RemoteControlCoordinator:
         state = "succeeded" if result.ok else "failed"
         result_hash = _hash_payload(result.payload())
         receipts.finish(command_id, state=state, result_hash=result_hash)
+        self._schedule_result_report(command_id, state)
         if not self._active:
             return
         commit_sha = result.data.get("sha") if action == "git_commit" and result.ok else None

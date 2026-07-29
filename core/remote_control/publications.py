@@ -116,6 +116,20 @@ def publish(
     return get(local_session_key)
 
 
+def attach_remote_id(local_session_key: str, remote_public_id: str) -> None:
+    """Сохраняет серверный идентификатор публикации.
+
+    До этого момента адресовать команды, heartbeat и события нечем: сервер
+    работает только по своему UUID публикации.
+    """
+    with db.conn() as connection:
+        connection.execute(
+            "UPDATE rc_publications SET remote_public_id=?, updated_at=? "
+            "WHERE local_session_key=?",
+            (str(remote_public_id), int(time.time()), local_session_key),
+        )
+
+
 def get(local_session_key: str) -> Optional[dict[str, Any]]:
     with db.conn() as connection:
         row = connection.execute(

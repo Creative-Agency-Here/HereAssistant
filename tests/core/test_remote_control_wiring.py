@@ -436,3 +436,97 @@ async def test_outbox_event_deferred_until_publication_confirmed(rc_database: Pa
     assert delivered is False
     assert session.posts == []  # ни одного HTTP-вызова с невалидным publicationId
     assert outbox.pending_count() == 1
+
+
+# ---------- 8. проводка публикации к серверу ----------
+
+
+class PublishingClient:
+    """Заглушка control-plane: помнит, что именно вызвал раннер."""
+
+    def __init__(self, publication_id: str = "srv-pub-1") -> None:
+        self.publication_id = publication_id
+        self.created: list[dict[str, Any]] = []
+        self.results: list[dict[str, Any]] = []
+        self.closed: list[str] = []
+
+    def configured(self) -> bool:
+        return True
+
+    async def create_publication(self, **kwargs: Any) -> str:
+        self.created.append(kwargs)
+        return self.publication_id
+
+    async def submit_command_result(self, **kwargs: Any) -> bool:
+        self.results.append(kwargs)
+        return True
+
+    async def close_publication(self, *, publication_id: str) -> bool:
+        self.closed.append(publication_id)
+        return True
+
+    async def list_commands(self, **_kwargs: Any) -> list[dict[str, Any]]:
+        return []
+
+    async def heartbeat(self, **_kwargs: Any) -> bool:
+        return True
+
+
+async def test_publication_registered_on_server_and_id_stored(
+    rc_database: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Без серверного идентификатора адресовать команды и heartbeat нечем."""
+    session = make_session(monkeypatch, cwd=str(tmp_path))
+    coordinator = make_coordinator(session, RunTracker(), policy=crm_git_policy())
+    client = PublishingClient()
+    coordinator._client = client  # noqa: SLF001
+
+    assert coordinator.publish() is True
+    await coordinator._ensure_remote_publication(client)  # noqa: SLF001
+
+    assert len(client.created) == 1
+    stored = publications.get(coordinator._key())  # noqa: SLF001
+    assert stored is not None
+    assert stored["remote_public_id"] == "srv-pub-1"
+
+    # Повторный проход не создаёт вторую публикацию.
+    await coordinator._ensure_remote_publication(client)  # noqa: SLF001
+    assert len(client.created) == 1
+
+
+async def test_command_result_reported_to_server(
+    rc_database: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Терминальный статус сервер узнаёт из результата команды, не из событий."""
+    session = make_session(monkeypatch, cwd=str(tmp_path))
+    coordinator = make_coordinator(session, RunTracker(), policy=crm_git_policy())
+    client = PublishingClient()
+    coordinator._client = client  # noqa: SLF001
+    coordinator.publish()
+    await coordinator._ensure_remote_publication(client)  # noqa: SLF001
+
+    await coordinator._report_command_result("cmd-1", "succeeded")  # noqa: SLF001
+
+    assert len(client.results) == 1
+    assert client.results[0]["publication_id"] == "srv-pub-1"
+    assert client.results[0]["command_id"] == "cmd-1"
+    assert client.results[0]["status"] == "succeeded"
+
+
+async def test_rc_off_closes_publication_on_server(
+    rc_database: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`/rc off` обязан снять публикацию и на сервере, а не только локально."""
+    session = make_session(monkeypatch, cwd=str(tmp_path))
+    coordinator = make_coordinator(session, RunTracker(), policy=crm_git_policy())
+    client = PublishingClient()
+    coordinator._client = client  # noqa: SLF001
+    coordinator.publish()
+    await coordinator._ensure_remote_publication(client)  # noqa: SLF001
+
+    before = asyncio.all_tasks()
+    coordinator.off()
+    for task in asyncio.all_tasks() - before:
+        await task
+
+    assert client.closed == ["srv-pub-1"]
