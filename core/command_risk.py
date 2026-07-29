@@ -705,10 +705,12 @@ def _check_target(
             level=RiskLevel.CATASTROPHIC,
         )
 
-    # Правило 4: внутри чувствительных dotdir
+    # Правило 4: сам чувствительный каталог или что-то внутри него. Равенство
+    # обязательно: `rm -rf ~/.ssh` сносит все ключи разом и не может быть мягче,
+    # чем удаление одной папки внутри него.
     for dot in _SENSITIVE_DOTDIRS:
         protected = home + "/" + dot
-        if _is_inside(protected, expanded):
+        if expanded == protected or _is_inside(protected, expanded):
             return RiskFinding(
                 rule="sensitive_dotdir",
                 target=raw_target,

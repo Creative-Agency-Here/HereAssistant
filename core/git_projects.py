@@ -10,6 +10,7 @@ from enum import StrEnum
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from core.proc import cancel_and_reap
 from providers.os_runner import GitBoundary
 
 from . import config, projects
@@ -173,9 +174,13 @@ async def run_git(
     try:
         stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
-        process.kill()
-        await process.wait()
+        await cancel_and_reap(process)
         raise GitProjectError(f"git timeout after {timeout}s")
+    except asyncio.CancelledError:
+        # Отмена задачи (shutdown, /stop) обязана убить git: иначе он продолжает
+        # писать в каталог проекта, а вызывающий уже удаляет этот каталог.
+        await cancel_and_reap(process)
+        raise
     output = (stdout + stderr).decode(errors="replace").strip()
     if process.returncode:
         raise classify_git_failure(output or f"git завершился с кодом {process.returncode}")

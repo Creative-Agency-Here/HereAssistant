@@ -32,7 +32,8 @@ _MAX_TITLE_LINES = 200
 _TITLE_LIMIT = 70
 
 # Врезки, которые CLI дописывает сам: это не вопрос человека.
-_SERVICE_PREFIXES = (
+# Единственный список на проект — им же пользуется core/native_sessions.py.
+SERVICE_PREFIXES = (
     "<environment_context>",
     "<local-command-caveat>",
     "<command-name>",
@@ -111,7 +112,7 @@ def _block_text(content: object) -> str:
 
 def _title_candidate(text: str) -> str:
     text = text.strip()
-    if not text or text.startswith(_SERVICE_PREFIXES):
+    if not text or text.startswith(SERVICE_PREFIXES):
         return ""
     return " ".join(text.split())[:_TITLE_LIMIT]
 
@@ -161,14 +162,35 @@ def _codex_title(path: Path) -> str:
     return "(без текста)"
 
 
-def claude_project_dir(cli_home: Path, cwd: Path | str) -> Path:
-    """Каталог сессий Claude Code: путь проекта закодирован в имени папки.
+def claude_project_slugs(cwd: Path | str) -> list[str]:
+    """Возможные имена каталога Claude Code для этого пути, от нового к старому.
 
-    Единственное место, где это правило записано; дублировать его нельзя —
+    Claude меняет кодирование между версиями, и на одной машине соседствуют оба
+    варианта: в свежих каталогах пробелы заменены дефисами
+    (`-Users-me-Visual-Studio-Code-проект`), в старых — сохранены
+    (`-Users-me-Visual-Studio-Code-Creative Agency Here-проект`).
+
+    Раньше правило учитывало только разделители пути, поэтому в проектах с
+    пробелами `/resume` молча показывал пустой список: каталога с таким именем
+    просто не существовало.
+    """
+    raw = str(cwd).replace("/", "-").replace("\\", "-").replace(":", "-")
+    variants = [raw.replace(" ", "-"), raw]
+    return list(dict.fromkeys(variant for variant in variants if variant))
+
+
+def claude_project_dir(cli_home: Path, cwd: Path | str) -> Path:
+    """Каталог сессий Claude Code: существующий вариант, иначе основной.
+
+    Единственное место, где записано это правило; дублировать его нельзя —
     разъехавшийся slug молча покажет пустой список вместо сессий.
     """
-    slug = str(cwd).replace("/", "-").replace("\\", "-")
-    return cli_home / "projects" / slug
+    root = cli_home / "projects"
+    candidates = [root / slug for slug in claude_project_slugs(cwd)]
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    return candidates[0]
 
 
 def list_claude_sessions(

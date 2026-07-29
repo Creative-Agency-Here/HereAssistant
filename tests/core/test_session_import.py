@@ -213,3 +213,41 @@ def test_claude_project_dir_is_the_single_slug_rule(tmp_path: Path) -> None:
 def test_missing_directories_return_empty(tmp_path: Path) -> None:
     assert session_import.list_codex_sessions(tmp_path / "nope", "/work") == []
     assert session_import.list_claude_sessions(tmp_path / "nope", "/work") == []
+
+
+def test_claude_sessions_found_in_paths_with_spaces(tmp_path: Path) -> None:
+    """Реальный дефект: в проектах с пробелами /resume молча показывал пусто."""
+    home = tmp_path / "claude_home"
+    project = "/Users/me/Visual Studio Code/Creative Agency Here/project"
+    real_slug = "-Users-me-Visual-Studio-Code-Creative-Agency-Here-project"
+    write_jsonl(
+        home / "projects" / real_slug / "session-1.jsonl",
+        [{"type": "user", "message": {"content": "вопрос из проекта с пробелами"}}],
+    )
+
+    found = session_import.list_claude_sessions(home, project)
+
+    assert [item.session_id for item in found] == ["session-1"]
+
+
+def test_claude_legacy_slug_with_spaces_still_works(tmp_path: Path) -> None:
+    """Старые каталоги Claude сохраняли пробелы — их тоже надо находить."""
+    home = tmp_path / "claude_home"
+    project = "/Users/me/Creative Agency Here/project"
+    legacy_slug = "-Users-me-Creative Agency Here-project"
+    write_jsonl(
+        home / "projects" / legacy_slug / "session-2.jsonl",
+        [{"type": "user", "message": {"content": "вопрос"}}],
+    )
+
+    found = session_import.list_claude_sessions(home, project)
+
+    assert [item.session_id for item in found] == ["session-2"]
+
+
+def test_service_prefixes_are_shared_with_crm_path() -> None:
+    """Список служебных врезок один на проект: он уже разъезжался."""
+    from core import native_sessions
+
+    for prefix in session_import.SERVICE_PREFIXES:
+        assert native_sessions._is_service_text(f"{prefix} что-то дальше"), prefix

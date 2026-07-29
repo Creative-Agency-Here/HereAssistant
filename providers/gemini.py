@@ -9,7 +9,7 @@ import os
 import time
 from pathlib import Path
 
-from core import config, db, projects
+from core import config, db, projects, session_import
 from providers.models import ProgressCallback
 from providers.parsers.gemini import GeminiStreamParser
 from providers.process import finish_process, resolve_cli_argv, write_stdin
@@ -34,9 +34,18 @@ def _maybe_dump_event(line: bytes) -> None:
         pass
 
 
-def _encode_cwd(cwd: str) -> str:
-    """Кодирует cwd в имя папки так же, как Claude CLI."""
-    return str(Path(cwd).resolve()).replace(":", "-").replace("\\", "-").replace("/", "-")
+def _claude_memory_dir(claude_home: Path, cwd: str) -> Path | None:
+    """Каталог памяти Claude для проекта, если он есть.
+
+    Кодирование имени каталога живёт в core.session_import: там же его чинили,
+    когда выяснилось, что в путях с пробелами Claude пишет каталог иначе.
+    """
+    root = claude_home / "projects"
+    for slug in session_import.claude_project_slugs(Path(cwd).resolve()):
+        candidate = root / slug / "memory"
+        if candidate.is_dir():
+            return candidate
+    return None
 
 
 def _owned_claude_home(user_id: int) -> Path | None:
@@ -70,8 +79,9 @@ def _load_claude_memory(claude_home: Path | None, cwd: str) -> str:
     """Читает memory только из заранее авторизованного Claude-профиля."""
     if claude_home is None:
         return ""
-    encoded = _encode_cwd(cwd)
-    memory_dir = claude_home / "projects" / encoded / "memory"
+    memory_dir = _claude_memory_dir(claude_home, cwd)
+    if memory_dir is None:
+        return ""
     index = memory_dir / "MEMORY.md"
     if not index.exists():
         return ""

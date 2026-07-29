@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from . import config, crm_sync, project_config
+from . import config, crm_sync, project_config, session_import
 
 PROVIDERS = ("claude_code", "codex", "qwen_code", "gemini")
 _EVENT_NAMESPACE = uuid.UUID("3eb428a2-cc57-4fd2-bf41-b43e853c3535")
@@ -98,14 +98,6 @@ _SKIPPED_BLOCKS = frozenset(
         "reasoning",
     }
 )
-# Служебные врезки CLI: не пользовательский ввод, границу turn-а не задают.
-_SERVICE_PREFIXES = (
-    "<environment_context>",
-    "<local-command-caveat>",
-    "<command-name>",
-    "<user-prompt-submit-hook>",
-    "<system-reminder>",
-)
 _MAX_BLOCK_DEPTH = 5
 
 
@@ -139,7 +131,13 @@ def _text(value: object, depth: int = 0) -> str:
 
 
 def _is_service_text(content: str) -> bool:
-    return content.startswith(_SERVICE_PREFIXES)
+    """Служебная врезка CLI, а не реплика человека.
+
+    Список префиксов один на проект (`core/session_import.py`): раньше он был
+    записан здесь второй раз и уже разошёлся — `# AGENTS.md` отсекался в каталоге
+    сессий, но проходил в CRM как вопрос пользователя.
+    """
+    return content.startswith(session_import.SERVICE_PREFIXES)
 
 
 def _message(record: dict[str, Any]) -> tuple[str | None, str, str | None]:

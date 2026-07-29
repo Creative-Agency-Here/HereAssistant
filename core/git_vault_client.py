@@ -6,6 +6,8 @@ import asyncio
 import json
 import os
 
+from core.proc import cancel_and_reap
+
 from . import config
 
 
@@ -68,10 +70,13 @@ async def update_credential(
             env=environment,
         )
         await asyncio.wait_for(process.communicate(payload), timeout=30)
+    except asyncio.CancelledError:
+        if "process" in locals():
+            await cancel_and_reap(process)
+        raise
     except (OSError, asyncio.TimeoutError) as error:
-        if "process" in locals() and process.returncode is None:
-            process.kill()
-            await process.wait()
+        if "process" in locals():
+            await cancel_and_reap(process)
         raise GitVaultClientError("Git vault update не выполнен") from error
     if process.returncode:
         raise GitVaultClientError("Git vault update отклонён")
@@ -91,10 +96,13 @@ async def refresh_credential(user_id: int, connection_id: int) -> int:
             },
         )
         stdout, _stderr = await asyncio.wait_for(process.communicate(b""), timeout=30)
+    except asyncio.CancelledError:
+        if "process" in locals():
+            await cancel_and_reap(process)
+        raise
     except (OSError, asyncio.TimeoutError) as error:
-        if "process" in locals() and process.returncode is None:
-            process.kill()
-            await process.wait()
+        if "process" in locals():
+            await cancel_and_reap(process)
         raise GitVaultClientError("Git credential refresh не выполнен") from error
     if process.returncode or len(stdout) > 1024:
         raise GitVaultClientError("Git credential refresh отклонён")

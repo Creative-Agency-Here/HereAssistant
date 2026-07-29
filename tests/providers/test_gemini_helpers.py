@@ -2,11 +2,12 @@ from pathlib import Path
 
 import pytest
 
-from providers.gemini import _encode_cwd, _load_claude_memory, _short_tool_desc
+from core.session_import import claude_project_slugs
+from providers.gemini import _load_claude_memory, _short_tool_desc
 
 
 def test_encode_cwd_removes_path_separators(tmp_path: Path) -> None:
-    encoded = _encode_cwd(str(tmp_path / "nested" / "project"))
+    encoded = claude_project_slugs(tmp_path / "nested" / "project")[0]
 
     assert "/" not in encoded
     assert "\\" not in encoded
@@ -25,7 +26,11 @@ def test_load_claude_memory_does_not_scan_sibling_profiles(tmp_path: Path) -> No
     project.mkdir()
     homes = tmp_path / "homes"
     foreign_memory = (
-        homes / "claude_code__foreign" / "projects" / _encode_cwd(str(project)) / "memory"
+        homes
+        / "claude_code__foreign"
+        / "projects"
+        / claude_project_slugs(project.resolve())[0]
+        / "memory"
     )
     foreign_memory.mkdir(parents=True)
     (foreign_memory / "MEMORY.md").write_text("Чужая память", encoding="utf-8")
@@ -38,7 +43,7 @@ def test_load_claude_memory_combines_index_and_sorted_notes(tmp_path: Path) -> N
     project.mkdir()
     homes = tmp_path / "homes"
     claude_home = homes / "claude_code__main"
-    memory = claude_home / "projects" / _encode_cwd(str(project)) / "memory"
+    memory = claude_home / "projects" / claude_project_slugs(project.resolve())[0] / "memory"
     memory.mkdir(parents=True)
     (memory / "MEMORY.md").write_text("Главный индекс", encoding="utf-8")
     (memory / "z-last.md").write_text("Последняя заметка", encoding="utf-8")

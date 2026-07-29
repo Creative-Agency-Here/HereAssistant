@@ -597,3 +597,11 @@ def test_protected_directory_itself_is_catastrophic() -> None:
 def test_wrapper_chain_with_assignment_reaches_the_target() -> None:
     assessment = assess("env FOO=bar sudo rm -rf /var/lib", cwd="/w/p", home="/Users/tester")
     assert assessment.level is RiskLevel.CATASTROPHIC
+
+
+def test_sensitive_dotdir_itself_is_catastrophic() -> None:
+    """`rm -rf ~/.ssh` сносит все ключи — мягче вложенной папки быть не может."""
+    for target in ("~/.ssh", "~/.gnupg", "~/.aws", "~/.kube", "~/.docker"):
+        assessment = assess(f"rm -rf {target}", cwd="/w/p", home="/Users/tester")
+        assert assessment.level is RiskLevel.CATASTROPHIC, target
+        assert "sensitive_dotdir" in {finding.rule for finding in assessment.findings}
