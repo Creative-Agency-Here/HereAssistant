@@ -29,7 +29,7 @@ from chat_sessions import AccountRecord, Session
 from core import config, db, git_projects
 from core.project_config import PRIVATE, ProjectPolicy
 from core.remote_control import config as rc_config
-from core.remote_control import outbox, receipts
+from core.remote_control import outbox, publications, receipts
 from core.remote_control.credential_store import DeviceCredential
 
 FULL_SHA = "b" * 40
@@ -339,16 +339,49 @@ def _make_client(session: _FakeSession):
     return ControlPlaneClient(base_url="https://cp.example.com", session=session)
 
 
-async def test_outbox_event_delivered_exactly_once(rc_database: Path) -> None:
-    event_id = "00000000-0000-4000-8000-0000000000ee"
-    outbox.enqueue({"type": "rc.command_status", "state": "succeeded"}, event_id=event_id, now=1000)
+def _make_publication(remote_public_id: str) -> int:
+    """Локальная публикация с уже известным серверным UUID — как после
+    подтверждённого control-plane ``POST publications`` (вне зоны этого теста).
+    """
+    row = publications.publish(
+        f"outbox-test:{remote_public_id}",
+        policy=crm_git_policy(),
+        device_id="dev-outbox",
+        remote_public_id=remote_public_id,
+    )
+    assert row is not None
+    return int(row["id"])
 
-    session = _FakeSession(status=200, payload={"ok": True})
+
+async def test_outbox_event_delivered_exactly_once(rc_database: Path) -> None:
+    publication_uuid = "11111111-1111-4111-8111-111111111111"
+    publication_id = _make_publication(publication_uuid)
+    event_id = "00000000-0000-4000-8000-0000000000ee"
+    outbox.enqueue(
+        {"type": "rc.command_status", "commandId": "cmd-1", "state": "succeeded"},
+        event_id=event_id,
+        publication_id=publication_id,
+        now=1000,
+    )
+
+    session = _FakeSession(status=200, payload={"acceptedCount": 1, "duplicateEventIds": []})
     client = _make_client(session)
 
     delivered = await outbox.flush_once(client)
     assert delivered is True
     assert len(session.posts) == 1
+    url, body = session.posts[0]
+    assert url == f"https://cp.example.com/cli-agent/runner/publications/{publication_uuid}/events"
+    assert body == {
+        "events": [
+            {
+                "eventId": event_id,
+                "type": "rc.command_status",
+                "commandId": "cmd-1",
+                "payload": {"state": "succeeded"},
+            }
+        ]
+    }
     assert outbox.pending_count() == 0
 
     # Второй прогон: слать больше нечего — повторной доставки нет.
@@ -360,8 +393,14 @@ async def test_outbox_event_delivered_exactly_once(rc_database: Path) -> None:
 async def test_outbox_failed_delivery_retries_without_losing_event(
     rc_database: Path,
 ) -> None:
+    publication_id = _make_publication("22222222-2222-4222-8222-222222222222")
     event_id = "00000000-0000-4000-8000-0000000000ff"
-    outbox.enqueue({"type": "rc.command_status", "state": "failed"}, event_id=event_id, now=1000)
+    outbox.enqueue(
+        {"type": "rc.command_status", "state": "failed"},
+        event_id=event_id,
+        publication_id=publication_id,
+        now=1000,
+    )
 
     session = _FakeSession(status=500, payload=None)
     client = _make_client(session)
@@ -378,3 +417,22 @@ async def test_outbox_failed_delivery_retries_without_losing_event(
             "SELECT attempts FROM rc_event_outbox WHERE event_id=?", (event_id,)
         ).fetchone()
     assert row["attempts"] == 1
+
+
+async def test_outbox_event_deferred_until_publication_confirmed(rc_database: Path) -> None:
+    """Событие без известного серверного UUID публикации не отправляется вслепую.
+
+    Это НЕ сбой доставки конкретного события — просто локальная публикация ещё
+    не подтверждена control-plane (``POST publications`` вне зоны текущей
+    доработки). Событие остаётся в очереди и не улетает на несуществующий адрес.
+    """
+    event_id = "00000000-0000-4000-8000-0000000000aa"
+    outbox.enqueue({"type": "rc.command_status", "state": "running"}, event_id=event_id, now=1000)
+
+    session = _FakeSession(status=200, payload={"acceptedCount": 1, "duplicateEventIds": []})
+    client = _make_client(session)
+
+    delivered = await outbox.flush_once(client)
+    assert delivered is False
+    assert session.posts == []  # ни одного HTTP-вызова с невалидным publicationId
+    assert outbox.pending_count() == 1

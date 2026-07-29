@@ -466,10 +466,12 @@ class RemoteControlCoordinator:
     ) -> None:
         """Ставит событие смены статуса команды в outbox (гейты — в ядре)."""
         policy = self._policy_lookup(self._session.cwd)
+        publication = publications.get(self._key()) or {}
         events.emit_command_status(
             policy,
             command_id=command_id,
             state=state,
+            publication_id=publication.get("id"),
             commit_sha=commit_sha,
             commit_message=commit_message,
         )
@@ -496,9 +498,11 @@ class RemoteControlCoordinator:
             if path:
                 paths.append(str(path))
         policy = self._policy_lookup(self._session.cwd)
+        publication = publications.get(self._key()) or {}
         events.emit_diff_summary(
             policy,
             command_id=command_id,
+            publication_id=publication.get("id"),
             files_changed=files_changed,
             insertions=insertions,
             deletions=deletions,
@@ -519,6 +523,7 @@ class RemoteControlCoordinator:
         if not steps:
             return
         policy = self._policy_lookup(self._session.cwd)
+        publication = publications.get(self._key()) or {}
         for raw_step in steps:
             step = raw_step if isinstance(raw_step, Mapping) else {}
             tool = step.get("name")
@@ -527,6 +532,7 @@ class RemoteControlCoordinator:
             events.emit_tool_call(
                 policy,
                 command_id=command_id,
+                publication_id=publication.get("id"),
                 tool=str(tool),
                 status=str(step.get("status") or "done"),
             )
@@ -549,7 +555,8 @@ class RemoteControlCoordinator:
 
     async def _network_loop(self) -> None:
         # Reconcile + heartbeat. Работает только при настроенном control-plane;
-        # команды — через HTTPS claim (источник истины), WS лишь будит.
+        # команды — через HTTPS список + поштучный claim (источник истины),
+        # WS лишь будит.
         client = self._client
         if client is None or not client.configured():
             return
@@ -557,14 +564,13 @@ class RemoteControlCoordinator:
             try:
                 await self._reconcile(client)
                 publication = publications.get(self._key()) or {}
-                await client.heartbeat(
-                    device_id=self._device_id,
-                    publication_id=str(
-                        publication.get("remote_public_id") or self._key()
-                    ),
-                    state=str(publication.get("state") or "published_idle"),
-                )
-                publications.record_heartbeat(self._key())
+                remote_publication_id = publication.get("remote_public_id")
+                if remote_publication_id:
+                    await client.heartbeat(
+                        publication_id=str(remote_publication_id),
+                        state=str(publication.get("state") or "published_idle"),
+                    )
+                    publications.record_heartbeat(self._key())
             except (OSError, RuntimeError, ValueError, sqlite3.Error, asyncio.TimeoutError) as error:
                 # Недоступный control-plane не должен ронять локальную сессию.
                 _log.debug("heartbeat /rc не доставлен: %s", error)
@@ -577,12 +583,28 @@ class RemoteControlCoordinator:
 
     async def _reconcile(self, client: Any) -> None:
         publication = publications.get(self._key()) or {}
+        remote_publication_id = publication.get("remote_public_id")
+        if not remote_publication_id:
+            # Без серверного UUID публикации (POST publications ещё не
+            # подтверждён control-plane) запрашивать publications/:id/* нечего —
+            # тихо ждём следующего цикла, а не шлём заведомо невалидный путь.
+            return
         last_sequence = int(publication.get("last_sequence") or 0)
-        commands = await client.claim_pending(
-            device_id=self._device_id, last_sequence=last_sequence
+        commands = await client.list_commands(
+            publication_id=str(remote_publication_id), after_sequence=last_sequence
         )
         for command in commands:
-            self._ingest_remote_command(command)
+            command_id = str(command.get("id") or "")
+            if not command_id:
+                continue
+            claimed = await client.claim_command(
+                publication_id=str(remote_publication_id),
+                command_id=command_id,
+                runner_epoch=int(command.get("runnerEpoch") or 1),
+                lease_owner=self._device_id,
+            )
+            if claimed is not None:
+                self._ingest_remote_command(claimed)
 
     def _ingest_remote_command(self, command: dict[str, Any]) -> None:
         """Диспетчер входящих команд control-plane по фиксированному типу.

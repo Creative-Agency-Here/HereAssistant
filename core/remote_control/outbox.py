@@ -70,7 +70,7 @@ def next_due(*, now: Optional[int] = None) -> Optional[dict[str, Any]]:
     timestamp = int(now if now is not None else time.time())
     with db.conn() as connection:
         row = connection.execute(
-            """SELECT event_id, command_id, payload, attempts
+            """SELECT event_id, command_id, publication_id, payload, attempts
                FROM rc_event_outbox
                WHERE next_attempt_at <= ?
                ORDER BY created_at, event_id
@@ -104,6 +104,41 @@ def pending_count() -> int:
     return int(row["n"]) if row else 0
 
 
+def _remote_publication_id(local_publication_id: Optional[int]) -> Optional[str]:
+    """Серверный UUID публикации по локальному числовому FK (``rc_publications.id``).
+
+    Реальный маршрут ``POST publications/:id/events`` требует UUID публикации в
+    пути; локальная строка события хранит лишь целочисленный FK на
+    ``rc_publications``, поэтому UUID резолвится join'ом в момент отправки.
+    """
+    if local_publication_id is None:
+        return None
+    with db.conn() as connection:
+        row = connection.execute(
+            "SELECT remote_public_id FROM rc_publications WHERE id=?",
+            (local_publication_id,),
+        ).fetchone()
+    remote_id = row["remote_public_id"] if row else None
+    return str(remote_id) if remote_id else None
+
+
+def _build_envelope(row: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    """Собирает ``RunnerEventDto``: eventId/type/commandId на верхнем уровне,
+    остальные поля — вложенным ``payload`` (сервер отклоняет лишние top-level
+    поля через ``forbidNonWhitelisted``).
+    """
+    event_type = payload.pop("type", None)
+    command_id = payload.pop("commandId", None) or row.get("command_id")
+    envelope: dict[str, Any] = {"eventId": row["event_id"]}
+    if event_type:
+        envelope["type"] = event_type
+    if command_id:
+        envelope["commandId"] = command_id
+    if payload:
+        envelope["payload"] = payload
+    return envelope
+
+
 async def flush_once(client: "ControlPlaneClient") -> bool:
     """Одна попытка доставки due-события. True — было что слать и это доставлено.
 
@@ -123,8 +158,21 @@ async def flush_once(client: "ControlPlaneClient") -> bool:
         # но и терять запись молча тоже нельзя: это retry, не delete.
         mark_retry(row["event_id"], row["attempts"], type(error).__name__)
         return False
-    envelope: dict[str, Any] = {"eventId": row["event_id"], **payload}
-    delivered = await client.post_result(envelope)
+    if not isinstance(payload, dict):
+        mark_retry(row["event_id"], row["attempts"], "payload_not_object")
+        return False
+    remote_publication_id = _remote_publication_id(row["publication_id"])
+    if not remote_publication_id:
+        # Локальная публикация ещё не получила серверный UUID (POST publications
+        # ещё не подтверждён control-plane) — отправлять пока некуда. Это не
+        # сбой доставки конкретного события, поэтому запись остаётся в очереди
+        # с обычным экспоненциальным backoff, а не теряется.
+        mark_retry(row["event_id"], row["attempts"], "rc_publication_unresolved")
+        return False
+    envelope = _build_envelope(row, payload)
+    delivered = await client.send_events(
+        publication_id=remote_publication_id, events=[envelope]
+    )
     if delivered:
         # Доставка уже состоялась. Если отметку записать не удалось, событие
         # останется в очереди и уйдёт повторно — сервер обязан быть идемпотентным
@@ -139,7 +187,7 @@ async def flush_once(client: "ControlPlaneClient") -> bool:
             )
         log.info("RC outbox delivered event=%s", row["event_id"])
         return True
-    mark_retry(row["event_id"], row["attempts"], "post_result_failed")
+    mark_retry(row["event_id"], row["attempts"], "send_events_failed")
     return False
 
 
