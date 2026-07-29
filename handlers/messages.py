@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import sqlite3
 import time
 from pathlib import Path
 from typing import Optional
@@ -234,6 +235,37 @@ def _run_next_queued(bot: Bot, key: tuple[int, int, int], finished: asyncio.Task
     _start_run(bot, key, run)
 
 
+def _persist_answer(conv, text: str, *, account, policy) -> None:
+    """Сохраняет ответ агента в историю, если политика проекта это разрешает.
+
+    Агент к этому моменту уже отработал и изменил файлы. Сбой записи не должен
+    выглядеть как провал запроса: человек повторит его, и агент пройдёт по
+    проекту второй раз — а это необратимо.
+    """
+    if not project_config.can_store_messages(policy):
+        return
+    try:
+        repo.save_message(
+            conv["id"], "assistant", text, provider=account["provider"], model=conv["model"]
+        )
+    except sqlite3.Error as exc:
+        log.warning("ответ агента не сохранён в историю: %s", exc)
+
+
+def _persist_session_id(conv, new_session: str | None) -> None:
+    """Запоминает нативную сессию провайдера для последующего resume.
+
+    Потеря этой записи означает, что следующий запрос начнёт новую сессию и
+    контекст оборвётся, но показывать из-за неё ошибку нельзя.
+    """
+    if not new_session or new_session == conv["provider_session_id"]:
+        return
+    try:
+        repo.update_conv(conv["id"], provider_session_id=new_session)
+    except sqlite3.Error as exc:
+        log.warning("не удалось сохранить id сессии провайдера: %s", exc)
+
+
 async def _process_message(
     bot: Bot,
     message: Message,
@@ -393,10 +425,7 @@ async def _process_message(
 
         duration_s = time.time() - t0
 
-        if project_config.can_store_messages(policy):
-            repo.save_message(
-                conv["id"], "assistant", text, provider=account["provider"], model=conv["model"]
-            )
+        _persist_answer(conv, text, account=account, policy=policy)
 
         # Оригинал ответа (с таблицами) — для rich-финала (Bot API 10.1).
         raw_answer = text
@@ -411,8 +440,7 @@ async def _process_message(
         )
         text = classic_prepared.answer
         table_pngs = list(classic_prepared.table_pngs)
-        if new_session and new_session != conv["provider_session_id"]:
-            repo.update_conv(conv["id"], provider_session_id=new_session)
+        _persist_session_id(conv, new_session)
 
         # Журнал изменений: полный дифф каждой правки (отдельный слой, core.changes).
         # НЕ журналим временные/секретные файлы (диагностика, askpass с паролями, /tmp и т.п.).

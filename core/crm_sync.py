@@ -214,7 +214,17 @@ async def flush_once(session: aiohttp.ClientSession) -> bool:
             headers={"Authorization": f"Bearer {config.HERECRM_SYNC_TOKEN}"},
         ) as response:
             if 200 <= response.status < 300:
-                _mark_delivered(row["event_id"])
+                # Доставка уже состоялась. Если отметку записать не удалось,
+                # событие останется в очереди и уйдёт в CRM повторно — про это
+                # надо кричать в лог: молчаливый дубль хуже видимой ошибки.
+                try:
+                    _mark_delivered(row["event_id"])
+                except sqlite3.Error as exc:
+                    log.error(
+                        "CRM sync доставлен, но не отмечен — возможен дубль event=%s: %s",
+                        row["event_id"],
+                        exc,
+                    )
                 log.info("CRM sync delivered event=%s", row["event_id"])
                 return True
             _mark_retry(row["event_id"], row["attempts"], f"http:{response.status}")
