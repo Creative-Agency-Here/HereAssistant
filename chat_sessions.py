@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import uuid
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from core import config
+from core import config, session_import
 from core.models import AccountLike
 
 AccountRecord = AccountLike
@@ -55,50 +54,17 @@ def claude_sessions_dir(session: Session) -> Path | None:
 
 
 def list_resumable(session: Session, *, limit: int = 20) -> list[ResumableSession]:
-    directory = claude_sessions_dir(session)
-    if directory is None:
+    """Свежие сессии текущего проекта у выбранного аккаунта.
+
+    Claude хранит их в каталоге, имя которого закодировано из cwd; Codex — в
+    общем дереве по датам, поэтому проект берётся из `session_meta`. Провайдеры
+    без нативного resume отдают пустой список.
+    """
+    cli_home = Path(session.account["cli_home_path"])
+    if session.provider == "claude_code":
+        found = session_import.list_claude_sessions(cli_home, session.cwd, limit=limit)
+    elif session.provider == "codex":
+        found = session_import.list_codex_sessions(cli_home, session.cwd, limit=limit)
+    else:
         return []
-    candidates: list[tuple[Path, float]] = []
-    for path in directory.glob("*.jsonl"):
-        try:
-            candidates.append((path, path.stat().st_mtime))
-        except OSError:
-            continue
-    candidates.sort(key=lambda item: item[1], reverse=True)
-    return [
-        ResumableSession(path.stem, _session_title(path), mtime)
-        for path, mtime in candidates[:limit]
-    ]
-
-
-def _session_title(path: Path) -> str:
-    try:
-        with path.open(encoding="utf-8", errors="replace") as stream:
-            for line in stream:
-                try:
-                    event = json.loads(line)
-                except (json.JSONDecodeError, TypeError):
-                    continue
-                if not isinstance(event, Mapping):
-                    continue
-                if event.get("type") != "user" or event.get("isMeta"):
-                    continue
-                message = event.get("message")
-                if not isinstance(message, Mapping):
-                    continue
-                title = _content_text(message.get("content"))
-                if title.strip():
-                    return title.strip()[:70]
-    except OSError:
-        return "(без текста)"
-    return "(без текста)"
-
-
-def _content_text(content: object) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        for block in content:
-            if isinstance(block, Mapping) and block.get("type") == "text":
-                return str(block.get("text") or "")
-    return ""
+    return [ResumableSession(item.session_id, item.title, item.mtime) for item in found]

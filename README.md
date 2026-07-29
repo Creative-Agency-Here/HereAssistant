@@ -25,7 +25,7 @@ never sent to CRM implicitly. See the unified runtime guide for the configuratio
 - **User-scoped repositories** — clone only from allowlisted Git hosts, switch registered projects, create isolated branch worktrees, inspect/pull, and confirm pushes from Telegram.
 - **Live progress** — streaming progress message in chat while the agent works; interrupt by sending a new message.
 - **Rich Messages (Bot API 10.1)** — final answers via `sendRichMessage` with native tables, headings, code blocks and math; answer text streams as an animated `sendRichMessageDraft` preview. Automatic fallback to the classic HTML path.
-- **Native session resume** — Claude sessions continue via `--resume`; context survives without storing your data.
+- **Native session resume** — Claude and Codex sessions continue via `--resume`; `/resume` lists the recent sessions of the current project straight from each CLI's own store, so context survives without storing your data.
 - **Web Mini App** — history, live status, file-change journal and one view of local/server contours, Git divergence, disk and confirmed deployment state (Nuxt 3), authenticated via Telegram initData.
 - **VS Code Workbench** — task-named terminal-editor tabs, an animated status-bar quick menu, multiline input, local/server heartbeats, CRM state, and Git/deploy status inside Source Control.
 - **File exchange** — send documents/photos/voice to the agent; long answers come back as Markdown files.
