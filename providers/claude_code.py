@@ -229,6 +229,7 @@ class ClaudeCodeProvider(CLIProvider):
             result_preview=_result_preview,
             tool_description=_short_tool_desc,
             session_id=session_id,
+            cwd=cwd,
         )
         stderr_buffer: list[str] = []
 

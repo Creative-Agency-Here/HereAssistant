@@ -11,12 +11,14 @@ from pathlib import Path
 from typing import Any
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import Message
 
 from utils import rich
 
 from .message_progress import ProgressRenderContext, ProgressState, render_progress
 from .message_progress_delivery import ProgressDelivery, ProgressDeliveryPolicy
+from .message_risk import alerts_from_meta, format_alert, new_alerts
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +66,8 @@ class MessageLiveSession:
         self.chat_id = source_message.chat.id
         self.thread_id = source_message.message_thread_id or 0
         self.started_at = started_at
+        # Вердикты, о которых уже сообщили в этом turn-е.
+        self._risk_seen: set[tuple[str, str, str]] = set()
         self.policy = policy
         self.logger = logger
         self.clock = clock
@@ -114,6 +118,23 @@ class MessageLiveSession:
             self._heartbeat_task = asyncio.create_task(self._progress_heartbeat())
         await self.progress_delivery.push(force=True)
 
+    async def _warn_about_risky_commands(self, meta: Mapping[str, Any]) -> None:
+        """Сообщает о разрушительных вызовах агента, каждый вердикт — один раз.
+
+        Сбой отправки предупреждения не должен рушить сам turn: работа агента
+        продолжается, о проблеме остаётся запись в логе.
+        """
+        fresh = new_alerts(alerts_from_meta(meta), self._risk_seen)
+        for alert in fresh:
+            try:
+                await self.bot.send_message(
+                    self.chat_id,
+                    format_alert(alert),
+                    message_thread_id=self.thread_id or None,
+                )
+            except TelegramAPIError as exc:
+                self.logger.warning("не удалось отправить предупреждение о риске: %s", exc)
+
     async def progress_callback(
         self,
         partial_text: str,
@@ -125,6 +146,7 @@ class MessageLiveSession:
         self.state.last_partial = partial_text
         if meta:
             self.state.last_meta = meta
+            await self._warn_about_risky_commands(meta)
         now = self.clock()
         self.state.last_event_ts = now
         if (

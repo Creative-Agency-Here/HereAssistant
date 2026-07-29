@@ -103,5 +103,6 @@ def test_progress_meta_keeps_common_cross_provider_shape() -> None:
         "tool_call_log": [],
         "steps": [],
         "thinking": "",
+        "risk_alerts": [],
         "current_tool": None,
     }

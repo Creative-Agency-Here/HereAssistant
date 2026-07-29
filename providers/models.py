@@ -23,6 +23,15 @@ class FileEditDict(TypedDict):
     new: str
 
 
+class RiskAlertDict(TypedDict):
+    """Вердикт по опасной команде агента. Самой команды здесь нет и быть не должно."""
+
+    tool: str
+    level: str
+    rules: list[str]
+    targets: list[str]
+
+
 class ProgressMeta(TypedDict):
     edits: list[FileEditDict]
     tool_uses: list[str]
@@ -30,6 +39,7 @@ class ProgressMeta(TypedDict):
     steps: list[ToolStepDict]
     thinking: str
     current_tool: str | None
+    risk_alerts: list[RiskAlertDict]
 
 
 class ProviderMeta(TypedDict, total=False):
@@ -42,6 +52,7 @@ class ProviderMeta(TypedDict, total=False):
     rate_limit_hits: int
     rate_limit_reset: object
     partial_due_to_error: bool
+    risk_alerts: list[RiskAlertDict]
 
 
 class ProgressCallback(Protocol):

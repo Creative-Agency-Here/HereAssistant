@@ -221,7 +221,7 @@ class GeminiProvider(CLIProvider):
         )
         await write_stdin(proc, stdin_data)
 
-        parser = GeminiStreamParser(_short_tool_desc, session_id=session_id)
+        parser = GeminiStreamParser(_short_tool_desc, session_id=session_id, cwd=cwd)
         stderr_buffer: list[str] = []
 
         async def emit_progress(event_type: str) -> None:

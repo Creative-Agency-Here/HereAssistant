@@ -6,7 +6,14 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from providers.models import FileEdit, ProgressMeta, ProviderMeta, ProviderResult
+from providers.models import (
+    FileEdit,
+    ProgressMeta,
+    ProviderMeta,
+    ProviderResult,
+    RiskAlertDict,
+)
+from providers.parsers.risk import record_risk
 
 ToolDescription = Callable[[str, dict[str, Any]], str]
 
@@ -32,6 +39,9 @@ class GeminiStreamParser:
     edits: list[FileEdit] = field(default_factory=list)
     tool_uses: list[str] = field(default_factory=list)
     tool_call_log: list[str] = field(default_factory=list)
+    # Рабочий каталог нужен классификатору риска shell-команд.
+    cwd: str | None = None
+    risk_alerts: list[RiskAlertDict] = field(default_factory=list)
     events_seen: dict[str, int] = field(default_factory=dict)
     _meta: ProviderMeta = field(default_factory=ProviderMeta)
     _tool_call_idx: dict[str, int] = field(default_factory=dict)
@@ -85,6 +95,7 @@ class GeminiStreamParser:
             steps=[],
             thinking="",
             current_tool=self.current_tool,
+            risk_alerts=list(self.risk_alerts),
         )
 
     def provider_result(self) -> ProviderResult:
@@ -92,6 +103,8 @@ class GeminiStreamParser:
         meta["edits"] = [edit.to_dict() for edit in self.edits]
         meta["tool_uses"] = list(self.tool_uses)
         meta["tool_call_log"] = list(self.tool_call_log)
+        if self.risk_alerts:
+            meta["risk_alerts"] = list(self.risk_alerts)
         # Gemini resume пока не включён: внешний контракт намеренно возвращает None.
         return ProviderResult(self.text or "(пустой ответ)", None, meta)
 
@@ -105,6 +118,7 @@ class GeminiStreamParser:
         self._record_edit(name, parameters)
 
     def _record_tool_call(self, name: str, parameters: dict[str, Any], tool_id: str | None) -> None:
+        record_risk(name, parameters, cwd=self.cwd, alerts=self.risk_alerts)
         description = self.tool_description(name, parameters)
         if tool_id and tool_id in self._tool_call_idx:
             self.tool_call_log[self._tool_call_idx[tool_id]] = description

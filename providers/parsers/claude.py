@@ -6,7 +6,15 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from providers.models import FileEdit, ProgressMeta, ProviderMeta, ProviderResult, ToolStep
+from providers.models import (
+    FileEdit,
+    ProgressMeta,
+    ProviderMeta,
+    ProviderResult,
+    RiskAlertDict,
+    ToolStep,
+)
+from providers.parsers.risk import record_risk
 
 TextFromMessage = Callable[[dict[str, Any]], str]
 ThinkingFromBlock = Callable[[dict[str, Any]], str]
@@ -40,6 +48,10 @@ class ClaudeStreamParser:
     tool_uses: list[str] = field(default_factory=list)
     tool_call_log: list[str] = field(default_factory=list)
     steps: list[ToolStep] = field(default_factory=list)
+    # Рабочий каталог нужен классификатору риска: правила отличают удаление
+    # внутри проекта от удаления снаружи.
+    cwd: str | None = None
+    risk_alerts: list[RiskAlertDict] = field(default_factory=list)
     rate_limit_hits: int = 0
     rate_limit_reset: object | None = None
     rate_limit_subtype: str | None = None
@@ -110,6 +122,7 @@ class ClaudeStreamParser:
             steps=[step.to_dict() for step in self.steps],
             thinking=self.thinking,
             current_tool=self.current_tool,
+            risk_alerts=list(self.risk_alerts),
         )
 
     def provider_result(self) -> ProviderResult:
@@ -118,6 +131,8 @@ class ClaudeStreamParser:
         meta["tool_uses"] = list(self.tool_uses)
         meta["tool_call_log"] = list(self.tool_call_log)
         meta["steps"] = [step.to_dict() for step in self.steps]
+        if self.risk_alerts:
+            meta["risk_alerts"] = list(self.risk_alerts)
         if self.rate_limit_hits:
             meta["rate_limit_hits"] = self.rate_limit_hits
             if self.rate_limit_reset is not None:
@@ -271,6 +286,7 @@ class ClaudeStreamParser:
             self._meta["tokens_out"] = tokens_out
 
     def _record_tool_call(self, name: str, tool_input: dict[str, Any], tool_id: str | None) -> None:
+        record_risk(name, tool_input, cwd=self.cwd, alerts=self.risk_alerts)
         description = self.tool_description(name, tool_input)
         if tool_id and tool_id in self._step_idx:
             self.steps[self._step_idx[tool_id]].desc = description

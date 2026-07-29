@@ -143,6 +143,7 @@ class QwenCodeProvider(CLIProvider):
             thinking_from_block=_extract_thinking,
             result_preview=_result_preview,
             tool_description=_short_tool_desc,
+            cwd=cwd,
             session_id=session_id,
         )
         stderr_buffer: list[str] = []
