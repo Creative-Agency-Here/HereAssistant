@@ -54,7 +54,16 @@ def format_alert(alert: Mapping[str, Any]) -> str:
     targets = [str(target) for target in alert.get("targets") or [] if str(target).strip()]
     if targets:
         lines.append("Цель: " + ", ".join(targets[:3]))
-    lines.append("Команду выполняет сам CLI-агент — шлюз её не останавливает.")
+    # Формулировка обязана быть точной в обе стороны: не пугать зря и не обещать
+    # защиты, которой нет. Блокируются только катастрофические команды и только
+    # у Claude и Qwen Code — у Gemini и Codex механизма нет.
+    if level == "CATASTROPHIC":
+        lines.append(
+            "Такие команды блокируются защитным хуком у Claude и Qwen Code; "
+            "у Gemini и Codex он невозможен — там команда выполняется."
+        )
+    else:
+        lines.append("Команду выполняет сам CLI-агент — шлюз её не останавливает.")
     return "\n".join(lines)
 
 

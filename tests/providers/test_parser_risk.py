@@ -107,7 +107,20 @@ def test_alert_message_has_no_command_and_states_the_limitation() -> None:
     text = format_alert(parser.risk_alerts[0])
 
     assert "rm -rf" not in text
-    assert "не останавливает" in text, "монитор обязан честно сказать, что не блокирует"
+    assert "блокируются" in text, "для катастрофы говорим о блокировке"
+    assert "Gemini" in text, "и честно называем провайдеров без защиты"
+
+
+def test_confirm_alert_says_it_does_not_block() -> None:
+    """CONFIRM не блокируется ничем — текст обязан это признавать."""
+    parser = _claude_parser()
+    parser.consume(
+        {"type": "tool_use", "name": "Bash", "input": {"command": "rm -rf ../neighbour"}}
+    )
+
+    text = format_alert(parser.risk_alerts[0])
+
+    assert "не останавливает" in text
 
 
 def test_alerts_are_reported_once_per_turn() -> None:
