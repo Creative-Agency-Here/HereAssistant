@@ -9,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from core import projects, rtk
+from core import projects, risk_hook, rtk
 from manage_accounts import (
     AccountExistsError,
     NewAccount,
@@ -182,6 +182,8 @@ def do_login(prov: ProviderSpec, cli_home: Path) -> None:
         print(f"\n{G}✓ Логин зафиксирован ({hint}){X}")
         if prov["key"] == "claude_code" and rtk.configure_claude_profile(cli_home):
             print(f"{G}✓ RTK hook и безопасные read/test permissions подключены.{X}")
+        if prov["key"] == "claude_code" and risk_hook.configure_claude_hook(cli_home):
+            print(f"{G}✓ Блокировка катастрофических команд подключена (см. SECURITY.md).{X}")
     else:
         print(f"\n{Y}⚠ Не вижу auth-файлов в {cli_home}{X}")
         print(f"{D}Возможно ты не завершил логин в TUI/браузере.{X}")
