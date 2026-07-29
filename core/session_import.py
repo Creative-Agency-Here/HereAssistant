@@ -161,11 +161,20 @@ def _codex_title(path: Path) -> str:
     return "(без текста)"
 
 
+def claude_project_dir(cli_home: Path, cwd: Path | str) -> Path:
+    """Каталог сессий Claude Code: путь проекта закодирован в имени папки.
+
+    Единственное место, где это правило записано; дублировать его нельзя —
+    разъехавшийся slug молча покажет пустой список вместо сессий.
+    """
+    slug = str(cwd).replace("/", "-").replace("\\", "-")
+    return cli_home / "projects" / slug
+
+
 def list_claude_sessions(
     cli_home: Path, cwd: Path | str, *, limit: int = 20
 ) -> list[ExternalSession]:
-    slug = str(cwd).replace("/", "-").replace("\\", "-")
-    directory = cli_home / "projects" / slug
+    directory = claude_project_dir(cli_home, cwd)
     if not directory.is_dir():
         return []
     sessions: list[ExternalSession] = []
@@ -184,7 +193,12 @@ def list_codex_sessions(
         return []
     target = str(cwd)
     sessions: list[ExternalSession] = []
-    for path, mtime in _recent_files(root, "*/*/*/*.jsonl", limit=_MAX_CANDIDATES):
+    # Раскладка по датам — текущая; на случай её смены есть рекурсивный запасной
+    # проход, иначе новый формат каталогов дал бы молча пустой список.
+    candidates = _recent_files(root, "*/*/*/*.jsonl", limit=_MAX_CANDIDATES)
+    if not candidates:
+        candidates = _recent_files(root, "**/*.jsonl", limit=_MAX_CANDIDATES)
+    for path, mtime in candidates:
         if len(sessions) >= limit:
             break
         if not _inside(path, cli_home):

@@ -48,8 +48,9 @@ class Session:
 def claude_sessions_dir(session: Session) -> Path | None:
     if session.provider != "claude_code":
         return None
-    slug = str(session.cwd).replace("/", "-").replace("\\", "-")
-    directory = Path(session.account["cli_home_path"]) / "projects" / slug
+    directory = session_import.claude_project_dir(
+        Path(session.account["cli_home_path"]), session.cwd
+    )
     return directory if directory.exists() else None
 
 

@@ -193,6 +193,23 @@ def test_claude_sessions_read_from_slugged_project_dir(tmp_path: Path) -> None:
     assert [(item.session_id, item.title) for item in found] == [("session-1", "живой вопрос")]
 
 
+def test_codex_falls_back_to_recursive_scan(tmp_path: Path) -> None:
+    """Смена раскладки каталогов не должна молча обнулять список сессий."""
+    home = tmp_path / "codex_home"
+    project = "/work/project"
+    codex_session(home, day="flat", name="rollout-z", session_id="ggg", cwd=project)
+
+    found = session_import.list_codex_sessions(home, project)
+
+    assert [item.session_id for item in found] == ["ggg"]
+
+
+def test_claude_project_dir_is_the_single_slug_rule(tmp_path: Path) -> None:
+    assert session_import.claude_project_dir(tmp_path, "/work/project") == (
+        tmp_path / "projects" / "-work-project"
+    )
+
+
 def test_missing_directories_return_empty(tmp_path: Path) -> None:
     assert session_import.list_codex_sessions(tmp_path / "nope", "/work") == []
     assert session_import.list_claude_sessions(tmp_path / "nope", "/work") == []
