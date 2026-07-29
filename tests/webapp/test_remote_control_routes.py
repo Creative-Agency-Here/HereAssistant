@@ -25,6 +25,9 @@ SERVER_TOKEN = "-".join(("srv", "secret", "token", "abc123"))
 SYNC_TOKEN = "-".join(("test", "sync", "token", "xyz"))
 CRM_BASE_URL = "https://" + "crm.rc.test" + "/api/v1"
 PUBLICATION_ID = "3f2b1a0e-1234-4abc-8def-0123456789ab"
+# Владелец серверного токена прокси и «другой участник того же пространства».
+OWNER_CRM_USER_ID = 5
+OTHER_CRM_USER_ID = 6
 
 
 def configure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -37,12 +40,14 @@ def configure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(server, "DEV_SKIP_AUTH", True)
     monkeypatch.setenv("RC_PROXY_CRM_BASE_URL", CRM_BASE_URL)
     monkeypatch.setenv("RC_PROXY_CRM_TOKEN", SERVER_TOKEN)
+    # Владелец серверного токена: только его сессия вправе управлять устройством.
+    monkeypatch.setenv("RC_PROXY_CRM_OWNER_USER_ID", str(OWNER_CRM_USER_ID))
     db.init()
 
 
-def crm_cookie() -> dict[str, str]:
+def crm_cookie(crm_user_id: int = OWNER_CRM_USER_ID) -> dict[str, str]:
     """Действующая CRM-сессия браузера (auth_source=crm)."""
-    token = browser_session.issue(crm_user_id=5, tenant_id="tenant-rc")
+    token = browser_session.issue(crm_user_id=crm_user_id, tenant_id="tenant-rc")
     return {browser_session.COOKIE_NAME: token}
 
 
@@ -158,6 +163,40 @@ async def test_oversized_body_rejected(
         await client.close()
 
 
+async def test_long_valid_body_is_not_truncated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Длинный, но допустимый промпт доезжает целиком.
+
+    StreamReader.read(n) отдаёт лишь то, что уже в буфере: одного чтения на
+    такое тело не хватает, и раньше валидный запрос отбивался как invalid_json.
+    Повторяем отправку, потому что дефект проявлялся не на каждой попытке.
+    """
+    configure(tmp_path, monkeypatch)
+    fake = FakeCrm(201, {"command": {"id": "cmd-1"}, "created": True})
+    monkeypatch.setattr(remote_control, "_send_http", fake)
+    client = TestClient(TestServer(server.create_app()))
+    await client.start_server()
+    try:
+        # Длинный, но допустимый промпт: под потолком символов и под потолком тела.
+        prompt = "prompt-line " * 600
+        body = json.dumps({"commandType": "prompt", "payload": {"prompt": prompt}})
+        assert len(prompt) <= remote_control.MAX_PROMPT_CHARS
+        assert len(body.encode()) < remote_control.MAX_BODY_BYTES
+        for _ in range(3):
+            response = await client.post(
+                f"/api/rc/publications/{PUBLICATION_ID}/commands",
+                data=body,
+                headers={"Content-Type": "application/json"},
+                cookies=crm_cookie(),
+            )
+            assert response.status == 201, await response.json()
+        assert len(fake.calls) == 3
+        assert fake.calls[0]["json_body"]["payload"]["prompt"] == prompt
+    finally:
+        await client.close()
+
+
 async def test_offline_device_returns_server_error_code(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -170,7 +209,7 @@ async def test_offline_device_returns_server_error_code(
     try:
         response = await client.post(
             f"/api/rc/publications/{PUBLICATION_ID}/commands",
-            json={"commandType": "prompt", "payload": {"text": "привет"}},
+            json={"commandType": "prompt", "payload": {"prompt": "привет"}},
             cookies=crm_cookie(),
         )
         assert response.status == 409
@@ -191,7 +230,7 @@ async def test_create_command_forwards_validated_body(
     try:
         response = await client.post(
             f"/api/rc/publications/{PUBLICATION_ID}/commands",
-            json={"commandType": "prompt", "payload": {"text": "привет"}},
+            json={"commandType": "prompt", "payload": {"prompt": "привет"}},
             cookies=crm_cookie(),
         )
         assert response.status == 201
@@ -199,7 +238,163 @@ async def test_create_command_forwards_validated_body(
         call = fake.calls[0]
         assert call["method"] == "POST"
         assert call["url"] == f"{CRM_BASE_URL}/cli-agent/remote-publications/{PUBLICATION_ID}/commands"
-        assert call["json_body"] == {"commandType": "prompt", "payload": {"text": "привет"}}
+        assert call["json_body"] == {"commandType": "prompt", "payload": {"prompt": "привет"}}
+    finally:
+        await client.close()
+
+
+async def test_prompt_payload_with_foreign_key_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Промпт под чужим ключом — отказ, а не тихий запуск агента с пустым текстом.
+
+    Раннер читает payload['prompt'] (chat_remote_control._ingest_prompt_command).
+    Исторический ключ 'text' доезжал до устройства пустой строкой: агент
+    стартовал, ничего не делал и отчитывался успехом.
+    """
+    configure(tmp_path, monkeypatch)
+    fake = FakeCrm(201, {})
+    monkeypatch.setattr(remote_control, "_send_http", fake)
+    client = TestClient(TestServer(server.create_app()))
+    await client.start_server()
+    try:
+        for payload in ({"text": "привет"}, {}, {"prompt": "   "}, {"prompt": 42}):
+            response = await client.post(
+                f"/api/rc/publications/{PUBLICATION_ID}/commands",
+                json={"commandType": "prompt", "payload": payload},
+                cookies=crm_cookie(),
+            )
+            assert response.status == 400, payload
+            assert await response.json() == {"error": "invalid_command"}
+        # Ни одна из попыток не дошла до CRM.
+        assert fake.calls == []
+    finally:
+        await client.close()
+
+
+async def test_prompt_payload_extra_keys_are_dropped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Наружу уходит только текст промпта: лишние ключи браузера не пересылаются."""
+    configure(tmp_path, monkeypatch)
+    fake = FakeCrm(201, {"command": {"id": "cmd-1"}, "created": True})
+    monkeypatch.setattr(remote_control, "_send_http", fake)
+    client = TestClient(TestServer(server.create_app()))
+    await client.start_server()
+    try:
+        response = await client.post(
+            f"/api/rc/publications/{PUBLICATION_ID}/commands",
+            json={
+                "commandType": "prompt",
+                "payload": {"prompt": "привет", "cwd": "/Users/owner/secret", "text": "мусор"},
+            },
+            cookies=crm_cookie(),
+        )
+        assert response.status == 201
+        assert fake.calls[0]["json_body"] == {
+            "commandType": "prompt",
+            "payload": {"prompt": "привет"},
+        }
+    finally:
+        await client.close()
+
+
+async def test_prompt_longer_than_backend_limit_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Промпт длиннее потолка бэкенда отбивается своим кодом, а не общим 400."""
+    configure(tmp_path, monkeypatch)
+    fake = FakeCrm(201, {})
+    monkeypatch.setattr(remote_control, "_send_http", fake)
+    client = TestClient(TestServer(server.create_app()))
+    await client.start_server()
+    try:
+        response = await client.post(
+            f"/api/rc/publications/{PUBLICATION_ID}/commands",
+            json={
+                "commandType": "prompt",
+                "payload": {"prompt": "я" * (remote_control.MAX_PROMPT_CHARS + 1)},
+            },
+            cookies=crm_cookie(),
+        )
+        assert response.status == 400
+        assert await response.json() == {"error": "prompt_too_long"}
+        assert fake.calls == []
+    finally:
+        await client.close()
+
+
+async def test_idempotency_key_forwarded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ключ идемпотентности браузера доезжает до CRM — иначе повтор задваивает промпт."""
+    configure(tmp_path, monkeypatch)
+    fake = FakeCrm(201, {"id": "cmd-1", "created": False})
+    monkeypatch.setattr(remote_control, "_send_http", fake)
+    client = TestClient(TestServer(server.create_app()))
+    await client.start_server()
+    try:
+        response = await client.post(
+            f"/api/rc/publications/{PUBLICATION_ID}/commands",
+            json={"commandType": "prompt", "payload": {"prompt": "привет"}},
+            headers={"Idempotency-Key": "web_11112222-3333-4444-5555-666677778888"},
+            cookies=crm_cookie(),
+        )
+        assert response.status == 201
+        sent_headers = fake.calls[0]["headers"]
+        assert sent_headers["Idempotency-Key"] == "web_11112222-3333-4444-5555-666677778888"
+        # Серверный токен по-прежнему не подменяется и не дублируется браузером.
+        assert sent_headers["Authorization"] == f"Bearer {SERVER_TOKEN}"
+        assert set(sent_headers) == {
+            "Authorization",
+            "Content-Type",
+            "Accept",
+            "Idempotency-Key",
+        }
+    finally:
+        await client.close()
+
+
+async def test_request_without_idempotency_key_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Без заголовка исходящий набор заголовков остаётся прежним."""
+    configure(tmp_path, monkeypatch)
+    fake = FakeCrm(201, {"id": "cmd-1"})
+    monkeypatch.setattr(remote_control, "_send_http", fake)
+    client = TestClient(TestServer(server.create_app()))
+    await client.start_server()
+    try:
+        response = await client.post(
+            f"/api/rc/publications/{PUBLICATION_ID}/commands",
+            json={"commandType": "stop"},
+            cookies=crm_cookie(),
+        )
+        assert response.status == 201
+        assert set(fake.calls[0]["headers"]) == {"Authorization", "Content-Type", "Accept"}
+    finally:
+        await client.close()
+
+
+async def test_malformed_idempotency_key_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Кривой ключ — явный отказ, а не тихая отправка без него (иначе будет дубль)."""
+    configure(tmp_path, monkeypatch)
+    fake = FakeCrm(201, {})
+    monkeypatch.setattr(remote_control, "_send_http", fake)
+    client = TestClient(TestServer(server.create_app()))
+    await client.start_server()
+    try:
+        response = await client.post(
+            f"/api/rc/publications/{PUBLICATION_ID}/commands",
+            json={"commandType": "prompt", "payload": {"prompt": "привет"}},
+            headers={"Idempotency-Key": "short"},
+            cookies=crm_cookie(),
+        )
+        assert response.status == 400
+        assert await response.json() == {"error": "invalid_idempotency_key"}
+        assert fake.calls == []
     finally:
         await client.close()
 
@@ -218,6 +413,109 @@ async def test_invalid_publication_id_rejected(
             "/api/rc/publications/..%2Fescape", cookies=crm_cookie()
         )
         assert response.status == 400
+        assert fake.calls == []
+    finally:
+        await client.close()
+
+
+class ChunkedContent:
+    """StreamReader, который отдаёт тело кусками — как настоящая сеть."""
+
+    def __init__(self, payload: bytes, chunk: int) -> None:
+        self._rest = payload
+        self._chunk = chunk
+
+    async def read(self, n: int = -1) -> bytes:
+        if not self._rest:
+            return b""
+        size = self._chunk if n < 0 else min(n, self._chunk)
+        piece, self._rest = self._rest[:size], self._rest[size:]
+        return piece
+
+
+class FakeRequest:
+    def __init__(self, payload: bytes, chunk: int, *, declared: int | None = None) -> None:
+        self.content = ChunkedContent(payload, chunk)
+        self.content_length = declared
+
+
+async def test_body_is_read_until_eof_not_one_buffer() -> None:
+    """Тело собирается целиком, даже когда каждый read отдаёт по кусочку.
+
+    Это и был дефект: одиночный read(MAX+1) возвращает только то, что уже в
+    буфере, и валидный промпт молча превращался в обрезанный JSON (400).
+    """
+    payload = json.dumps({"commandType": "prompt", "payload": {"prompt": "a" * 40_000}}).encode()
+    request = FakeRequest(payload, 4096, declared=len(payload))
+
+    raw = await remote_control._read_body_bytes(request)  # type: ignore[arg-type]
+
+    assert raw == payload
+
+
+async def test_oversized_stream_is_413_even_without_content_length() -> None:
+    """Поток сверх потолка — это 413, а не «сломанный JSON»."""
+    payload = b"x" * (remote_control.MAX_BODY_BYTES + 2048)
+    request = FakeRequest(payload, 4096)
+
+    with pytest.raises(remote_control.RcProxyError) as error:
+        await remote_control._read_body_bytes(request)  # type: ignore[arg-type]
+
+    assert error.value.status == 413
+    assert error.value.code == "body_too_large"
+
+
+async def test_session_of_other_participant_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Чужая CRM-сессия не управляет устройством владельца (403 до запроса к CRM).
+
+    Сессию с ``auth_source='crm'`` получает ЛЮБОЙ участник пространства, обменявший
+    свой ``hat_``-тикет, а исходящий запрос уходит с общим серверным токеном, то есть
+    от имени владельца. Без сверки владельца это был бы удалённый запуск кода на его
+    компьютере от лица постороннего.
+    """
+    configure(tmp_path, monkeypatch)
+    fake = FakeCrm(201, {"id": "cmd-1"})
+    monkeypatch.setattr(remote_control, "_send_http", fake)
+    client = TestClient(TestServer(server.create_app()))
+    await client.start_server()
+    try:
+        response = await client.post(
+            f"/api/rc/publications/{PUBLICATION_ID}/commands",
+            data=json.dumps({"commandType": "prompt", "payload": {"prompt": "rm -rf"}}),
+            headers={"Content-Type": "application/json"},
+            cookies=crm_cookie(OTHER_CRM_USER_ID),
+        )
+        assert response.status == 403
+        assert await response.json() == {"error": "not_owner"}
+        # Ни одного исходящего запроса: отказ до обращения к CRM.
+        assert fake.calls == []
+
+        # Чтение списка публикаций владельца — тоже не для чужой сессии.
+        listing = await client.get(
+            "/api/rc/publications", cookies=crm_cookie(OTHER_CRM_USER_ID)
+        )
+        assert listing.status == 403
+        assert fake.calls == []
+    finally:
+        await client.close()
+
+
+async def test_owner_not_configured_disables_proxy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Без RC_PROXY_CRM_OWNER_USER_ID прокси выключен (default deny), а не «пускаем всех»."""
+    configure(tmp_path, monkeypatch)
+    monkeypatch.delenv("RC_PROXY_CRM_OWNER_USER_ID", raising=False)
+    fake = FakeCrm(200, [])
+    monkeypatch.setattr(remote_control, "_send_http", fake)
+    client = TestClient(TestServer(server.create_app()))
+    await client.start_server()
+    try:
+        response = await client.get("/api/rc/publications", cookies=crm_cookie())
+        assert response.status == 503
+        assert await response.json() == {"error": "rc_not_configured"}
         assert fake.calls == []
     finally:
         await client.close()

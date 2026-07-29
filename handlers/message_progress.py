@@ -41,6 +41,9 @@ class ProgressRenderContext:
     chain_limit: int
     max_partial_chars: int
     draft_enabled: bool
+    # Удалённый запуск /rc: чей компьютер исполняет запрос. Пустое значение —
+    # обычный локальный turn, шапка остаётся прежней.
+    device_label: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +125,8 @@ def render_progress(
     chain = _sequence(meta.get("tool_call_log"))
 
     head: list[str] = []
+    if context.device_label:
+        head.append(f"💻 {html_escape(context.device_label)} · удалённо")
     if context.model:
         head.append(f"🤖 {html_escape(context.model)}")
     if context.account_label:

@@ -32,7 +32,7 @@ from typing import Any, Optional, TextIO
 
 from chat_renderer import B, C, D, G, R, W, X, Y
 from chat_sessions import Session
-from core import project_config
+from core import crm_sync, herecrm_client, project_config
 from core.remote_control import config as rc_config
 from core.remote_control import credential_store, events, git_actions, publications, receipts
 from core.remote_control.control_plane_client import ControlPlaneClient
@@ -54,15 +54,60 @@ _SOURCE_LABEL = {"local": "локально", "remote": "удалённо"}
 # которые исполняются через готовый core/remote_control/git_actions.py.
 _GIT_ACTION_TYPES = frozenset({"git_preflight", "git_commit", "git_push"})
 
+# Коды причин отказа/сбоя, уезжающие серверу рядом со статусом. UPPER_SNAKE и не
+# длиннее 48 символов (колонка ``error_code varchar(48)`` в схеме control-plane).
+# Каждая ветка, где команда не выполнена, обязана назвать свою причину: человек в
+# Telegram должен видеть разницу между «проект запретил удалённые промпты» и
+# «подтверждение можно дать только за компьютером».
+REASON_RUN_FAILED = "RUN_FAILED"
+REASON_GIT_ACTION_FAILED = "GIT_ACTION_FAILED"
+REASON_PRIVACY_DENIED = "PRIVACY_DENIED"
+REASON_APPROVAL_LOCAL_ONLY = "APPROVAL_LOCAL_ONLY"
+REASON_PAYLOAD_MISMATCH = "PAYLOAD_MISMATCH"
+REASON_UNKNOWN_COMMAND_TYPE = "UNKNOWN_COMMAND_TYPE"
+REASON_RESULT_UNKNOWN = "RESULT_UNKNOWN"
+REASON_EMPTY_PROMPT = "EMPTY_PROMPT"
 
-def _hash_payload(payload: dict[str, Any]) -> str:
-    """Детерминированный hash payload для идемпотентности receipt.
+# Русские подписи канонических capabilities для вывода /rc (набор ключей —
+# ``publications.CAPABILITY_KEYS``; тексты совпадают с ботовым
+# ``remote_bridge.capabilities_line``, чтобы владелец видел одно и то же).
+_CAPABILITY_LABELS = {
+    "remotePrompt": "промпты",
+    "stop": "остановка",
+    "gitCommit": "git commit",
+    "gitPush": "git push",
+    "toolEvents": "события инструментов",
+}
 
-    Используется, только когда control-plane не прислал готовый payload_hash
-    сам (например, в тестах). Реальный сервер обычно подписывает hash сам.
+
+def _hash_payload(payload: Optional[dict[str, Any]]) -> str:
+    """Детерминированный hash payload команды для идемпотентности receipt.
+
+    Считается ТЕМ ЖЕ каноном, что и на сервере (``remote-control.shared.ts``:
+    ``sha256(JSON.stringify(canonicalize(payload ?? {})))``) — рекурсивно
+    отсортированные ключи и компактные разделители без пробелов. Раньше здесь
+    были разделители по умолчанию (``", "``/``": "``), из-за чего локальный хеш
+    заведомо не мог совпасть с серверным.
     """
-    serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    serialized = json.dumps(
+        payload or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _server_payload_hash(command: Mapping[str, Any], payload: dict[str, Any]) -> str:
+    """Хеш payload команды: значение сервера, иначе локальный расчёт по канону.
+
+    Регистр важен: drizzle отдаёт колонки camelCase, поэтому поле называется
+    ``payloadHash``. Чтение ``payload_hash`` всегда давало None, и сравнение
+    payload-хешей (fail closed при подмене) фактически сверяло локальный хеш с
+    локальным. Snake_case остаётся вторым вариантом для старых ответов.
+    """
+    for key in ("payloadHash", "payload_hash"):
+        raw = command.get(key)
+        if isinstance(raw, str) and raw:
+            return raw
+    return _hash_payload(payload)
 
 
 def resolve_control_client(
@@ -153,6 +198,9 @@ class RemoteControlCoordinator:
         self._running_item: Optional[QueuedItem] = None
         self._running_task: Optional["asyncio.Task[None]"] = None
         self._net_task: Optional["asyncio.Task[None]"] = None
+        # UUID диалога CRM, о котором сервер уже знает. Пока пусто — привязка
+        # догоняется в каждом heartbeat (см. _network_loop).
+        self._remote_conversation_id: Optional[str] = None
         self._stop = asyncio.Event()
         self._active = False
 
@@ -188,7 +236,9 @@ class RemoteControlCoordinator:
         self._session.rc_publication = self._key()
         self._start_network()
         capabilities = publications.compile_capabilities(policy)
-        allowed = [name for name, on in capabilities.items() if on] or ["только presence"]
+        allowed = [
+            label for key, label in _CAPABILITY_LABELS.items() if capabilities.get(key)
+        ] or ["только presence"]
         privacy = "crm" if policy.mode == "crm" else "private"
         self._print(
             f"{G}▸ сессия опубликована{X}\n"
@@ -209,7 +259,7 @@ class RemoteControlCoordinator:
         self._active = False
         self._session.rc_publication = None
         cleared = len(self._queue)
-        self._queue.clear()
+        self._abandon_queued_commands()
         self._stop_network()
         tail = f", очередь очищена ({cleared})" if cleared else ""
         self._print(f"{G}▸ публикация снята{X}{D}{tail}{X}")
@@ -229,7 +279,35 @@ class RemoteControlCoordinator:
                 _log.warning("не удалось закрыть публикацию /rc: %s", error)
         self._active = False
         self._session.rc_publication = None
+        self._abandon_queued_commands(running_unknown=True)
+
+    def _abandon_queued_commands(self, *, running_unknown: bool = False) -> None:
+        """Закрывает удалённые команды, которые уже не будут исполнены.
+
+        Очередь снимается целиком, поэтому каждая ждавшая удалённая команда
+        обязана получить терминальный статус: иначе она осталась бы ``claimed``
+        на сервере до самого конца ожидания отправителя.
+
+        ``running_unknown`` — выход из чата при работающем запуске: его исход
+        никто уже не увидит, и честный ответ здесь ``indeterminate`` с кодом
+        ``RESULT_UNKNOWN``, а не выдуманные succeeded/failed.
+        """
+        pending = [item for item in self._queue if item.command_id]
         self._queue.clear()
+        for item in pending:
+            command_id = str(item.command_id)
+            try:
+                receipts.finish(command_id, state="cancelled")
+            except (sqlite3.Error, OSError, ValueError) as error:
+                _log.warning("receipt снятой команды /rc не обновлён: %s", error)
+            self._schedule_result_report(command_id, "cancelled")
+        running = self._running_item
+        if running_unknown and running is not None and running.command_id:
+            self._schedule_result_report(
+                str(running.command_id),
+                "indeterminate",
+                error_code=REASON_RESULT_UNKNOWN,
+            )
 
     def status(self) -> None:
         if not self._active:
@@ -242,8 +320,20 @@ class RemoteControlCoordinator:
             running = f"{_SOURCE_LABEL[self._running_item.source]}, выполняется"
         else:
             running = "ожидает ввода"
+        # Снимок capabilities читается из публикации как есть и трактуется
+        # default deny (``is True``): ключ вне канонического набора ничего не
+        # разрешает, а старая запись без канонических ключей честно покажет
+        # «только presence».
+        snapshot = publication.get("capabilities")
+        capabilities = snapshot if isinstance(snapshot, Mapping) else {}
+        allowed = [
+            label
+            for key, label in _CAPABILITY_LABELS.items()
+            if capabilities.get(key) is True
+        ] or ["только presence"]
         self._print(f"{B}/rc · {state}{X}")
         self._print(f"  {D}приватность{X} {W}{privacy}{X}  {D}· устройство {self._device_name}{X}")
+        self._print(f"  {D}наружу уходит{X} {W}{', '.join(allowed)}{X}")
         self._print(f"  {D}запуск{X}      {W}{running}{X}")
         queued = self._ordered_queue()
         if not queued:
@@ -414,51 +504,73 @@ class RemoteControlCoordinator:
             pass  # нет работающего цикла — запуск отложен (вне REPL)
 
     async def _run_next(self) -> None:
-        async with self._exec_lock:
-            item = self._pop_next()
-            if item is None:
-                return
-            self._running_item = item
-            self._running_task = asyncio.current_task()
-            if item.command_id:
-                receipts.mark_running(item.command_id)
-            if self._active:
-                publications.set_state(self._key(), "running")
-                self._emit_command_status(item.command_id, "running")
-            completed = False
-            answer = ""
-            try:
-                completed, answer = await self._run_prompt(item.prompt)
-            except asyncio.CancelledError:
-                completed = False
-                raise
-            except (OSError, RuntimeError, ValueError, TypeError, KeyError, asyncio.TimeoutError):
-                # Сбой провайдера не роняет очередь, но и не остаётся немым:
-                # молчаливое проглатывание прятало даже ошибку контракта.
-                _log.exception("сбой запуска промпта из очереди /rc")
-                completed = False
-            finally:
-                self._running_item = None
-                self._running_task = None
+        item: Optional[QueuedItem] = None
+        completed = False
+        # Состояние turn-а до его завершения неизвестно, поэтому по умолчанию —
+        # честный failed с причиной, а не оптимистичный succeeded.
+        state = "failed"
+        error_code: Optional[str] = REASON_RUN_FAILED
+        try:
+            async with self._exec_lock:
+                item = self._pop_next()
+                if item is None:
+                    return
+                self._running_item = item
+                self._running_task = asyncio.current_task()
                 if item.command_id:
+                    receipts.mark_running(item.command_id)
+                if self._active:
+                    publications.set_state(self._key(), "running")
+                    self._emit_command_status(item.command_id, "running")
+                answer = ""
+                try:
+                    completed, answer = await self._run_prompt(item.prompt)
                     state = "succeeded" if completed else "failed"
-                    receipts.finish(item.command_id, state=state)
-                    self._schedule_result_report(item.command_id, state)
-                if item.done is not None and not item.done.done():
-                    item.done.set_result((completed, answer))
-        if self._active:
-            publications.set_state(self._key(), "published_idle")
-            self._emit_command_status(
-                item.command_id, "succeeded" if completed else "failed"
-            )
-            if completed:
-                # Сводка правок и вызовы инструментов — из meta провайдера,
-                # которую _run_prompt уже записал в session.last_meta к этому
-                # моменту. Собственного источника диффа/tool-call у координатора
-                # нет — он берёт то же, что уже видит /diff в терминале.
-                self._emit_diff_summary(item.command_id)
-                self._emit_tool_calls(item.command_id)
-        self._maybe_start()
+                    error_code = None if completed else REASON_RUN_FAILED
+                except asyncio.CancelledError:
+                    # Отмена — штатный исход /rc stop, а не сбой: серверу уезжает
+                    # cancelled без кода причины.
+                    completed = False
+                    state, error_code = "cancelled", None
+                    raise
+                except (
+                    OSError,
+                    RuntimeError,
+                    ValueError,
+                    TypeError,
+                    KeyError,
+                    asyncio.TimeoutError,
+                ):
+                    # Сбой провайдера не роняет очередь, но и не остаётся немым:
+                    # молчаливое проглатывание прятало даже ошибку контракта.
+                    _log.exception("сбой запуска промпта из очереди /rc")
+                    completed = False
+                    state, error_code = "failed", REASON_RUN_FAILED
+                finally:
+                    self._running_item = None
+                    self._running_task = None
+                    if item.command_id:
+                        receipts.finish(item.command_id, state=state)
+                        self._schedule_result_report(
+                            item.command_id, state, error_code=error_code
+                        )
+                    if item.done is not None and not item.done.done():
+                        item.done.set_result((completed, answer))
+        finally:
+            # Терминальное событие и возврат публикации в idle нужны и при
+            # отмене: иначе после /rc stop публикация навсегда оставалась бы в
+            # состоянии running, а интерфейс — без признака конца turn-а.
+            if item is not None and self._active:
+                publications.set_state(self._key(), "published_idle")
+                self._emit_command_status(item.command_id, state)
+                if completed:
+                    # Сводка правок и вызовы инструментов — из meta провайдера,
+                    # которую _run_prompt уже записал в session.last_meta к этому
+                    # моменту. Собственного источника диффа/tool-call у
+                    # координатора нет — он берёт то же, что уже видит /diff.
+                    self._emit_diff_summary(item.command_id)
+                    self._emit_tool_calls(item.command_id)
+            self._maybe_start()
 
     def _emit_command_status(
         self,
@@ -468,7 +580,12 @@ class RemoteControlCoordinator:
         commit_sha: Optional[str] = None,
         commit_message: Optional[str] = None,
     ) -> None:
-        """Ставит событие смены статуса команды в outbox (гейты — в ядре)."""
+        """Ставит событие смены статуса команды в outbox (гейты — в ядре).
+
+        ``crm_session_id`` передаётся всегда, а решение отдавать его наружу
+        принимает единственная точка — ``events.emit_command_status`` (гейт
+        ``can_sync_to_crm(policy, "messages")`` и только терминальное состояние).
+        """
         policy = self._policy_lookup(self._session.cwd)
         publication = publications.get(self._key()) or {}
         events.emit_command_status(
@@ -478,6 +595,7 @@ class RemoteControlCoordinator:
             publication_id=publication.get("id"),
             commit_sha=commit_sha,
             commit_message=commit_message,
+            crm_session_id=self._crm_session_id(),
         )
 
     def _emit_diff_summary(self, command_id: Optional[str]) -> None:
@@ -587,11 +705,23 @@ class RemoteControlCoordinator:
                 publication = publications.get(self._key()) or {}
                 remote_publication_id = publication.get("remote_public_id")
                 if remote_publication_id:
-                    await client.heartbeat(
+                    # Привязка к сессии CRM догоняет публикацию heartbeat'ами,
+                    # пока сервер её не знает: первая публикация уходит без
+                    # диалога, потому что тот появляется лишь после первого синка.
+                    conversation_id = None
+                    if not self._remote_conversation_id:
+                        conversation_id = await self._resolve_crm_conversation_id(
+                            self._policy_lookup(self._session.cwd)
+                        )
+                    delivered = await client.heartbeat(
                         publication_id=str(remote_publication_id),
                         state=str(publication.get("state") or "published_idle"),
+                        conversation_id=conversation_id,
                     )
-                    publications.record_heartbeat(self._key())
+                    if delivered:
+                        publications.record_heartbeat(self._key())
+                        if conversation_id:
+                            self._remote_conversation_id = conversation_id
             except (OSError, RuntimeError, ValueError, sqlite3.Error, asyncio.TimeoutError) as error:
                 # Недоступный control-plane не должен ронять локальную сессию.
                 _log.debug("heartbeat /rc не доставлен: %s", error)
@@ -615,23 +745,91 @@ class RemoteControlCoordinator:
         if publication.get("remote_public_id"):
             return
         policy = self._policy_lookup(self._session.cwd)
+        conversation_id = await self._resolve_crm_conversation_id(policy)
         remote_id = await client.create_publication(
             public_id=self._key(),
             privacy_mode=str(publication.get("privacy_mode") or "private"),
             capabilities=publications.compile_capabilities(policy),
             ttl_minutes=policy.rc_ttl_minutes,
+            conversation_id=conversation_id,
         )
         if remote_id:
             publications.attach_remote_id(self._key(), remote_id)
+            if conversation_id:
+                # Сервер уже знает диалог — догонять его heartbeat'ами не нужно.
+                self._remote_conversation_id = conversation_id
             _log.info("RC публикация зарегистрирована на control-plane")
 
+    async def _resolve_crm_conversation_id(
+        self, policy: project_config.ProjectPolicy
+    ) -> Optional[str]:
+        """UUID диалога CRM этой сессии — связь публикации с КОНКРЕТНОЙ сессией.
+
+        Без него интерфейсы видят только устройство и не могут отличить живую
+        публикацию проекта A от открытой карточки проекта B на той же машине.
+        Диалог существует лишь после первого синка, поэтому None — нормальный
+        ответ, а не ошибка; приватный проект в CRM не виден вовсе.
+        """
+        if not project_config.is_crm_visible(policy) or not herecrm_client.configured():
+            return None
+        session_id = crm_sync.external_session_id(None, self._session.crm_conversation_id)
+        try:
+            payload = await herecrm_client.conversations()
+        except (herecrm_client.HereCrmClientError, OSError, asyncio.TimeoutError) as error:
+            _log.debug("диалог CRM для публикации не разрешён: %s", error)
+            return None
+        for item in payload if isinstance(payload, list) else []:
+            if not isinstance(item, Mapping):
+                continue
+            if item.get("providerSessionId") != session_id:
+                continue
+            conversation_id = item.get("id")
+            return str(conversation_id) if isinstance(conversation_id, str) else None
+        return None
+
+    def _crm_session_id(self) -> str:
+        """``providerSessionId`` этой сессии — тот же, что видит лента CRM.
+
+        Значение детерминировано и уже вычисляется в ``core/crm_sync.py``;
+        второго способа его собрать быть не должно, иначе идентификаторы
+        разойдутся и текст ответа в CRM не найдётся.
+        """
+        return crm_sync.external_session_id(None, self._session.crm_conversation_id)
+
+    def _result_summary(self, summary: str) -> Optional[dict[str, Any]]:
+        """Redacted итог команды: сводка плюс идентификатор сессии CRM.
+
+        ``crmSessionId`` — единственный способ для владельца найти текст ответа
+        в CRM (у control-plane текста нет и быть не должно). Уходит он только
+        когда проект и так синхронизирует сообщения в CRM: приватный проект
+        своего идентификатора не отдаёт.
+        """
+        result: dict[str, Any] = {}
+        if summary:
+            result["summary"] = summary
+        policy = self._policy_lookup(self._session.cwd)
+        if project_config.can_sync_to_crm(policy, "messages"):
+            result["crmSessionId"] = self._crm_session_id()
+        return result or None
+
     async def _report_command_result(
-        self, command_id: Optional[str], state: str, summary: str = ""
+        self,
+        command_id: Optional[str],
+        state: str,
+        summary: str = "",
+        *,
+        error_code: Optional[str] = None,
     ) -> None:
         """Сообщает серверу терминальный статус команды.
 
         События прогресса — эфемерный поток; источником истины по статусу
         сервер считает только сохранённый результат команды.
+
+        ``rejected`` в контракте сервера нет (``RunnerCommandResultDto``
+        принимает пять значений), поэтому локальный отказ уезжает как ``failed``
+        с кодом причины — отображение делает ``receipts.server_status``. Иначе
+        валидация вернула бы 400, статус не сохранился бы вовсе — и удалённый
+        turn висел бы до таймаута отправителя.
         """
         client = self._client
         if client is None or not command_id or not client.configured():
@@ -644,21 +842,29 @@ class RemoteControlCoordinator:
             await client.submit_command_result(
                 publication_id=str(remote_publication_id),
                 command_id=str(command_id),
-                status=state,
-                result_summary={"summary": summary} if summary else None,
+                status=receipts.server_status(state),
+                result_summary=self._result_summary(summary),
+                error_code=error_code,
             )
         except (OSError, RuntimeError, ValueError, asyncio.TimeoutError) as error:
             _log.debug("RC результат команды не доставлен: %s", error)
 
     def _schedule_result_report(
-        self, command_id: Optional[str], state: str, summary: str = ""
+        self,
+        command_id: Optional[str],
+        state: str,
+        summary: str = "",
+        *,
+        error_code: Optional[str] = None,
     ) -> None:
         """Планирует отправку терминального статуса, не блокируя исполнение."""
         if self._client is None or not command_id:
             return
         try:
             asyncio.create_task(
-                self._report_command_result(command_id, state, summary)
+                self._report_command_result(
+                    command_id, state, summary, error_code=error_code
+                )
             )
         except RuntimeError:
             pass  # нет работающего цикла — отчёт уйдёт при следующем reconcile
@@ -707,12 +913,12 @@ class RemoteControlCoordinator:
             payload = {}
         publications.advance_sequence(self._key(), sequence)
 
+        # Хеш payload един для всех типов: сервер отдаёт его camelCase, а при
+        # отсутствии он считается тем же каноном, что и на сервере.
+        payload_hash = _server_payload_hash(command, payload)
         if command_type == "prompt":
-            self._ingest_prompt_command(command_id, sequence, payload, command.get("payload_hash"))
-            return
-
-        payload_hash = str(command.get("payload_hash") or _hash_payload(payload))
-        if command_type == "stop":
+            self._ingest_prompt_command(command_id, sequence, payload, payload_hash)
+        elif command_type == "stop":
             self._ingest_stop_command(command_id, sequence, payload_hash)
         elif command_type == "approval_decision":
             self._ingest_approval_decision(command_id, sequence, payload_hash)
@@ -720,20 +926,32 @@ class RemoteControlCoordinator:
             self._ingest_git_action(command_id, sequence, command_type, payload, payload_hash)
         else:
             # Неизвестный тип: receipts.claim отклонит его до какого-либо
-            # исполнения (unknown_command_type), receipt не создаётся вовсе.
+            # исполнения (unknown_command_type), receipt не создаётся вовсе. Но
+            # серверу отказ всё равно нужен — команда уже claimed, и без отчёта
+            # она осталась бы в этом статусе навсегда.
             receipts.claim(
                 command_id, sequence=sequence, command_type=command_type, payload_hash=payload_hash
             )
+            self._refuse_command(command_id, REASON_UNKNOWN_COMMAND_TYPE)
+
+    def _refuse_command(self, command_id: str, error_code: str) -> None:
+        """Единая точка отказа: серверу — статус с кодом, интерфейсу — событие.
+
+        Без отчёта серверу команда навсегда осталась бы ``claimed``, а
+        отправитель в Telegram ждал бы до потолка ожидания turn-а.
+        """
+        self._schedule_result_report(command_id, "rejected", error_code=error_code)
+        if self._active:
+            self._emit_command_status(command_id, "rejected")
 
     def _ingest_prompt_command(
         self,
         command_id: str,
         sequence: int,
         payload: dict[str, Any],
-        raw_payload_hash: Optional[str],
+        payload_hash: str,
     ) -> None:
         prompt = str(payload.get("prompt") or "")
-        payload_hash = str(raw_payload_hash or hashlib.sha256(prompt.encode("utf-8")).hexdigest())
         policy = self._policy_lookup(self._session.cwd)
         if not project_config.can_receive_remote_prompts(policy):
             # Приватный проект не исполняет удалённый prompt — fail closed.
@@ -741,10 +959,28 @@ class RemoteControlCoordinator:
                 command_id, sequence=sequence, command_type="prompt", payload_hash=payload_hash
             )
             receipts.finish(command_id, state="rejected")
+            self._refuse_command(command_id, REASON_PRIVACY_DENIED)
             return
-        self.submit_remote(
+        if not prompt.strip():
+            # Пустой промпт не запускает провайдера вовсе: запуск без текста
+            # съел бы слот исполнения и вернул бы владельцу невнятный failed.
+            receipts.claim(
+                command_id, sequence=sequence, command_type="prompt", payload_hash=payload_hash
+            )
+            receipts.finish(command_id, state="rejected")
+            self._refuse_command(command_id, REASON_EMPTY_PROMPT)
+            return
+        # Снимок receipt ДО claim: только он позволяет отличить безобидный дубль
+        # доставки (тот же хеш — молчим, отчёт уже уходил) от подмены payload.
+        existing = receipts.get(command_id)
+        submitted = self.submit_remote(
             prompt, command_id=command_id, sequence=sequence, payload_hash=payload_hash
         )
+        if submitted is None and existing is not None:
+            if existing.get("payload_hash") != payload_hash:
+                # fail closed в receipts.claim: исполнять нельзя, но сервер
+                # обязан узнать причину явным кодом, а не ждать таймаута.
+                self._refuse_command(command_id, REASON_PAYLOAD_MISMATCH)
 
     def _ingest_stop_command(self, command_id: str, sequence: int, payload_hash: str) -> None:
         """``stop`` — идемпотентная отмена текущего запуска, очередь не трогает."""
@@ -782,9 +1018,10 @@ class RemoteControlCoordinator:
             return
         receipts.mark_running(command_id)
         receipts.finish(command_id, state="rejected")
-        self._schedule_result_report(command_id, "rejected")
-        if self._active:
-            self._emit_command_status(command_id, "rejected")
+        # Код отличается от приватного отказа намеренно: человек в Telegram
+        # должен видеть разницу между «проект запретил удалённые промпты» и
+        # «подтверждение инструмента можно дать только за компьютером».
+        self._refuse_command(command_id, REASON_APPROVAL_LOCAL_ONLY)
 
     def _ingest_git_action(
         self,
@@ -840,7 +1077,9 @@ class RemoteControlCoordinator:
         except (OSError, RuntimeError, ValueError, TypeError, KeyError, asyncio.TimeoutError):
             _log.exception("сбой удалённого git-действия /rc: %s", action)
             receipts.finish(command_id, state="failed")
-            self._schedule_result_report(command_id, "failed")
+            self._schedule_result_report(
+                command_id, "failed", error_code=REASON_GIT_ACTION_FAILED
+            )
             if self._active:
                 self._emit_command_status(command_id, "failed")
             return
@@ -848,7 +1087,11 @@ class RemoteControlCoordinator:
         state = "succeeded" if result.ok else "failed"
         result_hash = _hash_payload(result.payload())
         receipts.finish(command_id, state=state, result_hash=result_hash)
-        self._schedule_result_report(command_id, state)
+        self._schedule_result_report(
+            command_id,
+            state,
+            error_code=None if result.ok else REASON_GIT_ACTION_FAILED,
+        )
         if not self._active:
             return
         commit_sha = result.data.get("sha") if action == "git_commit" and result.ok else None

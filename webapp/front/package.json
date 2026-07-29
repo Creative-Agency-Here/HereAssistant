@@ -8,7 +8,8 @@
     "build": "nuxt build",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "test:activity": "node --test tests/activity-events.test.mjs"
+    "test:activity": "node --test tests/activity-events.test.mjs",
+    "test:rc": "node --test tests/rc-binding.test.mjs"
   },
   "devDependencies": {
     "@nuxtjs/tailwindcss": "^6.12.0",

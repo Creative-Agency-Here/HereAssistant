@@ -135,3 +135,28 @@ def test_explicit_terminal_outcome_is_recorded(rc_database: Path) -> None:
     assert stored["state"] == "failed"
     assert stored["result_hash"] == "r-hash"
     assert stored["finished_at"] is not None
+
+
+# ---------- отображение локального состояния в статус сервера ----------
+
+
+def test_rejected_is_reported_to_server_as_failed() -> None:
+    """``rejected`` серверу отправить нельзя — он не входит в контракт статусов.
+
+    Отправка неизвестного значения дала бы 400: статус не сохранился бы вовсе, а
+    команда осталась бы ``claimed`` до самого таймаута отправителя. Смысл отказа
+    несёт код причины, а не выдуманный статус.
+    """
+    assert "rejected" not in receipts.SERVER_STATUSES
+    assert receipts.server_status("rejected") == "failed"
+
+
+def test_known_states_map_to_themselves() -> None:
+    for state in ("running", "succeeded", "failed", "cancelled", "indeterminate"):
+        assert receipts.server_status(state) == state
+        assert state in receipts.SERVER_STATUSES
+
+
+def test_unknown_state_degrades_to_failed() -> None:
+    # Молча отправить невалидное значение хуже, чем честно закрыть ошибкой.
+    assert receipts.server_status("нечто") == "failed"

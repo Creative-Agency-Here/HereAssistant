@@ -21,6 +21,7 @@ COMMAND_CATALOG = """HereAssistant · все команды
 /cwd — папка
 /status — сессия, задачи, Git, диск и деплой
 /memory — единая память Claude/Codex
+/rc — исполнять сообщения на моём компьютере (владелец)
 /web — открыть Web App
 
 Сессия

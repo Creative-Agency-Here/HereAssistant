@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from datetime import datetime
 from typing import Any, Awaitable, Callable, Optional
@@ -38,6 +39,16 @@ _RUNNER_PREFIX = "cli-agent/runner"
 # Запас времени перед истечением access-токена, чтобы не словить 401 из-за
 # скоса часов или задержки в полёте запроса — обновляем чуть заранее.
 _TOKEN_REFRESH_MARGIN_SEC = 30.0
+
+# Строгий UUID: сервер валидирует conversationId через @IsUUID, и любое другое
+# значение отклонило бы публикацию целиком.
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
+
+
+def _is_uuid(value: str) -> bool:
+    return bool(_UUID_RE.match(value))
 
 
 class ControlPlaneError(RuntimeError):
@@ -169,8 +180,11 @@ class ControlPlaneClient:
                     request_kwargs["json"] = json_body
                 if params is not None:
                     request_kwargs["params"] = params
-                caller = session.get if method == "GET" else session.post
-                async with caller(self._endpoint(path), **request_kwargs) as response:
+                # Метод берётся как есть: ветка «GET или POST» отправляла DELETE
+                # публикации методом POST, и снятие публикации молча не работало.
+                async with session.request(
+                    method, self._endpoint(path), **request_kwargs
+                ) as response:
                     if response.status in (401, 403):
                         if auth and attempt == 1 and self._credential is not None:
                             self._invalidate_access_token()
@@ -201,21 +215,28 @@ class ControlPlaneClient:
         privacy_mode: str,
         capabilities: Optional[dict[str, Any]] = None,
         ttl_minutes: Optional[int] = None,
+        conversation_id: Optional[str] = None,
     ) -> Optional[str]:
         """Публикует сессию на сервере и возвращает серверный UUID публикации.
 
         Без него все остальные операции раннера невозможны: сервер адресует
         команды, heartbeat и события именно по этому идентификатору.
         Поля тела — ровно из ``RunnerPublishDto`` контроллера ``cli-agent/runner``.
+
+        ``conversationId`` валидируется сервером как UUID и ссылается на диалог
+        CRM: кривое значение отклонит публикацию целиком, поэтому не-UUID сюда
+        не уходит вовсе.
         """
         payload: dict[str, Any] = {"publicId": public_id, "privacyMode": privacy_mode}
         if capabilities is not None:
             payload["capabilities"] = capabilities
         if ttl_minutes is not None:
             payload["ttlMinutes"] = int(ttl_minutes)
+        if conversation_id and _is_uuid(conversation_id):
+            payload["conversationId"] = conversation_id
         try:
             result = await self._request(
-                "POST", f"{_RUNNER_PREFIX}/publications", payload=payload
+                "POST", f"{_RUNNER_PREFIX}/publications", json_body=payload
             )
         except ControlPlaneError as error:
             log.warning("RC публикация не создана (%s)", error.code)
@@ -321,13 +342,29 @@ class ControlPlaneClient:
             return False
         return isinstance(result, dict)
 
-    async def heartbeat(self, *, publication_id: str, state: str) -> bool:
-        """Heartbeat публикации. Идентичность устройства — из access-токена."""
+    async def heartbeat(
+        self,
+        *,
+        publication_id: str,
+        state: str,
+        conversation_id: Optional[str] = None,
+    ) -> bool:
+        """Heartbeat публикации. Идентичность устройства — из access-токена.
+
+        ``conversationId`` здесь — поздняя привязка публикации к сессии CRM:
+        первая публикация уходит без неё (диалог появляется только после первого
+        синка), а сервер проставляет поле ТОЛЬКО когда текущее значение NULL,
+        поэтому переклеить публикацию на чужой диалог таким путём нельзя.
+        Не-UUID не отправляется вовсе: сервер валидирует значение как UUID.
+        """
+        body: dict[str, Any] = {"state": state}
+        if conversation_id and _is_uuid(conversation_id):
+            body["conversationId"] = conversation_id
         try:
             await self._request(
                 "POST",
                 f"{_RUNNER_PREFIX}/publications/{publication_id}/heartbeat",
-                json_body={"state": state},
+                json_body=body,
             )
             return True
         except ControlPlaneError as error:

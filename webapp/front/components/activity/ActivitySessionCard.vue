@@ -4,6 +4,12 @@ import { channelLabel, providerLabel } from '~/types/activity'
 
 const props = defineProps<{ session: CrmSession }>()
 
+// Живой статус устройства этой сессии. Опрос публикаций общий на вкладку
+// (useRcPublications), поэтому список из двадцати карточек даёт один запрос.
+// Бейдж рисуется только когда устройство сессии действительно опубликовано —
+// у обычных (не /rc) сессий карточка выглядит ровно как раньше.
+const remote = useSessionRemoteControl(computed<CrmSession | null>(() => props.session))
+
 function relativeTime(value: string | null) {
   if (!value) return '—'
   const seconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000))
@@ -33,6 +39,13 @@ function relativeTime(value: string | null) {
         </div>
       </div>
     </div>
+    <RemoteControlDeviceBadge
+      v-if="remote.isLive.value"
+      class="session-card-rc"
+      :rc="remote.rc"
+      :device-name="remote.deviceName.value"
+      :device-kind="remote.deviceKind.value"
+    />
     <div class="session-card-preview">
       <span>{{ providerLabel(props.session.accountProvider) }}</span>
       <span v-if="props.session.model">· {{ props.session.model }}</span>

@@ -189,6 +189,7 @@ COMMANDS = [
     BotCommand(command="version", description="Хеш и дата bot.py"),
     BotCommand(command="deploy", description="Перезапустить процесс"),
     BotCommand(command="diff", description="Правки последнего ответа"),
+    BotCommand(command="rc", description="Удалённое исполнение на моём компьютере"),
     BotCommand(command="web", description="Открыть веб-интерфейс (Mini App)"),
     BotCommand(command="git", description="Мои Git-аккаунты и репозитории"),
     BotCommand(command="users", description="Команда: кто писал боту, роли (админ)"),

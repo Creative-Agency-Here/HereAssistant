@@ -18,6 +18,10 @@ const stream = ref<HTMLElement | null>(null)
 const awayFromBottom = ref(false)
 
 const session = computed(() => sessions.value?.find((item) => item.id === conversationId) || null)
+// Управление появляется ТОЛЬКО когда устройство этой сессии реально опубликовано
+// (/rc на машине + capability бэка + связь). Во всех остальных случаях экран
+// остаётся прежним, читающим, с кнопкой перехода в «Подключения».
+const remote = useSessionRemoteControl(session)
 const timeline = computed<TimelineEntry[]>(() => {
   const result: TimelineEntry[] = []
   for (const item of feed.value?.items || []) {
@@ -57,18 +61,50 @@ function scrollDown() {
 }
 
 onMounted(() => requestAnimationFrame(scrollDown))
-watch(feed, () => nextTick(scrollDown))
+// Автопрокрутка только когда человек и так внизу: при живой ленте иначе экран
+// дёргался бы вниз каждые 15 секунд прямо во время чтения истории.
+watch(feed, () => {
+  if (!awayFromBottom.value) void nextTick(scrollDown)
+})
+
+// Лента обновляется сама ТОЛЬКО пока у сессии есть живая публикация /rc: иначе
+// человек отправляет промпт и не видит ответа до ручной перезагрузки. Для
+// обычных (не /rc) сессий поведение прежнее — один запрос при открытии.
+const RC_FEED_REFRESH_MS = 15_000
+let feedTimer: ReturnType<typeof setInterval> | null = null
+
+function stopFeedTimer() {
+  if (feedTimer) clearInterval(feedTimer)
+  feedTimer = null
+}
+
+watch(
+  () => remote.isLive.value,
+  (live) => {
+    if (live && !feedTimer) feedTimer = setInterval(() => void refresh(), RC_FEED_REFRESH_MS)
+    if (!live) stopFeedTimer()
+  },
+  { immediate: true },
+)
+onUnmounted(stopFeedTimer)
 </script>
 
 <template>
-  <div class="conversation-page">
+  <div class="conversation-page" :class="remote.isLive.value ? 'conversation-page-rc' : ''">
     <header class="conversation-header">
       <button type="button" aria-label="Назад" @click="navigateTo('/activity')">‹</button>
       <div class="min-w-0">
         <h1>{{ session?.title || 'Сессия ассистента' }}</h1>
         <p>{{ session ? `${channelLabel(session.channel)} · ${session.projectName || session.cwd || 'Без проекта'}` : 'HereCRM' }}</p>
       </div>
-      <span class="conversation-live"><i />{{ session?.accountProvider ? providerLabel(session.accountProvider) : 'AI' }}</span>
+      <RemoteControlDeviceBadge
+        v-if="remote.isLive.value"
+        class="conversation-rc-badge"
+        :rc="remote.rc"
+        :device-name="remote.deviceName.value"
+        :device-kind="remote.deviceKind.value"
+      />
+      <span v-else class="conversation-live"><i />{{ session?.accountProvider ? providerLabel(session.accountProvider) : 'AI' }}</span>
     </header>
 
     <main ref="stream" class="conversation-stream" @scroll.passive="onScroll">
@@ -111,7 +147,12 @@ watch(feed, () => nextTick(scrollDown))
     <button v-if="awayFromBottom" class="scroll-down" type="button" aria-label="К последнему сообщению" @click="scrollDown">↓</button>
 
     <footer class="conversation-composer">
-      <button type="button" @click="navigateTo('/activity?tab=connections')">
+      <div v-if="remote.isLive.value" class="conversation-rc">
+        <p v-if="remote.statusText.value" class="conversation-rc-status">{{ remote.statusText.value }}</p>
+        <RemoteControlCommandList :rc="remote.rc" />
+        <RemoteControlComposer :rc="remote.rc" />
+      </div>
+      <button v-else type="button" @click="navigateTo('/activity?tab=connections')">
         <span><strong>Продолжить с ассистентом</strong><small>Выбрать Telegram или CLI</small></span>
         <b>›</b>
       </button>

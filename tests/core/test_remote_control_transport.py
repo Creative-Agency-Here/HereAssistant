@@ -49,15 +49,28 @@ class _FakeSession:
             return self._responses.pop(0)
         return self._responses[0]
 
-    def post(self, url: str, json: Any = None, headers: Any = None) -> _FakeResponse:
-        self.calls.append(("POST", url, json, headers))
+    def request(
+        self,
+        method: str,
+        url: str,
+        json: Any = None,
+        params: Any = None,
+        headers: Any = None,
+    ) -> _FakeResponse:
+        """Клиент обязан звать сессию тем методом, который сам объявил.
+
+        Раньше заглушка подменяла отдельно ``get``/``post``, и подмена метода
+        (DELETE, уходивший POST-ом) тестами не улавливалась.
+        """
+        self.calls.append((method.upper(), url, json if json is not None else params, headers))
         status, payload = self._next()
         return _FakeResponse(status, payload)
 
+    def post(self, url: str, json: Any = None, headers: Any = None) -> _FakeResponse:
+        return self.request("POST", url, json=json, headers=headers)
+
     def get(self, url: str, params: Any = None, headers: Any = None) -> _FakeResponse:
-        self.calls.append(("GET", url, params, headers))
-        status, payload = self._next()
-        return _FakeResponse(status, payload)
+        return self.request("GET", url, params=params, headers=headers)
 
 
 def test_control_plane_url_defaults_to_empty(monkeypatch: pytest.MonkeyPatch) -> None:

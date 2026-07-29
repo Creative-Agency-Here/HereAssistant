@@ -17,6 +17,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from io import StringIO
 from pathlib import Path
 from typing import Any, cast
@@ -26,7 +28,7 @@ import pytest
 import chat_remote_control
 from chat_remote_control import RemoteControlCoordinator, resolve_control_client
 from chat_sessions import AccountRecord, Session
-from core import config, db, git_projects
+from core import config, crm_sync, db, git_projects
 from core.project_config import PRIVATE, ProjectPolicy
 from core.remote_control import config as rc_config
 from core.remote_control import outbox, publications, receipts
@@ -327,10 +329,23 @@ class _FakeSession:
         self.status = status
         self.payload = payload if payload is not None else {"ok": True}
         self.posts: list[tuple[str, Any]] = []
+        self.methods: list[tuple[str, str]] = []
+
+    def request(
+        self,
+        method: str,
+        url: str,
+        json: Any = None,
+        params: Any = None,
+        headers: Any = None,
+    ) -> _FakeResponse:
+        """Клиент зовёт сессию объявленным методом — заглушка это фиксирует."""
+        self.methods.append((method.upper(), url))
+        self.posts.append((url, json if json is not None else params))
+        return _FakeResponse(self.status, self.payload)
 
     def post(self, url: str, json: Any = None, headers: Any = None) -> _FakeResponse:
-        self.posts.append((url, json))
-        return _FakeResponse(self.status, self.payload)
+        return self.request("POST", url, json=json, headers=headers)
 
 
 def _make_client(session: _FakeSession):
@@ -511,6 +526,402 @@ async def test_command_result_reported_to_server(
     assert client.results[0]["publication_id"] == "srv-pub-1"
     assert client.results[0]["command_id"] == "cmd-1"
     assert client.results[0]["status"] == "succeeded"
+
+
+async def _drain_tasks(before: set) -> None:
+    """Дожидается всех задач, порождённых координатором (в т.ч. вложенных).
+
+    Отчёт серверу и запуск промпта уезжают в отдельные задачи; sleep для их
+    ожидания не годится — ждём именно задачи, пока их не останется.
+    """
+    for _ in range(20):
+        pending = [
+            task
+            for task in asyncio.all_tasks() - before
+            if task is not asyncio.current_task() and not task.done()
+        ]
+        if not pending:
+            return
+        await asyncio.gather(*pending, return_exceptions=True)
+
+
+def presence_only_policy() -> ProjectPolicy:
+    """Приватный проект с presence: публикация есть, удалённые промпты — нет."""
+    return ProjectPolicy(
+        mode="private", rc_enabled=True, rc_allow_presence_in_private=True
+    )
+
+
+def crm_prompt_policy(**flags: bool) -> ProjectPolicy:
+    """CRM-политика, разрешающая удалённый промпт (и явные флаги стриминга)."""
+    sync_flags = {"send_prompts": True}
+    sync_flags.update({f"send_{name}": value for name, value in flags.items()})
+    return ProjectPolicy(
+        mode="crm",
+        crm_project_id="p1",
+        sync_enabled=True,
+        rc_enabled=True,
+        sync_flags=sync_flags,
+    )
+
+
+async def _published_coordinator(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tracker: RunTracker,
+    *,
+    policy: ProjectPolicy,
+) -> tuple[RemoteControlCoordinator, PublishingClient]:
+    """Координатор с опубликованной сессией и известным серверным UUID."""
+    session = make_session(monkeypatch, cwd=str(tmp_path))
+    coordinator = make_coordinator(session, tracker, policy=policy)
+    client = PublishingClient()
+    coordinator._client = client  # noqa: SLF001
+    assert coordinator.publish() is True
+    await coordinator._ensure_remote_publication(client)  # noqa: SLF001
+    return coordinator, client
+
+
+# ---------- 9. отказ по приватности доезжает до сервера с собственным кодом ----------
+
+
+async def test_privacy_denied_prompt_reports_failed_once_with_code(
+    rc_database: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Локального receipt недостаточно: без отчёта команда висит claimed вечно.
+
+    ``rejected`` серверу отправить нельзя (его нет в контракте), поэтому наружу
+    уезжает ``failed`` плюс код причины — ровно один раз.
+    """
+    tracker = RunTracker()
+    coordinator, client = await _published_coordinator(
+        monkeypatch, tmp_path, tracker, policy=presence_only_policy()
+    )
+
+    before = asyncio.all_tasks()
+    coordinator._ingest_remote_command(  # noqa: SLF001
+        {
+            "id": "p-private",
+            "sequence": 1,
+            "commandType": "prompt",
+            "payload": {"prompt": "сделай что-нибудь"},
+        }
+    )
+    await _drain_tasks(before)
+
+    assert tracker.calls == []  # провайдер не запускался
+    assert receipts.get("p-private")["state"] == "rejected"  # локально — честный отказ
+    assert len(client.results) == 1
+    assert client.results[0]["status"] == "failed"
+    assert client.results[0]["error_code"] == chat_remote_control.REASON_PRIVACY_DENIED
+
+
+async def test_approval_decision_has_its_own_reason_code(
+    rc_database: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Человек в Telegram должен видеть разницу между запретом проекта и тем, что
+    # подтверждение инструмента можно дать только за компьютером.
+    tracker = RunTracker()
+    coordinator, client = await _published_coordinator(
+        monkeypatch, tmp_path, tracker, policy=crm_prompt_policy()
+    )
+
+    before = asyncio.all_tasks()
+    coordinator._ingest_remote_command(  # noqa: SLF001
+        {
+            "id": "appr-code",
+            "sequence": 1,
+            "commandType": "approval_decision",
+            "payload": {"decision": "approve"},
+        }
+    )
+    await _drain_tasks(before)
+
+    assert len(client.results) == 1
+    assert client.results[0]["status"] == "failed"
+    assert (
+        client.results[0]["error_code"]
+        == chat_remote_control.REASON_APPROVAL_LOCAL_ONLY
+    )
+
+
+async def test_unknown_command_type_is_refused_with_code(
+    rc_database: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tracker = RunTracker()
+    coordinator, client = await _published_coordinator(
+        monkeypatch, tmp_path, tracker, policy=crm_prompt_policy()
+    )
+
+    before = asyncio.all_tasks()
+    coordinator._ingest_remote_command(  # noqa: SLF001
+        {"id": "weird-1", "sequence": 1, "commandType": "shell", "payload": {}}
+    )
+    await _drain_tasks(before)
+
+    assert tracker.calls == []
+    assert receipts.get("weird-1") is None  # receipt неизвестному типу не создаётся
+    assert client.results[0]["error_code"] == (
+        chat_remote_control.REASON_UNKNOWN_COMMAND_TYPE
+    )
+
+
+# ---------- 10. пустой промпт не запускает провайдера ----------
+
+
+async def test_empty_prompt_never_starts_provider(
+    rc_database: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tracker = RunTracker()
+    coordinator, client = await _published_coordinator(
+        monkeypatch, tmp_path, tracker, policy=crm_prompt_policy()
+    )
+
+    before = asyncio.all_tasks()
+    coordinator._ingest_remote_command(  # noqa: SLF001
+        {
+            "id": "p-empty",
+            "sequence": 1,
+            "commandType": "prompt",
+            "payload": {"prompt": "   \n"},
+        }
+    )
+    await _drain_tasks(before)
+
+    assert tracker.calls == []  # запуск без текста слот исполнения не занимает
+    assert len(client.results) == 1
+    assert client.results[0]["status"] == "failed"
+    assert client.results[0]["error_code"] == chat_remote_control.REASON_EMPTY_PROMPT
+
+
+# ---------- 11. хеш payload: регистр поля и канон расчёта ----------
+
+
+def test_local_payload_hash_matches_server_canon() -> None:
+    """Локальный расчёт повторяет ``remote-control.shared.ts`` посимвольно.
+
+    Сервер считает ``sha256(JSON.stringify(canonicalize(payload ?? {})))``:
+    рекурсивно отсортированные ключи и компактные разделители. Разделители по
+    умолчанию (``", "``) давали заведомо другой хеш.
+    """
+    payload = {"b": 1, "a": {"y": 2, "x": [3, {"n": 4}]}}
+    canonical = '{"a":{"x":[3,{"n":4}],"y":2},"b":1}'
+    expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    assert chat_remote_control._hash_payload(payload) == expected  # noqa: SLF001
+    # payload ?? {} на сервере: пустой и отсутствующий payload дают один хеш.
+    empty = hashlib.sha256(b"{}").hexdigest()
+    assert chat_remote_control._hash_payload(None) == empty  # noqa: SLF001
+    assert chat_remote_control._hash_payload({}) == empty  # noqa: SLF001
+
+
+async def test_payload_hash_is_read_from_camel_case_field(
+    rc_database: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """drizzle отдаёт колонки camelCase — читать надо ``payloadHash``.
+
+    Чтение ``payload_hash`` всегда давало None, и сверка на подмену payload
+    фактически сравнивала локальный хеш с локальным.
+    """
+    tracker = RunTracker()
+    coordinator, client = await _published_coordinator(
+        monkeypatch, tmp_path, tracker, policy=crm_prompt_policy()
+    )
+    server_hash = "a" * 64
+
+    before = asyncio.all_tasks()
+    coordinator._ingest_remote_command(  # noqa: SLF001
+        {
+            "id": "p-hash",
+            "sequence": 1,
+            "commandType": "prompt",
+            "payload": {"prompt": "привет"},
+            "payloadHash": server_hash,
+        }
+    )
+    await _drain_tasks(before)
+
+    receipt = receipts.get("p-hash")
+    assert receipt is not None
+    assert receipt["payload_hash"] == server_hash
+    assert tracker.calls == ["привет"]
+
+
+async def test_payload_mismatch_is_refused_with_code(
+    rc_database: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Подмена payload при повторной доставке — fail closed, и сервер обязан
+    # узнать причину кодом, а не ждать таймаута отправителя.
+    tracker = RunTracker()
+    coordinator, client = await _published_coordinator(
+        monkeypatch, tmp_path, tracker, policy=crm_prompt_policy()
+    )
+
+    before = asyncio.all_tasks()
+    for payload_hash in ("b" * 64, "c" * 64):
+        coordinator._ingest_remote_command(  # noqa: SLF001
+            {
+                "id": "p-mismatch",
+                "sequence": 1,
+                "commandType": "prompt",
+                "payload": {"prompt": "первый"},
+                "payloadHash": payload_hash,
+            }
+        )
+    await _drain_tasks(before)
+
+    assert tracker.calls == ["первый"]  # второй раз ничего не запускалось
+    codes = [item.get("error_code") for item in client.results]
+    assert chat_remote_control.REASON_PAYLOAD_MISMATCH in codes
+
+
+# ---------- 12. сбой запуска и терминальное событие turn-а ----------
+
+
+class FailingRunner:
+    """Провайдер, честно падающий — сбой обязан назвать свою причину."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self.block: asyncio.Event | None = None
+        self.started = asyncio.Event()
+
+    async def run(self, prompt: str) -> tuple[bool, str]:
+        self.calls.append(prompt)
+        raise RuntimeError("провайдер недоступен")
+
+
+async def test_provider_failure_reports_run_failed_code(
+    rc_database: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = FailingRunner()
+    coordinator, client = await _published_coordinator(
+        monkeypatch, tmp_path, cast(RunTracker, runner), policy=crm_prompt_policy()
+    )
+
+    before = asyncio.all_tasks()
+    coordinator._ingest_remote_command(  # noqa: SLF001
+        {
+            "id": "p-boom",
+            "sequence": 1,
+            "commandType": "prompt",
+            "payload": {"prompt": "упади"},
+        }
+    )
+    await _drain_tasks(before)
+
+    assert runner.calls == ["упади"]
+    assert client.results[-1]["status"] == "failed"
+    assert client.results[-1]["error_code"] == chat_remote_control.REASON_RUN_FAILED
+
+
+async def test_stopped_run_is_reported_as_cancelled_without_error_code(
+    rc_database: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Остановка — штатный исход, а не сбой: статус cancelled и без кода причины."""
+    tracker = RunTracker()
+    tracker.block = asyncio.Event()
+    coordinator, client = await _published_coordinator(
+        monkeypatch, tmp_path, tracker, policy=crm_prompt_policy()
+    )
+
+    before = asyncio.all_tasks()
+    coordinator._ingest_remote_command(  # noqa: SLF001
+        {
+            "id": "p-stopme",
+            "sequence": 1,
+            "commandType": "prompt",
+            "payload": {"prompt": "долгий"},
+        }
+    )
+    await tracker.started.wait()
+    coordinator._ingest_remote_command(  # noqa: SLF001
+        {"id": "stop-code", "sequence": 2, "commandType": "stop", "payload": {}}
+    )
+    tracker.block.set()
+    await _drain_tasks(before)
+
+    by_command = {item["command_id"]: item for item in client.results}
+    assert by_command["p-stopme"]["status"] == "cancelled"
+    assert by_command["p-stopme"]["error_code"] is None
+    assert by_command["stop-code"]["status"] == "succeeded"
+    # Публикация возвращается в ожидание ввода даже после отмены.
+    stored = publications.get(coordinator._key())  # noqa: SLF001
+    assert stored["state"] == "published_idle"
+
+
+async def test_rc_off_closes_queued_remote_commands(
+    rc_database: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Снятая с очереди команда обязана получить терминальный статус.
+
+    Иначе она осталась бы ``claimed`` на сервере, а отправитель в Telegram ждал
+    бы ответа, которого уже никто не даст.
+    """
+    tracker = RunTracker()
+    tracker.block = asyncio.Event()
+    coordinator, client = await _published_coordinator(
+        monkeypatch, tmp_path, tracker, policy=crm_prompt_policy()
+    )
+
+    before = asyncio.all_tasks()
+    coordinator._ingest_remote_command(  # noqa: SLF001
+        {"id": "p-run", "sequence": 1, "commandType": "prompt", "payload": {"prompt": "первый"}}
+    )
+    await tracker.started.wait()
+    coordinator._ingest_remote_command(  # noqa: SLF001
+        {"id": "p-queued", "sequence": 2, "commandType": "prompt", "payload": {"prompt": "второй"}}
+    )
+    coordinator.off()
+    tracker.block.set()
+    await _drain_tasks(before)
+
+    assert tracker.calls == ["первый"]  # снятая команда не исполняется
+    queued = [item for item in client.results if item["command_id"] == "p-queued"]
+    assert len(queued) == 1
+    assert queued[0]["status"] == "cancelled"
+    assert receipts.get("p-queued")["state"] == "cancelled"
+
+
+async def test_terminal_status_event_points_at_crm_session(
+    rc_database: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ответ живёт в CRM: событие статуса отдаёт адрес ленты, а не текст.
+
+    Без ``crmSessionId`` интерфейсу нечего показать даже после успешного turn-а —
+    у control-plane текста ответа нет и быть не должно.
+    """
+    tracker = RunTracker()
+    coordinator, client = await _published_coordinator(
+        monkeypatch, tmp_path, tracker, policy=crm_prompt_policy(messages=True)
+    )
+    expected = crm_sync.external_session_id(
+        None, coordinator._session.crm_conversation_id  # noqa: SLF001
+    )
+
+    before = asyncio.all_tasks()
+    coordinator._ingest_remote_command(  # noqa: SLF001
+        {
+            "id": "p-answer",
+            "sequence": 1,
+            "commandType": "prompt",
+            "payload": {"prompt": "вопрос"},
+        }
+    )
+    await _drain_tasks(before)
+
+    with db.conn() as connection:
+        rows = connection.execute("SELECT payload FROM rc_event_outbox").fetchall()
+    payloads = [json.loads(row["payload"]) for row in rows]
+    statuses = [
+        item
+        for item in payloads
+        if item.get("type") == "rc.command_status" and item.get("state") == "succeeded"
+    ]
+    assert statuses, "терминальное событие статуса должно быть в outbox"
+    assert statuses[-1]["crmSessionId"] == expected
+    # Идентификатор один и тот же в событии и в итоге команды — второго способа
+    # его вычислить нет.
+    assert client.results[-1]["result_summary"]["crmSessionId"] == expected
 
 
 async def test_rc_off_closes_publication_on_server(

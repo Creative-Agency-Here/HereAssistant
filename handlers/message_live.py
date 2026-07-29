@@ -60,6 +60,7 @@ class MessageLiveSession:
         policy: LiveSessionPolicy,
         logger: logging.Logger,
         clock: Callable[[], float] = time.time,
+        device_label: str | None = None,
     ) -> None:
         self.bot = bot
         self.source_message = source_message
@@ -84,6 +85,7 @@ class MessageLiveSession:
             chain_limit=policy.progress_chain_limit,
             max_partial_chars=policy.progress_max_chars,
             draft_enabled=rich_stream_enabled,
+            device_label=device_label,
         )
         self.draft = DraftState(
             enabled=rich_stream_enabled,
@@ -198,6 +200,7 @@ class MessageLiveSession:
             chain_limit=self.render_context.chain_limit,
             max_partial_chars=self.render_context.max_partial_chars,
             draft_enabled=self.draft.enabled,
+            device_label=self.render_context.device_label,
         )
         rendered = render_progress(self.state, context, now=self.clock())
         self.state.overflowed = self.state.overflowed or rendered.overflowed

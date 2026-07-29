@@ -24,6 +24,35 @@ ALLOWED_COMMAND_TYPES = frozenset(
 
 TERMINAL_STATES = frozenset({"succeeded", "failed", "cancelled", "rejected"})
 
+# Что принимает сервер (``RunnerCommandResultDto.status``) — закрытый список из
+# пяти значений. ``rejected`` там нет и добавлять его нельзя: enum виден витрине
+# и фронту, а смысл отказа полностью выражается кодом причины.
+SERVER_STATUSES = frozenset(
+    {"running", "succeeded", "failed", "cancelled", "indeterminate"}
+)
+
+# Локальный словарь состояний ШИРЕ серверного намеренно: ``rejected`` остаётся в
+# SQLite честной записью отказа, наружу он уезжает как ``failed`` плюс код
+# причины. Иначе валидация вернула бы 400, статус не сохранился бы вовсе — и
+# удалённая команда висела бы ``claimed`` до самого таймаута отправителя.
+_SERVER_STATUS_BY_LOCAL_STATE = {
+    "succeeded": "succeeded",
+    "failed": "failed",
+    "cancelled": "cancelled",
+    "rejected": "failed",
+    "running": "running",
+    "indeterminate": "indeterminate",
+}
+
+
+def server_status(local_state: str) -> str:
+    """Локальное состояние → статус из контракта сервера.
+
+    Неизвестное состояние отображается в ``failed``: молчаливо отправить
+    невалидное значение хуже, чем честно закрыть команду ошибкой.
+    """
+    return _SERVER_STATUS_BY_LOCAL_STATE.get(local_state, "failed")
+
 
 @dataclass(frozen=True, slots=True)
 class ClaimResult:

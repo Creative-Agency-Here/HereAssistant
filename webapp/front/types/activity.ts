@@ -15,6 +15,16 @@ export interface CrmSession {
   ownerUsername: string | null
   lastActivityAt: string | null
   createdAt: string
+  // Устройство, на котором шла сессия. HereCRM отдаёт эти поля в списке диалогов
+  // с самого начала (listConversationsTx), но фронт их раньше не объявлял.
+  // Именно deviceId связывает сессию с живой публикацией /rc: у публикации тот
+  // же идентификатор из cli_agent_devices. Поля необязательные — старые записи и
+  // сессии без устройства их не имеют.
+  deviceId?: string | null
+  deviceIds?: string[] | null
+  deviceName?: string | null
+  devicePlatform?: string | null
+  deviceStatus?: string | null
 }
 
 export interface CrmDigest {

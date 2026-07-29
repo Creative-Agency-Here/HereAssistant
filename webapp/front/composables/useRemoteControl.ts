@@ -6,12 +6,24 @@
 // полей и кодов ошибок зеркалит админку HereCRM (useGitAiRemoteControl.ts) и
 // DTO бэкенда (remote-control.dto.ts): полей сверх объявленных там нет.
 //
-// GET /api/rc/publications отдаёт ВСЕ публикации владельца одним списком без
-// conversationId — сопоставление с устройством идёт по deviceId. У браузера нет
-// маршрута чтения статуса отдельной команды (он есть только у раннера), поэтому
-// «очередь» ниже — локальный журнал команд, поставленных ЭТИМ браузером.
+// GET /api/rc/publications отдаёт ВСЕ публикации владельца одним списком. Строка
+// публикации приходит целиком (сервер делает select без проекции), поэтому в ней
+// есть conversationId — точная связь с КОНКРЕТНОЙ сессией; deviceId связывает
+// лишь с машиной, на которой сессий может быть много. Поэтому цель этому
+// composable передают уже готовым идентификатором публикации (правило поиска —
+// ~/utils/rcBinding.mjs), а сам он выбирать публикацию не умеет.
+//
+// У браузера нет маршрута чтения статуса отдельной команды (он есть только у
+// раннера), поэтому «очередь» ниже — локальный журнал команд, поставленных ЭТИМ
+// браузером.
 
 import type { ComputedRef, Ref } from 'vue'
+import {
+  pushRcQueueItem,
+  replaceRcPublication,
+  useRcPublications,
+} from '~/composables/useRcPublications'
+import { RC_TERMINAL_PUBLICATION_STATES } from '~/utils/rcBinding.mjs'
 
 // Типы команд, которые браузер вправе поставить (RC_DURABLE_COMMAND_TYPES бэка).
 export type RcCommandType = 'prompt' | 'stop' | 'git_commit' | 'git_push'
@@ -40,6 +52,11 @@ export type RcPublicationState =
   | 'closed'
   | 'failed'
 
+// Потолок промпта — тот же, что у бэкенда (RcPromptPayloadDto, MaxLength(8000)) и
+// у прокси (MAX_PROMPT_CHARS). Держим его на клиенте, чтобы человек узнал о
+// превышении до отправки, а не из общего 400.
+export const RC_PROMPT_MAX_CHARS = 8000
+
 export interface RcCapabilities {
   remotePrompt?: boolean
   stop?: boolean
@@ -55,6 +72,9 @@ export interface RcPublication {
   tenantId: string
   ownerUserId: number
   deviceId: string
+  // Диалог CRM, к которому привязана публикация. null, пока сессия ни разу не
+  // синхронизировалась — тогда доказать принадлежность конкретной сессии нечем.
+  conversationId: string | null
   privacyMode: 'private' | 'crm'
   state: RcPublicationState
   capabilities: RcCapabilities | null
@@ -66,8 +86,10 @@ export interface RcPublication {
   closeReason: string | null
 }
 
-// Ответ постановки команды (RemoteCommandResponseDto бэка).
-export interface RcCommandResponse {
+// Команда в ответе постановки. Плоский Swagger-DTO (RemoteCommandResponseDto)
+// недостоверен: сервис возвращает createCommandTx как есть, то есть строку
+// команды и флаг created ОТДЕЛЬНЫМИ полями конверта (см. RcCommandEnvelope).
+export interface RcCommand {
   id: string
   publicationId: string
   sequence: number
@@ -77,22 +99,28 @@ export interface RcCommandResponse {
   payload: Record<string, unknown> | null
   createdAt: string
   expiresAt: string
+}
+
+// Фактический ответ POST .../commands: { command, created }.
+export interface RcCommandEnvelope {
+  command: RcCommand
   created: boolean
 }
 
-// Терминальные состояния публикации: новые команды не принимаются (зеркалит
-// PUBLICATION_TERMINAL_STATES бэка).
-const RC_TERMINAL_STATES = new Set<RcPublicationState>(['closed', 'expired', 'revoked', 'failed'])
+// Терминальные состояния публикации: новые команды не принимаются. Список один
+// на весь WebApp — в ~/utils/rcBinding.mjs (зеркалит PUBLICATION_TERMINAL_STATES
+// бэка). Второй копии здесь быть не должно: расхождение списков означает кнопку
+// на мёртвой публикации.
+const RC_TERMINAL_STATES = new Set<string>(RC_TERMINAL_PUBLICATION_STATES)
 
 export function isRcPublicationTerminal(state: RcPublicationState): boolean {
   return RC_TERMINAL_STATES.has(state)
 }
 
 // Offline после трёх пропущенных heartbeat: heartbeat 15 секунд, offline после
-// 45 секунд (раздел «Ответ 6. Безопасность» плана).
+// 45 секунд (раздел «Ответ 6. Безопасность» плана). Сам опрос публикаций и тик
+// времени живут в общем сторе useRcPublications — один на вкладку.
 const RC_HEARTBEAT_OFFLINE_MS = 45_000
-const RC_POLL_INTERVAL_MS = 12_000
-const RC_TICK_INTERVAL_MS = 5_000
 
 // Публикация принимает stop как осмысленное действие, только пока что-то реально
 // выполняется или ждёт подтверждения — иначе это команда в никуда.
@@ -152,38 +180,73 @@ export interface RcQueueItem {
   promptPreview: string | null
 }
 
-// Серверные коды ошибок (как в админке). Прокси отдаёт их в теле { error: code }.
+// Коды отказа сервера, которые прокси отдаёт браузеру в теле { error: code }.
+// Закрытый список — тот же, что ставит бэкенд на постановке команды: только эти
+// строки означают «сервер отказал по известной причине». Придуманных кодов
+// (PUBLICATION_EXPIRED и т. п.) в контракте нет — их нельзя показывать как
+// причину, иначе интерфейс объясняет отказ, которого не было.
 export type RcServerErrorCode =
   | 'DEVICE_OFFLINE'
-  | 'PUBLICATION_EXPIRED'
-  | 'PRIVACY_DENIED'
+  | 'PUBLICATION_CLOSED'
   | 'CAPABILITY_UNAVAILABLE'
+  | 'IDEMPOTENCY_KEY_REQUIRED'
+  | 'IDEMPOTENCY_KEY_INVALID'
   | 'UNKNOWN'
 
 export const RC_ERROR_TEXT: Record<RcServerErrorCode, string> = {
   DEVICE_OFFLINE: 'Устройство офлайн — команда не принята.',
-  PUBLICATION_EXPIRED: 'Публикация истекла — сессия больше не принимает команды.',
-  PRIVACY_DENIED: 'Политика приватности запрещает это действие.',
+  PUBLICATION_CLOSED: 'Публикация закрыта или просрочена — команды больше не принимаются.',
   CAPABILITY_UNAVAILABLE: 'Устройство не разрешило это действие.',
+  IDEMPOTENCY_KEY_REQUIRED: 'Команда отправлена без ключа идемпотентности — повторите отправку.',
+  IDEMPOTENCY_KEY_INVALID: 'Ключ идемпотентности не принят сервером — повторите отправку.',
   UNKNOWN: 'Не удалось выполнить действие удалённого управления.',
 }
 
-// Достаёт серверный код ошибки из ответа прокси ({ error: code }). $fetch кладёт
-// тело ответа в .data; нормализуем регистр, чтобы коды бэка (верхний регистр) и
-// возможные строчные варианты совпадали.
-export function rcErrorCode(error: unknown): RcServerErrorCode {
+const RC_SERVER_ERROR_CODES = new Set<string>([
+  'DEVICE_OFFLINE',
+  'PUBLICATION_CLOSED',
+  'CAPABILITY_UNAVAILABLE',
+  'IDEMPOTENCY_KEY_REQUIRED',
+  'IDEMPOTENCY_KEY_INVALID',
+])
+
+// Коды самого прокси WebApp (webapp/api/routes/remote_control.py). Это отказ
+// НАШЕГО сервера до исходящего запроса к HereCRM, а не ответ бэкенда, поэтому
+// список держится отдельно от закрытого набора серверных кодов. Без него человек
+// на любую такую причину видел бы одну и ту же общую фразу.
+const RC_PROXY_ERROR_TEXT: Record<string, string> = {
+  prompt_too_long: `Промпт длиннее ${RC_PROMPT_MAX_CHARS} символов — сократите текст.`,
+  body_too_large: 'Сообщение слишком велико для отправки.',
+  invalid_command: 'Команда не принята: неверное тело запроса.',
+  invalid_json: 'Команда не принята: тело запроса не разобрано.',
+  invalid_idempotency_key: 'Ключ идемпотентности не прошёл проверку — повторите отправку.',
+  invalid_publication_id: 'Публикация адресована неверно — обновите страницу.',
+  rc_not_configured: 'Удалённое управление не настроено на сервере.',
+  unauthorized: 'Нужен вход в HereCRM: удалённое управление доступно только владельцу.',
+  not_owner: 'Удалённое управление доступно только владельцу устройства.',
+  rc_forbidden: 'Доступ к удалённому управлению запрещён.',
+  rc_not_found: 'Публикация не найдена — сессия могла быть снята.',
+  rc_conflict: 'Публикация закрыта или устройство офлайн — команда не принята.',
+  crm_unavailable: 'HereCRM недоступна — команда не отправлена.',
+}
+
+/** Сырая строка кода из тела ответа прокси ({ error: code }); '' — кода нет. */
+function rawRcErrorCode(error: unknown): string {
   const data = (error as { data?: { error?: unknown } })?.data
-  const raw = typeof data?.error === 'string' ? data.error.trim().toUpperCase() : ''
-  if (raw === 'DEVICE_OFFLINE') return 'DEVICE_OFFLINE'
-  if (raw === 'PUBLICATION_EXPIRED') return 'PUBLICATION_EXPIRED'
-  if (raw === 'PRIVACY_DENIED') return 'PRIVACY_DENIED'
-  if (raw === 'CAPABILITY_UNAVAILABLE') return 'CAPABILITY_UNAVAILABLE'
-  return 'UNKNOWN'
+  return typeof data?.error === 'string' ? data.error.trim() : ''
+}
+
+// Серверный код отказа. $fetch кладёт тело ответа в .data; регистр нормализуем,
+// чтобы коды бэка (верхний регистр) совпадали и в строчном варианте.
+export function rcErrorCode(error: unknown): RcServerErrorCode {
+  const raw = rawRcErrorCode(error).toUpperCase()
+  return RC_SERVER_ERROR_CODES.has(raw) ? (raw as RcServerErrorCode) : 'UNKNOWN'
 }
 
 export function rcErrorText(error: unknown, fallback = RC_ERROR_TEXT.UNKNOWN): string {
   const code = rcErrorCode(error)
-  return code === 'UNKNOWN' ? fallback : RC_ERROR_TEXT[code]
+  if (code !== 'UNKNOWN') return RC_ERROR_TEXT[code]
+  return RC_PROXY_ERROR_TEXT[rawRcErrorCode(error).toLowerCase()] || fallback
 }
 
 export interface RemoteControlContext {
@@ -203,36 +266,67 @@ export interface RemoteControlContext {
   canStop: ComputedRef<boolean>
   canClose: ComputedRef<boolean>
   refresh: () => Promise<void>
-  sendPrompt: (text: string) => Promise<void>
+  // true — команда принята сервером. Композер по этому признаку решает, можно ли
+  // очистить поле: при отказе текст обязан остаться, иначе человек потеряет
+  // написанное и наберёт заново — то есть с новым ключом идемпотентности.
+  sendPrompt: (text: string) => Promise<boolean>
   sendStop: () => Promise<void>
   closePublication: () => Promise<void>
 }
 
-// deviceId выбирает публикацию конкретного устройства из списка владельца. Если
-// он null, publication — самая свежая публикация (список уже отсортирован бэком
-// по publishedAt desc).
-export function useRemoteControl(deviceId: Ref<string | null> = ref(null)): RemoteControlContext {
-  const publications = ref<RcPublication[]>([])
-  const allQueueItems = ref<RcQueueItem[]>([])
-  const loading = ref(false)
-  const loadError = ref('')
+// Ключ идемпотентности постановки промпта. Прокси пробрасывает его в заголовке
+// Idempotency-Key, бэкенд снимает дубль по паре (publicationId, ключ). Без него
+// сервер генерирует случайный ключ сам, и повтор после сетевого сбоя создаёт
+// ВТОРОЙ промпт — то есть второй запуск агента на устройстве.
+function newIdempotencyKey(): string {
+  const uuid = globalThis.crypto?.randomUUID?.()
+  if (uuid) return `web_${uuid}`
+  return `web_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`
+}
+
+// Срок жизни ключа неудавшейся попытки. Дальше он обязан протухнуть: иначе
+// намеренная повторная отправка ТОГО ЖЕ текста через час вернула бы старую
+// команду (created:false) вместо новой, и промпт молча не выполнился бы.
+const RC_IDEMPOTENCY_TTL_MS = 5 * 60_000
+
+// Цель задаётся ТОЛЬКО идентификатором публикации, и он обязателен. Выбор
+// «по устройству» или «самая свежая публикация владельца» здесь недопустим: у
+// одной машины публикаций много, они принадлежат разным проектам с разным
+// рабочим каталогом и разной политикой приватности, а отменить уже отправленный
+// промпт нечем. Кто эту публикацию нашёл — решает ~/utils/rcBinding.mjs.
+export function useRemoteControl(
+  publicationId: Ref<string | null> | ComputedRef<string | null>,
+): RemoteControlContext {
+  const store = useRcPublications()
+  const publications = computed<RcPublication[]>(() => store.publications.value)
+  const loading = store.loading
+  const loadError = computed(() =>
+    store.loadErrorRaw.value
+      ? rcErrorText(store.loadErrorRaw.value, 'Не удалось получить статус удалённого управления')
+      : '',
+  )
   const actionError = ref('')
   const sendingPrompt = ref(false)
   const sendingStop = ref(false)
   const closing = ref(false)
-  const now = ref(Date.now())
+  const now = store.now
+  // Ключ последней НЕ подтверждённой сервером попытки. Повторная отправка того же
+  // текста переиспользует его, поэтому «отправил → сеть моргнула → отправил ещё
+  // раз» даёт один промпт на устройстве, а не два.
+  const pendingAttempt = ref<{ key: string; text: string; at: number } | null>(null)
 
   const publication = computed<RcPublication | null>(() => {
-    if (!publications.value.length) return null
-    const id = deviceId.value
-    if (!id) return publications.value[0] ?? null
-    return publications.value.find((item) => item.deviceId === id) ?? null
+    // Пустой publicationId означает «цели нет», а НЕ «возьми любую публикацию
+    // машины»: без цели интерфейс обязан остаться читающим.
+    const exact = publicationId.value
+    if (!exact) return null
+    return publications.value.find((item) => item.id === exact) ?? null
   })
 
   const queue = computed(() => {
     const pub = publication.value
     if (!pub) return []
-    return allQueueItems.value.filter((item) => item.publicationId === pub.id)
+    return store.queueItems.value.filter((item) => item.publicationId === pub.id)
   })
 
   const deviceOnline = computed(() => {
@@ -275,53 +369,66 @@ export function useRemoteControl(deviceId: Ref<string | null> = ref(null)): Remo
     return !!pub && !isRcPublicationTerminal(pub.state)
   })
 
-  async function refresh(): Promise<void> {
-    loading.value = true
-    try {
-      const data = await apiFetch<RcPublication[]>('/api/rc/publications', {
-        credentials: 'include',
-      })
-      publications.value = Array.isArray(data) ? data : []
-      loadError.value = ''
-    } catch (e) {
-      loadError.value = rcErrorText(e, 'Не удалось получить статус удалённого управления')
-    } finally {
-      loading.value = false
-    }
-  }
+  const refresh = store.refresh
 
-  function pushQueueItem(pub: RcPublication, res: RcCommandResponse, preview: string | null) {
-    allQueueItems.value.unshift({
-      id: res.id,
+  function pushQueueItem(pub: RcPublication, res: RcCommandEnvelope, preview: string | null) {
+    const command = res?.command
+    // Форма ответа не совпала с контрактом — журнал молча не заполняем строкой
+    // из undefined: пустой журнал честнее выдуманной записи.
+    if (!command?.id) return
+    pushRcQueueItem({
+      id: command.id,
       publicationId: pub.id,
-      commandType: res.commandType,
-      status: res.status,
-      sequence: res.sequence,
-      createdAt: res.createdAt,
-      expiresAt: res.expiresAt,
-      created: res.created,
+      commandType: command.commandType,
+      status: command.status,
+      sequence: command.sequence,
+      createdAt: command.createdAt,
+      expiresAt: command.expiresAt,
+      created: res.created !== false,
       promptPreview: preview,
     })
   }
 
-  async function sendPrompt(text: string): Promise<void> {
+  async function sendPrompt(text: string): Promise<boolean> {
     const pub = publication.value
     const trimmed = text.trim()
-    if (!pub || !trimmed || promptBlockReason.value || sendingPrompt.value) return
+    if (!pub || !trimmed || promptBlockReason.value || sendingPrompt.value) return false
+    if (trimmed.length > RC_PROMPT_MAX_CHARS) {
+      // Бэкенд отклонит такой промпт валидатором; лучше сказать это сразу и
+      // сохранить текст, чем отправить в никуда.
+      actionError.value = RC_PROXY_ERROR_TEXT.prompt_too_long
+      return false
+    }
+    // Тот же текст сразу после неудачной попытки уходит под тем же ключом:
+    // сервер вернёт уже созданную команду (created:false), а не заведёт вторую.
+    // По истечении TTL ключ протухает — это уже осознанная новая отправка.
+    const previous = pendingAttempt.value
+    const attempt =
+      previous && previous.text === trimmed && Date.now() - previous.at < RC_IDEMPOTENCY_TTL_MS
+        ? previous
+        : { key: newIdempotencyKey(), text: trimmed, at: Date.now() }
+    pendingAttempt.value = attempt
     sendingPrompt.value = true
     try {
-      const res = await apiFetch<RcCommandResponse>(
+      const res = await apiFetch<RcCommandEnvelope>(
         `/api/rc/publications/${pub.id}/commands`,
         {
           method: 'POST',
           credentials: 'include',
-          body: { commandType: 'prompt', payload: { text: trimmed } },
+          headers: { 'Idempotency-Key': attempt.key },
+          // Ключ payload.prompt — контракт раннера (chat_remote_control.py,
+          // _ingest_prompt_command читает payload['prompt']). Любое другое имя
+          // доедет до устройства пустой строкой.
+          body: { commandType: 'prompt', payload: { prompt: trimmed } },
         },
       )
       pushQueueItem(pub, res, trimmed)
+      pendingAttempt.value = null
       actionError.value = ''
+      return true
     } catch (e) {
       actionError.value = rcErrorText(e, 'Не удалось отправить команду устройству')
+      return false
     } finally {
       sendingPrompt.value = false
     }
@@ -332,7 +439,7 @@ export function useRemoteControl(deviceId: Ref<string | null> = ref(null)): Remo
     if (!pub || !canStop.value || sendingStop.value) return
     sendingStop.value = true
     try {
-      const res = await apiFetch<RcCommandResponse>(
+      const res = await apiFetch<RcCommandEnvelope>(
         `/api/rc/publications/${pub.id}/commands`,
         { method: 'POST', credentials: 'include', body: { commandType: 'stop' } },
       )
@@ -354,8 +461,7 @@ export function useRemoteControl(deviceId: Ref<string | null> = ref(null)): Remo
         method: 'DELETE',
         credentials: 'include',
       })
-      const idx = publications.value.findIndex((item) => item.id === updated.id)
-      if (idx !== -1) publications.value.splice(idx, 1, updated)
+      replaceRcPublication(updated)
       actionError.value = ''
     } catch (e) {
       actionError.value = rcErrorText(e, 'Не удалось снять публикацию')
@@ -363,23 +469,6 @@ export function useRemoteControl(deviceId: Ref<string | null> = ref(null)): Remo
       closing.value = false
     }
   }
-
-  let pollTimer: ReturnType<typeof setInterval> | null = null
-  let tickTimer: ReturnType<typeof setInterval> | null = null
-
-  onMounted(() => {
-    void refresh()
-    pollTimer = setInterval(() => void refresh(), RC_POLL_INTERVAL_MS)
-    tickTimer = setInterval(() => {
-      now.value = Date.now()
-    }, RC_TICK_INTERVAL_MS)
-  })
-  onUnmounted(() => {
-    if (pollTimer) clearInterval(pollTimer)
-    if (tickTimer) clearInterval(tickTimer)
-    pollTimer = null
-    tickTimer = null
-  })
 
   return {
     publications,

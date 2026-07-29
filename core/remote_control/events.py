@@ -36,6 +36,12 @@ MAX_SHORT_CHARS = 200
 MAX_PATHS = 50
 TRUNCATION_MARK = "…[обрезано]"
 
+# Состояния, при которых turn закончен: только в них имеет смысл подсказывать
+# интерфейсу, где искать полный текст ответа (``crmSessionId``).
+TERMINAL_EVENT_STATES = frozenset(
+    {"succeeded", "failed", "cancelled", "rejected", "indeterminate"}
+)
+
 
 def _truncate(text: str, limit: int) -> str:
     """Обрезает длинный текст, оставляя пометку об обрезке."""
@@ -98,12 +104,19 @@ def emit_command_status(
     publication_id: Optional[int] = None,
     commit_sha: Optional[str] = None,
     commit_message: Optional[str] = None,
+    crm_session_id: Optional[str] = None,
     now: Optional[int] = None,
 ) -> Optional[str]:
     """Факт смены статуса команды — единственное, что видит приватный проект.
 
     Метаданные коммита добавляются только при отдельном явном флаге
     ``can_stream_rc_commits``; в приватном режиме их нет никогда.
+
+    ``crmSessionId`` — не содержимое, а адрес ленты: по нему интерфейс находит
+    полный текст ответа в CRM (у control-plane текста нет и быть не должно).
+    Уходит он только при терминальном состоянии turn-а и только когда проект и
+    так синхронизирует сообщения в CRM (``can_sync_to_crm(policy, "messages")``);
+    приватный проект своего идентификатора не отдаёт никогда.
     """
     if not project_config.can_publish_rc_presence(policy):
         return None
@@ -112,6 +125,12 @@ def emit_command_status(
         "commandId": command_id,
         "state": state,
     }
+    if (
+        crm_session_id
+        and state in TERMINAL_EVENT_STATES
+        and project_config.can_sync_to_crm(policy, "messages")
+    ):
+        payload["crmSessionId"] = str(crm_session_id)[:MAX_SHORT_CHARS]
     if commit_sha and project_config.can_stream_rc_commits(policy):
         payload["commitSha"] = _scrub_home(str(commit_sha))[:MAX_SHORT_CHARS]
         if commit_message:
@@ -130,7 +149,26 @@ def emit_progress(
     state: Optional[str] = None,
     now: Optional[int] = None,
 ) -> Optional[str]:
-    """Кусок ответа ассистента. Уходит только при явном флаге стриминга сообщений."""
+    """Кусок ответа ассистента. Уходит только при явном флаге стриминга сообщений.
+
+    ЗАРЕЗЕРВИРОВАНО: production-вызывающего у этой функции сейчас нет намеренно,
+    и её отсутствие в ленте — не пропущенная проводка.
+
+    Во-первых, живого потока ответа на устройстве нет: провайдеры запускаются
+    неинтерактивно, промежуточных кусков текста координатору никто не отдаёт, а
+    события уезжают пачками по циклу heartbeat. Имитировать поток нельзя — лента
+    в Telegram обновляется дискретно, и подписи в интерфейсе это признают.
+
+    Во-вторых, полный текст ответа берётся из ленты CRM по ``crmSessionId`` из
+    результата команды, то есть по контуру ``sessions:read``. Копировать тот же
+    текст ещё и в события значило бы сохранять ответы ассистента в
+    ``cli_agent_remote_audit.detail`` на control-plane, где retention пока не
+    реализован, — то есть расширять privacy-след без единой новой возможности.
+
+    Функция и тип ``rc.progress`` остаются частью контракта: их разбирает читатель
+    (``core/remote_bridge.event_note``), и они пригодятся, как только у провайдера
+    появится настоящий инкрементальный вывод. Гейт остаётся default deny.
+    """
     if not project_config.can_stream_rc_messages(policy):
         return None
     payload: dict[str, Any] = {

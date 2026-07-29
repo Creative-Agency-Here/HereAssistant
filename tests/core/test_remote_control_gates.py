@@ -167,11 +167,45 @@ def test_private_presence_leaks_no_path_name_or_content() -> None:
     assert payload["deviceName"] == "MacBook Ильи"
     assert payload["capabilities"] == {
         "remotePrompt": False,
-        "messages": False,
-        "diffs": False,
-        "commits": False,
-        "git": False,
+        "stop": False,
+        "gitCommit": False,
+        "gitPush": False,
+        "toolEvents": False,
     }
+
+
+# --- Канонический набор capabilities (иначе whitelist сервера съест лишнее) ---
+
+
+def test_capabilities_are_exactly_the_five_canonical_keys() -> None:
+    """Ключи вне канона сервер МОЛЧА вырезает — набор фиксируется тестом.
+
+    Жёстко прописанное множество здесь намеренно: если снимок снова начнёт
+    публиковать ``messages/diffs/commits/git``, тест обязан покраснеть, потому что
+    в БД control-plane такие ключи не доедут вовсе, а ``stop`` навсегда останется
+    запрещённым.
+    """
+    canonical = {"remotePrompt", "stop", "gitCommit", "gitPush", "toolEvents"}
+    for policy in (PRIVATE, crm_policy(prompts=True, messages=True)):
+        assert set(publications.compile_capabilities(policy)) == canonical
+    assert set(publications.CAPABILITY_KEYS) == canonical
+
+
+def test_capabilities_follow_their_own_policy_gates() -> None:
+    # Удалённая остановка разрешена ровно там, где разрешён удалённый промпт.
+    prompts = crm_policy(prompts=True)
+    assert publications.compile_capabilities(prompts)["remotePrompt"] is True
+    assert publications.compile_capabilities(prompts)["stop"] is True
+
+    # toolEvents — это гейт стриминга сообщений (он же стоит в emit_tool_call).
+    assert publications.compile_capabilities(prompts)["toolEvents"] is False
+    assert publications.compile_capabilities(crm_policy(messages=True))["toolEvents"] is True
+
+    # git commit/push — один гейт can_execute_rc_git, для private всегда False.
+    git = publications.compile_capabilities(crm_policy())
+    assert git["gitCommit"] is True and git["gitPush"] is True
+    private = publications.compile_capabilities(PRIVATE)
+    assert private["gitCommit"] is False and private["gitPush"] is False
 
 
 def test_private_presence_without_flag_is_not_published() -> None:

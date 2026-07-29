@@ -145,11 +145,12 @@ directory) is dropped rather than sent.
 | `RC_CONTROL_PLANE_URL` | environment | empty | Base URL the device's `ControlPlaneClient`/`WakeupListener` would use. Empty = mode off. Must be an absolute `https://` URL to be considered configured. |
 | `RC_PROXY_CRM_BASE_URL` | environment (WebApp API process) | unset | Base URL the WebApp's server-side browser proxy calls. Unset/non-https = the `/api/rc/*` routes return `rc_not_configured` (503) without making any outbound request. |
 | `RC_PROXY_CRM_TOKEN` | environment (WebApp API process) | unset | Server-held bearer token for the proxy above. Never sent to the browser. |
+| `RC_PROXY_CRM_OWNER_USER_ID` | environment (WebApp API process) | unset | CRM id of the OWNER of the token above. The proxy compares it with the browser session's `crm_user_id`: another participant's session gets `not_owner` (403) before any outbound request, unset means `rc_not_configured` (503). Without this check any workspace member signed in via SSO could run code on the owner's machine. |
 | `remote_control.enabled` | `.hereassistant/project.yml` | `false` | Master per-project switch; every gate above starts by checking it. |
 | `remote_control.allow_presence_in_private` | `.hereassistant/project.yml` | `false` | Only meaningful for `mode: private`; lets that project publish presence-only, capability-free status. |
 | `remote_control.ttl_minutes` | `.hereassistant/project.yml` | `120` | Bounded to 5–480 minutes; used to compute the publication's `expiresAt`. |
 
-None of the three environment variables have a default domain baked into the
+None of the environment variables have a default domain baked into the
 code or shipped in `.env.example` — every deployment supplies its own.
 
 ### Device credential
@@ -228,6 +229,14 @@ intents**, never a shell command. Every action:
   that further: it only lets a browser session create `prompt`, `stop`,
   `git_commit`, or `git_push` (`approval_decision` and `git_preflight` are
   runner-internal signals a browser never originates).
+- **The browser proxy is owner-only.** A session with `auth_source='crm'` is
+  handed to any workspace member who exchanges their own `hat_` ticket, while the
+  outbound request carries the shared server-side `RC_PROXY_CRM_TOKEN`, i.e. acts
+  as the device owner. The proxy therefore compares the session's `crm_user_id`
+  with `RC_PROXY_CRM_OWNER_USER_ID`: a mismatch is `not_owner` (403) before any
+  outbound request, and an unset variable is `rc_not_configured` (503). Without
+  that check an unrelated member could run code in the owner's working directory,
+  and the contract has no command cancellation.
 - **Duplicate delivery cannot cause a second execution.** A command receipt is
   written *before* execution starts, keyed by command id. Redelivering the
   same command id with the same payload hash is a no-op; redelivering it with

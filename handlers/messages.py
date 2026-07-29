@@ -27,6 +27,7 @@ from core import (
     events,
     project_config,
     projects,
+    remote_bridge,
 )
 from utils import rich
 from utils.files import download_attachment
@@ -41,6 +42,7 @@ from .message_final_delivery import FinalDelivery, FinalDeliveryRequest
 from .message_formatting import format_signature, should_skip_edit
 from .message_live import LiveSessionPolicy, MessageLiveSession
 from .message_queue import QueuedRun, pop_run, queue_run
+from .message_remote_run import start_remote_turn
 from .message_rich_final import deliver_rich_final, prepare_classic_tables
 from .message_state import runtime
 
@@ -136,7 +138,11 @@ async def _flush_pending(bot: Bot, key: tuple[int, int, int]):
     user_id, chat_id, thread_id = key
 
     conv = repo.get_or_create_conv(chat_id, thread_id, user_id)
-    if not conv["account_id"]:
+    # Привязка треда к устройству /rc решает, чей CLI исполняет запрос. В
+    # удалённом режиме локальный аккаунт бота не участвует вовсе.
+    device_id, _ = remote_bridge.conversation_device(conv)
+    remote_mode = bool(device_id) and user_id == config.ADMIN_ID
+    if not remote_mode and not conv["account_id"]:
         await message.answer(
             f"{repo.ACCOUNT_NOT_AVAILABLE}: для пользователя нет своего или явно общего аккаунта."
         )
@@ -171,6 +177,13 @@ async def _flush_pending(bot: Bot, key: tuple[int, int, int]):
         main_attachment=main_attachment,
         attachments=attachments or [],
     )
+
+    # --- РАЗВИЛКА: удалённое исполнение на компьютере владельца ---
+    # Ветки взаимоисключающие. Пока привязка есть, сообщение НИКОГДА не уходит в
+    # серверную сессию молча: у неё другой проект, аккаунт и политика приватности.
+    if remote_mode:
+        start_remote_turn(bot, key, conv, run)
+        return
 
     # --- ПРЕРЫВАНИЕ ПРЕДЫДУЩЕЙ ЗАДАЧИ ---
     prev = runtime.active_tasks.get(key)

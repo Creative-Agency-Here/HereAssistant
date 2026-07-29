@@ -44,14 +44,33 @@ class LocalSessionMeta:
     provider_session_id: Optional[str] = None
 
 
+# Канонический набор capabilities серверного контракта: РОВНО эти пять ключей
+# знает ``RemoteControlCapabilitiesDto`` (Admin Panel). Ключ вне набора сервер не
+# отклоняет — глобальный ValidationPipe стоит с ``whitelist: true`` и
+# ``forbidNonWhitelisted: false``, поэтому лишнее МОЛЧА вырезается: прежние
+# ``messages/diffs/commits/git`` не доезжали до БД вовсе, и ``stop`` никогда не
+# становился разрешённым. Расширять набор можно только вместе с сервером.
+CAPABILITY_KEYS = ("remotePrompt", "stop", "gitCommit", "gitPush", "toolEvents")
+
+
 def compile_capabilities(policy: project_config.ProjectPolicy) -> dict[str, bool]:
-    """Снимок возможностей, разрешённых политикой. Для private всё False."""
+    """Снимок возможностей, разрешённых политикой. Для private всё False.
+
+    Отдельного локального флага на остановку в ``project_config`` нет, а
+    выдумывать его значило бы менять приватную политику: удалённая остановка
+    разрешена ровно там, где разрешён удалённый промпт. Флаги стриминга
+    ``messages/diffs/commits`` наружу как capabilities не уходят — они остаются
+    локальными гейтами внутри ``events.py``; интерфейсам достаточно
+    ``toolEvents``.
+    """
+    remote_prompt = project_config.can_receive_remote_prompts(policy)
+    git_allowed = project_config.can_execute_rc_git(policy)
     return {
-        "remotePrompt": project_config.can_receive_remote_prompts(policy),
-        "messages": project_config.can_stream_rc_messages(policy),
-        "diffs": project_config.can_stream_rc_diffs(policy),
-        "commits": project_config.can_stream_rc_commits(policy),
-        "git": project_config.can_execute_rc_git(policy),
+        "remotePrompt": remote_prompt,
+        "stop": remote_prompt,
+        "gitCommit": git_allowed,
+        "gitPush": git_allowed,
+        "toolEvents": project_config.can_stream_rc_messages(policy),
     }
 
 

@@ -134,6 +134,53 @@ def test_commit_metadata_requires_own_flag(rc_database: Path) -> None:
     assert with_sha["commitSha"] == "abcdef1234567890"
 
 
+# ---------- 1a. crmSessionId: адрес ленты, а не содержимое ----------
+def test_private_command_status_never_carries_crm_session_id(rc_database: Path) -> None:
+    """Приватный проект не отдаёт даже идентификатор своей сессии.
+
+    Мутация «отдавать идентификатор без проверки политики» обязана краснить
+    именно здесь: в CRM такого проекта нет, и указывать наружу на его ленту —
+    утечка признака существования сессии.
+    """
+    events.emit_command_status(
+        PRIVATE_PRESENCE,
+        command_id="c1",
+        state="succeeded",
+        crm_session_id="claude_code:1:42",
+    )
+    only = _payloads()[0]
+    assert "crmSessionId" not in only
+    assert "claude_code:1:42" not in json.dumps(only, ensure_ascii=False)
+
+
+def test_crm_session_id_requires_messages_sync_and_terminal_state(
+    rc_database: Path,
+) -> None:
+    # CRM-проект без синка сообщений: текста в ленте нет, адресовать некуда.
+    events.emit_command_status(
+        crm_policy(send_messages=False),
+        command_id="c1",
+        state="succeeded",
+        crm_session_id="claude_code:1:42",
+    )
+    assert "crmSessionId" not in _payloads()[0]
+
+    # Нетерминальное состояние: turn ещё идёт, ответа в ленте пока нет.
+    policy = crm_policy(send_messages=True)
+    events.emit_command_status(
+        policy, command_id="c2", state="running", crm_session_id="claude_code:1:42"
+    )
+    running = [p for p in _payloads() if p.get("commandId") == "c2"][0]
+    assert "crmSessionId" not in running
+
+    # Терминальное состояние и разрешённый синк сообщений — адрес уходит.
+    events.emit_command_status(
+        policy, command_id="c3", state="succeeded", crm_session_id="claude_code:1:42"
+    )
+    done = [p for p in _payloads() if p.get("commandId") == "c3"][0]
+    assert done["crmSessionId"] == "claude_code:1:42"
+
+
 # ---------- 2. текст ответа не уходит без своего флага ----------
 def test_progress_requires_messages_flag(rc_database: Path) -> None:
     assert events.emit_progress(

@@ -18,6 +18,14 @@ CREATE TABLE conversations (
     cwd                  TEXT,
     project_name         TEXT,
     project_id           INTEGER,
+    -- Удалённый режим /rc: тред отправляет запросы в ЭТУ сессию устройства.
+    -- Только несекретные идентификаторы и имя; NULL = обычная серверная сессия.
+    -- Публикация и сессия CRM обязательны для точности: одна машина держит
+    -- несколько проектов, и по одному устройству цель не определяется.
+    rc_device_id         TEXT,
+    rc_device_name       TEXT,
+    rc_publication_id    TEXT,
+    rc_conversation_id   TEXT,
     created_at           INTEGER NOT NULL,
     updated_at           INTEGER NOT NULL,
     UNIQUE (user_id, chat_id, thread_id)
@@ -360,6 +368,21 @@ MIGRATIONS = [
     ("users", "first_name", "ALTER TABLE users ADD COLUMN first_name TEXT"),
     ("users", "last_seen", "ALTER TABLE users ADD COLUMN last_seen INTEGER"),
     ("users", "requested_at", "ALTER TABLE users ADD COLUMN requested_at INTEGER"),
+    # Привязка треда Telegram к устройству /rc. Хранятся только несекретные
+    # идентификатор и имя устройства; токены и промпты сюда не попадают.
+    ("conversations", "rc_device_id", "ALTER TABLE conversations ADD COLUMN rc_device_id TEXT"),
+    ("conversations", "rc_device_name", "ALTER TABLE conversations ADD COLUMN rc_device_name TEXT"),
+    # Цель /rc — конкретная публикация и её сессия CRM, а не «какой-то» компьютер.
+    (
+        "conversations",
+        "rc_publication_id",
+        "ALTER TABLE conversations ADD COLUMN rc_publication_id TEXT",
+    ),
+    (
+        "conversations",
+        "rc_conversation_id",
+        "ALTER TABLE conversations ADD COLUMN rc_conversation_id TEXT",
+    ),
 ]
 
 
@@ -388,9 +411,13 @@ def _migrate_conversation_identity(conn: sqlite3.Connection) -> None:
     conn.execute(
         """INSERT INTO conversations
            (id, user_id, chat_id, thread_id, account_id, model, provider_session_id,
-            cwd, project_name, project_id, created_at, updated_at)
+            cwd, project_name, project_id, rc_device_id, rc_device_name,
+            rc_publication_id, rc_conversation_id,
+            created_at, updated_at)
            SELECT id, user_id, chat_id, thread_id, account_id, model, provider_session_id,
-                  cwd, project_name, project_id, created_at, updated_at
+                  cwd, project_name, project_id, rc_device_id, rc_device_name,
+                  rc_publication_id, rc_conversation_id,
+                  created_at, updated_at
            FROM conversations_legacy_identity"""
     )
     conn.execute("DROP TABLE conversations_legacy_identity")

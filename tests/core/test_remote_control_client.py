@@ -55,16 +55,31 @@ class _FakeSession:
         self.exchange_payload = exchange_payload or _EXCHANGE_RESPONSE
         self.posts: list[tuple[str, Any]] = []
         self.gets: list[tuple[str, Any]] = []
+        self.methods: list[tuple[str, str]] = []
 
-    def post(self, url: str, json: Any = None, headers: Any = None) -> _FakeResponse:
+    def request(
+        self,
+        method: str,
+        url: str,
+        json: Any = None,
+        params: Any = None,
+        headers: Any = None,
+    ) -> _FakeResponse:
+        """Клиент зовёт сессию объявленным методом — заглушка это фиксирует."""
+        self.methods.append((method.upper(), url))
+        if method.upper() == "GET":
+            self.gets.append((url, params))
+            return _FakeResponse(self.status, self.payload)
         self.posts.append((url, json))
         if url.endswith("/cli-agent/runner/exchange"):
             return _FakeResponse(200, self.exchange_payload)
         return _FakeResponse(self.status, self.payload)
 
+    def post(self, url: str, json: Any = None, headers: Any = None) -> _FakeResponse:
+        return self.request("POST", url, json=json, headers=headers)
+
     def get(self, url: str, params: Any = None, headers: Any = None) -> _FakeResponse:
-        self.gets.append((url, params))
-        return _FakeResponse(self.status, self.payload)
+        return self.request("GET", url, params=params, headers=headers)
 
 
 def _client(session: _FakeSession, *, credential: bool = True) -> ControlPlaneClient:
@@ -163,6 +178,63 @@ async def test_claim_command_returns_none_on_failure() -> None:
     assert result is None
 
 
+async def test_create_publication_sends_json_body_and_returns_server_id() -> None:
+    """Публикация уходит телом JSON, а не как угодно иначе.
+
+    Регрессия: тело передавалось позиционно-именованным ``payload=``, которого у
+    транспорта нет — вызов падал TypeError ДО сети, и публикация не создавалась
+    вовсе. Никакой ошибки в логе при этом не было видно.
+    """
+    session = _FakeSession(payload={"id": "srv-pub-1"})
+    client = _client(session)
+    conversation = "33333333-3333-4333-8333-333333333333"
+    remote_id = await client.create_publication(
+        public_id="chat:1:2",
+        privacy_mode="crm",
+        capabilities={"remotePrompt": True, "stop": True},
+        ttl_minutes=30,
+        conversation_id=conversation,
+    )
+
+    assert remote_id == "srv-pub-1"
+    method, url = session.methods[-1]
+    assert method == "POST"
+    assert url == "https://crm.example.com/cli-agent/runner/publications"
+    assert session.posts[-1][1] == {
+        "publicId": "chat:1:2",
+        "privacyMode": "crm",
+        "capabilities": {"remotePrompt": True, "stop": True},
+        "ttlMinutes": 30,
+        "conversationId": conversation,
+    }
+
+
+async def test_create_publication_drops_non_uuid_conversation_id() -> None:
+    # Сервер валидирует conversationId через @IsUUID: кривое значение отклонило
+    # бы публикацию ЦЕЛИКОМ, поэтому не-UUID не уходит вовсе.
+    session = _FakeSession(payload={"id": "srv-pub-2"})
+    client = _client(session)
+    await client.create_publication(
+        public_id="chat:1:2", privacy_mode="crm", conversation_id="chat:1:2"
+    )
+    assert "conversationId" not in session.posts[-1][1]
+
+
+async def test_close_publication_uses_delete_method() -> None:
+    """Снятие публикации — именно DELETE.
+
+    Регрессия: транспорт выбирал «GET или POST», и DELETE уходил POST-ом на
+    ``publications/:id`` — публикация молча оставалась живой до истечения TTL.
+    """
+    session = _FakeSession(payload={"ok": True})
+    client = _client(session)
+    assert await client.close_publication(publication_id="pub-1") is True
+
+    method, url = session.methods[-1]
+    assert method == "DELETE"
+    assert url == "https://crm.example.com/cli-agent/runner/publications/pub-1"
+
+
 async def test_submit_command_result_hits_per_command_result_path() -> None:
     session = _FakeSession(payload={"id": "cmd-1", "status": "succeeded"})
     client = _client(session)
@@ -174,9 +246,28 @@ async def test_submit_command_result_hits_per_command_result_path() -> None:
     )
 
     assert ok is True
-    url, body = session.posts[-1]
+    method, url = session.methods[-1]
+    # Результат адресуется КОНКРЕТНОЙ команде: общего девайс-маршрута нет.
+    assert method == "POST"
     assert url == "https://crm.example.com/cli-agent/runner/publications/pub-1/commands/cmd-1/result"
-    assert body == {"status": "succeeded", "resultSummary": {"filesChanged": 2}}
+    assert session.posts[-1][1] == {
+        "status": "succeeded",
+        "resultSummary": {"filesChanged": 2},
+    }
+
+
+async def test_submit_command_result_carries_error_code() -> None:
+    # Код причины — единственный способ отличить приватный отказ от сбоя
+    # провайдера: статус у них один и тот же (failed).
+    session = _FakeSession(payload={"id": "cmd-1", "status": "failed"})
+    client = _client(session)
+    await client.submit_command_result(
+        publication_id="pub-1",
+        command_id="cmd-1",
+        status="failed",
+        error_code="PRIVACY_DENIED",
+    )
+    assert session.posts[-1][1] == {"status": "failed", "errorCode": "PRIVACY_DENIED"}
 
 
 async def test_send_events_hits_publication_events_path_as_batch() -> None:
@@ -200,6 +291,24 @@ async def test_heartbeat_hits_publication_heartbeat_path() -> None:
     url, body = session.posts[-1]
     assert url == "https://crm.example.com/cli-agent/runner/publications/pub-1/heartbeat"
     assert body == {"state": "published_idle"}
+
+
+async def test_heartbeat_carries_late_conversation_binding() -> None:
+    # Поздняя привязка публикации к сессии CRM: диалог появляется только после
+    # первого синка, поэтому доезжает heartbeat'ом, а не второй публикацией.
+    session = _FakeSession(payload={"state": "published_idle"})
+    client = _client(session)
+    conversation = "44444444-4444-4444-8444-444444444444"
+    await client.heartbeat(
+        publication_id="pub-1", state="running", conversation_id=conversation
+    )
+    assert session.posts[-1][1] == {"state": "running", "conversationId": conversation}
+
+    # Не-UUID сервер отклонил бы (@IsUUID) — такое значение не отправляется.
+    await client.heartbeat(
+        publication_id="pub-1", state="running", conversation_id="chat:1:2"
+    )
+    assert session.posts[-1][1] == {"state": "running"}
 
 
 async def test_commands_fetched_via_https_when_ws_unavailable() -> None:

@@ -216,6 +216,8 @@
   .session-connection-line { @apply mt-1 flex min-w-0 items-center gap-1.5 text-xs text-text-dim; }
   .connection-glyph { @apply text-text-soft; }
   .session-card-preview { @apply ml-[3.25rem] mt-3 flex min-w-0 flex-wrap items-center gap-1 border-t border-line/70 pt-3 text-[11px] text-text-dim; }
+  /* Бейдж устройства /rc в карточке: появляется только у опубликованных сессий. */
+  .session-card-rc { @apply ml-[3.25rem] mt-3 max-w-full; }
 
   .activity-empty { @apply flex min-h-64 flex-col items-center justify-center rounded-[1.8rem] border border-dashed border-line bg-bg-card/40 p-8 text-center; }
   .activity-empty-icon { @apply mb-4 flex size-12 items-center justify-center rounded-2xl border border-accent/20 bg-accent/10 text-2xl text-accent; }
@@ -328,10 +330,22 @@
   .scroll-down { @apply absolute bottom-28 left-1/2 z-20 flex size-11 -translate-x-1/2 items-center justify-center rounded-full border border-line bg-bg-card text-lg text-text-soft shadow-xl; }
   .conversation-composer { @apply absolute inset-x-0 bottom-0 z-10 border-t border-line bg-bg/90 p-3 backdrop-blur-xl; padding-bottom: max(.75rem, env(safe-area-inset-bottom)); }
   .conversation-composer > button { @apply mx-auto flex min-h-14 w-full max-w-3xl items-center gap-3 rounded-2xl border border-accent/30 bg-accent/10 px-4 text-left transition active:scale-[.99]; }
-  .conversation-composer span { @apply flex flex-1 flex-col; }
-  .conversation-composer strong { @apply text-sm; }
-  .conversation-composer small { @apply text-[11px] text-text-dim; }
-  .conversation-composer b { @apply text-xl font-normal text-accent; }
+  /* Только внутри кнопки-перехода: в том же footer теперь может жить блок /rc,
+     и его собственные span/strong/small не должны получать эту раскладку. */
+  .conversation-composer > button span { @apply flex flex-1 flex-col; }
+  .conversation-composer > button strong { @apply text-sm; }
+  .conversation-composer > button small { @apply text-[11px] text-text-dim; }
+  .conversation-composer > button b { @apply text-xl font-normal text-accent; }
+  .conversation-rc { @apply mx-auto flex w-full max-w-3xl flex-col gap-2; }
+  .conversation-rc-status { @apply text-[11px] text-text-dim; }
+  /* Журнал команд в footer сессии ниже, чем по умолчанию: вместе со статусом и
+     композером блок обязан уместиться в отступ .conversation-page-rc, иначе
+     закреплённая панель перекроет хвост ленты. */
+  .conversation-rc [data-rc-command-list] ul { @apply max-h-24; }
+  /* Бейдж устройства виден и на телефоне: это единственный признак живой связи,
+     в отличие от декоративного .conversation-live (там hidden sm:flex). */
+  .conversation-rc-badge { @apply ml-auto max-w-[55%] shrink-0 sm:max-w-none; }
+  .conversation-page-rc .conversation-stream { @apply pb-56; }
   .sheet-back-button { @apply mb-3 min-h-11 rounded-xl px-2 text-sm font-semibold text-accent; }
   .sheet-event-list { @apply space-y-2; }
   .sheet-event-list button { @apply flex min-h-16 w-full items-center gap-3 rounded-xl border border-line bg-bg-soft p-3 text-left transition hover:border-accent/30; }

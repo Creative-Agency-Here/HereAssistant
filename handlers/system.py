@@ -23,6 +23,7 @@ from core import (
     git_connections,
     project_config,
     projects,
+    remote_bridge,
     rtk,
     version,
 )
@@ -172,6 +173,9 @@ async def cmd_status(message: Message):
         ),
         f"🏷 Версия: {v['short']} ({v['mtime']})",
     ]
+    _, remote_device = remote_bridge.conversation_device(conv)
+    if remote_device:
+        lines.insert(1, f"💻 Удалённый режим: {remote_device} (/rc off — выключить)")
     await message.answer("\n".join(lines))
 
 

@@ -8,10 +8,23 @@
 import { computed, ref } from 'vue'
 import type {
   RcComposerBlockReason,
+  RcDeviceBadgeState,
   RemoteControlContext,
 } from '~/composables/useRemoteControl'
+import { RC_PROMPT_MAX_CHARS } from '~/composables/useRemoteControl'
 
 const props = defineProps<{ rc: RemoteControlContext }>()
+
+// Плейсхолдер объясняет, что произойдёт с сообщением ПРЯМО СЕЙЧАС: пока агент
+// занят, промпт не отменяет текущий запуск, а встаёт в очередь устройства.
+const PLACEHOLDER_BY_STATE: Partial<Record<RcDeviceBadgeState, string>> = {
+  busy_local: 'Агент занят на устройстве — сообщение встанет в очередь…',
+  busy_remote: 'Агент выполняет команду — сообщение встанет в очередь…',
+  awaiting_approval: 'Устройство ждёт подтверждения — сообщение встанет в очередь…',
+}
+const placeholder = computed(
+  () => PLACEHOLDER_BY_STATE[props.rc.badgeState.value] || 'Промпт для удалённой сессии /rc…',
+)
 
 const BLOCK_REASON_TEXT: Record<RcComposerBlockReason, string> = {
   no_publication: '',
@@ -31,7 +44,11 @@ async function submit() {
   const text = input.value
   if (!text.trim() || !props.rc.canSendPrompt.value) return
   input.value = ''
-  await props.rc.sendPrompt(text)
+  const accepted = await props.rc.sendPrompt(text)
+  // Отказ означает, что команда НЕ создана: возвращаем текст, чтобы человек
+  // повторил отправку той же строкой (тот же ключ идемпотентности), а не набирал
+  // заново — иначе повтор ушёл бы новым ключом и мог задвоить промпт.
+  if (!accepted && !input.value.trim()) input.value = text
 }
 </script>
 
@@ -42,7 +59,8 @@ async function submit() {
         v-if="rc.canSendPrompt.value"
         v-model="input"
         rows="1"
-        placeholder="Промпт для удалённой сессии /rc…"
+        :maxlength="RC_PROMPT_MAX_CHARS"
+        :placeholder="placeholder"
         class="flex-1 resize-y rounded-xl bg-bg-soft border border-line px-3 py-2 text-sm text-text
                placeholder:text-text-dim focus:border-accent/50 focus:outline-none"
         @keydown.enter.exact.prevent="submit"

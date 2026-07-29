@@ -9,6 +9,7 @@ from . import (
     models,
     onboarding,
     projects,
+    remote_control,
     stats,
     system,
     team,
@@ -25,6 +26,7 @@ ALL_ROUTERS = [
     deploy.router,
     diff.router,
     team.router,
+    remote_control.router,
     # messages — последним, чтобы команды успели перехватить
     messages.router,
 ]

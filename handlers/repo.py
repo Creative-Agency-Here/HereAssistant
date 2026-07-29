@@ -144,6 +144,27 @@ def update_conv(conv_id: int, **fields):
         )
 
 
+def set_remote_device(
+    conv_id: int,
+    device_id: Optional[str],
+    device_name: Optional[str],
+    publication_id: Optional[str] = None,
+    conversation_id: Optional[str] = None,
+) -> None:
+    """Привязывает тред к конкретной сессии /rc либо снимает привязку.
+
+    Все четыре значения пишутся вместе: устройство без публикации и сессии CRM
+    целью не является — одна машина держит несколько проектов сразу.
+    """
+    update_conv(
+        conv_id,
+        rc_device_id=device_id,
+        rc_device_name=device_name,
+        rc_publication_id=publication_id,
+        rc_conversation_id=conversation_id,
+    )
+
+
 def load_history(conv_id: int, limit: int = None):
     limit = limit or config.MAX_HISTORY
     with db.conn() as c:

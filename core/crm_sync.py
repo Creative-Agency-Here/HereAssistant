@@ -69,6 +69,15 @@ def _external_session_id(value: str | None, conversation_id: int) -> str:
     return _session_id(conversation_id)
 
 
+def external_session_id(value: str | None, conversation_id: int) -> str:
+    """Идентификатор сессии, под которым она видна в CRM (``providerSessionId``).
+
+    Публичная обёртка: тем же значением /rc связывает выполненную команду с
+    лентой сессии, поэтому вычислять его повторно «на глазок» нельзя.
+    """
+    return _external_session_id(value, conversation_id)
+
+
 def build_payload(
     policy: project_config.ProjectPolicy,
     exchange: Exchange,

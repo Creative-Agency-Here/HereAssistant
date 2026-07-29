@@ -137,7 +137,11 @@ def _cors_response(resp: web.StreamResponse, request: web.Request) -> web.Stream
     allowed = _allowed_origin(origin)
     if allowed:
         resp.headers["Access-Control-Allow-Origin"] = allowed
-        resp.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, X-Access-Key"
+        # Idempotency-Key нужен постановке команды /rc: без него preflight
+        # кросс-доменного запроса отсекает заголовок, и повтор задваивает промпт.
+        resp.headers["Access-Control-Allow-Headers"] = (
+            "Authorization, Content-Type, X-Access-Key, Idempotency-Key"
+        )
         resp.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
         resp.headers["Access-Control-Allow-Credentials"] = "true"
     return resp

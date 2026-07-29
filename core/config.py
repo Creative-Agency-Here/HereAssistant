@@ -240,6 +240,12 @@ HERECRM_SYNC_INTERVAL_SEC: float = float(os.environ.get("HERECRM_SYNC_INTERVAL_S
 # никогда не возвращается API/расширению/SQLite.
 HERECRM_MCP_CONFIGURED: bool = bool(os.environ.get("HERECRM_MCP_TOKEN", "").strip())
 
+# Telegram-канал /rc отдельных переменных НЕ имеет: он ходит тем же
+# HERECRM_SYNC_URL + HERECRM_SYNC_TOKEN под префиксом `hereassistant-sync/rc`.
+# Права решают scopes самого токена (`rc:read`, `rc:command`), а не окружение.
+# Браузерный прокси WebApp (`/api/rc/*`) — другой контур со своими
+# RC_PROXY_CRM_* и пользовательским JWT; смешивать их нельзя.
+
 # Человекочитаемая идентичность этой инсталляции в общей витрине контуров.
 # Значения не являются секретами; дефолты переносимы между macOS/Linux/Windows.
 HEREASSISTANT_CONTOUR_NAME: str = os.environ.get("HEREASSISTANT_CONTOUR_NAME", "").strip()
