@@ -75,6 +75,20 @@ _PROTECTED_DOTDIRS_EXACT: tuple[str, ...] = (
 
 _TEMP_DIRS: tuple[str, ...] = ("/tmp", "/var/tmp", "/private/tmp")
 
+# Имена shell-инструмента у разных CLI. Единственный список на проект: монитор и
+# блокирующий хук обязаны понимать одно и то же, иначе про команду предупредят,
+# но не остановят её.
+SHELL_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "Bash",
+        "PowerShell",
+        "Shell",
+        "shell",
+        "run_shell_command",
+        "run_terminal_cmd",
+    }
+)
+
 _SAFE_DEVICES: frozenset[str] = frozenset({"/dev/null", "/dev/stdout", "/dev/stderr"})
 
 _DESTRUCTIVE_VERBS: frozenset[str] = frozenset(

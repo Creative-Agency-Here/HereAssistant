@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from handlers.message_risk import alerts_from_meta, format_alert, new_alerts
@@ -158,3 +159,17 @@ def test_alert_text_translates_real_rule_names() -> None:
     text = format_alert(parser.risk_alerts[0])
 
     assert "pipe_stdin" not in text, "в чат не должны попадать сырые идентификаторы правил"
+
+
+def test_monitor_and_hook_share_one_tool_list() -> None:
+    """Разошедшиеся списки означали бы: предупредили, но не заблокировали."""
+    from core.command_risk import SHELL_TOOL_NAMES
+    from providers.parsers.risk import SHELL_TOOLS
+
+    assert SHELL_TOOLS is SHELL_TOOL_NAMES
+
+    hook_source = (
+        Path(__file__).resolve().parents[2] / "scripts" / "claude_risk_hook.py"
+    ).read_text(encoding="utf-8")
+    assert "SHELL_TOOL_NAMES" in hook_source, "хук обязан брать список оттуда же"
+    assert "_SHELL_TOOLS = frozenset" not in hook_source, "своей копии у хука быть не должно"

@@ -29,12 +29,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.command_risk import RiskLevel, assess, describe_rule  # noqa: E402
+from core.command_risk import (  # noqa: E402
+    SHELL_TOOL_NAMES,
+    RiskLevel,
+    assess,
+    describe_rule,
+)
 
 # Ограничение на размер входа: хук читает stdin от чужого процесса.
 _MAX_INPUT_BYTES = 1_000_000
-# Имена shell-инструмента различаются: Claude — Bash, Qwen Code — run_shell_command.
-_SHELL_TOOLS = frozenset({"Bash", "PowerShell", "Shell", "run_shell_command"})
+# Список имён — общий с монитором (core.command_risk), чтобы предупреждение и
+# блокировка срабатывали на одних и тех же инструментах.
 
 
 def _allow() -> None:
@@ -72,7 +77,7 @@ def main() -> None:
     if not isinstance(payload, dict):
         _allow()
 
-    if payload.get("tool_name") not in _SHELL_TOOLS:
+    if payload.get("tool_name") not in SHELL_TOOL_NAMES:
         _allow()
 
     tool_input = payload.get("tool_input")

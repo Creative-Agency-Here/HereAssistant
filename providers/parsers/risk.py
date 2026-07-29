@@ -18,16 +18,7 @@ from core import command_risk
 from providers.models import RiskAlertDict
 
 # Инструменты, чей ввод — shell-команда. Имена различаются между CLI.
-SHELL_TOOLS = frozenset(
-    {
-        "Bash",
-        "PowerShell",
-        "Shell",
-        "run_shell_command",
-        "run_terminal_cmd",
-        "shell",
-    }
-)
+SHELL_TOOLS = command_risk.SHELL_TOOL_NAMES
 
 
 def record_risk(
