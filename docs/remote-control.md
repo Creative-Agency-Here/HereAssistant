@@ -9,56 +9,29 @@ for every project and stays off unless you opt in explicitly.
 
 ## Current implementation status
 
-Read this before relying on `/rc` for anything:
+Read this before relying on `/rc`:
 
-- **What works today, fully local:** `/rc`, `/rc status`, `/rc off`, `/rc stop`,
-  the privacy gates, and the single-writer queue that arbitrates local vs.
-  remote input all run inside `chat_remote_control.py` /
-  `core/remote_control/` and are covered by tests
-  (`tests/test_chat_remote_control.py`, `tests/core/test_remote_control_*.py`).
-  Publishing writes a row to the local `rc_publications` table and nothing
-  more — no network call is made just to run `/rc`.
-- **What is implemented but not wired into the bundled terminal client:**
-  `core/remote_control/control_plane_client.py` (`ControlPlaneClient`,
-  `WakeupListener`) is a complete, tested HTTPS+WSS client for a control-plane
-  backend, and `core/remote_control/credential_store.py` is a complete device
-  credential store (macOS Keychain / file `0600`). As shipped, `chat.py`
-  constructs `RemoteControlCoordinator` without a `control_client`, so the
-  coordinator's network loop never starts, and there is no command in this
-  repository that provisions or pairs a device credential yet. Setting
-  `RC_CONTROL_PLANE_URL` alone does not connect a running terminal session —
-  it configures the client that a control-plane integration would inject.
-- **What the browser side already exposes:** `webapp/api/routes/remote_control.py`
-  is a real, tested (`tests/webapp/test_remote_control_routes.py`) same-origin
-  proxy that a signed-in WebApp browser session can use to list publications
-  and post commands, and `webapp/front/components/remote-control/` plus
-  `webapp/front/composables/useRemoteControl.ts` implement the corresponding
-  UI. This side only works against a control-plane backend that implements the
-  matching contract; HereAssistant does not ship that backend.
-- **Command types the device would execute if wired up:** only `prompt` is
-  currently pulled and executed by the terminal client's reconcile loop
-  (`chat_remote_control.py`'s `_ingest_remote_command`). `core/remote_control/git_actions.py`
-  implements `git_preflight` / `git_commit` / `git_push` against the exact
-  contract described below and is covered by its own tests
-  (`tests/core/test_remote_control_git.py`), but nothing currently calls it
-  from the command-ingestion path — treat it as a specified, tested building
-  block, not as an already-live remote action.
-- **Outbound event streaming:** `core/remote_control/events.py` defines five
-  event types (`rc.progress`, `rc.tool_call`, `rc.approval_required`,
-  `rc.diff_summary`, `rc.command_status`), each behind its own privacy gate.
-  Only `emit_command_status` is actually called today (on queue/run/finish
-  transitions); the other four are implemented and gated but not yet invoked.
-  Every event is written to a local durable outbox (`rc_event_outbox`) first;
-  nothing in the current codebase drains that outbox to a server, so it
-  accumulates locally until that piece is wired up.
-
-In short: `/rc` is the safety-and-arbitration core of a remote-control feature —
-privacy gates, idempotent command receipts, a durable local outbox, a
-credential store, and a durable HTTPS+notify-WSS client — built and tested as
-independent pieces, with the terminal entrypoint not yet assembling them into a
-live connection. The rest of this document describes the contract each piece
-implements, since that contract is what a control-plane integration is
-expected to speak.
+- **Works locally with no network:** `/rc`, `/rc status`, `/rc off`, `/rc stop`,
+  the privacy gates and the single queue that arbitrates local and remote input.
+  With no control plane configured, publishing writes a row into the local
+  `rc_publications` table and makes no network request at all.
+- **Wired to the network:** when both the control-plane base URL and a device
+  credential are present, the terminal chat builds a client, claims commands,
+  executes them (`prompt`, `stop`, `git_preflight`, `git_commit`, `git_push`,
+  `approval_decision`) and drains the event queue in the background. An empty URL
+  or a missing credential keeps the whole mode off.
+- **Ready on the browser side:** `webapp/api/routes/remote_control.py` is the
+  proxy an authenticated WebApp session uses to list publications and queue
+  commands; the UI lives in `webapp/front/components/remote-control/` and
+  `webapp/front/composables/useRemoteControl.ts`.
+- **Not part of this repository:** the control-plane server itself. HereAssistant
+  ships the device and browser sides; a server implementing the contract
+  described here is deployed separately.
+- **Deliberately not wired:** token-by-token response streaming (`emit_progress`)
+  and the approval-request event (`emit_approval_required`). None of the
+  supported providers asks for tool approval at runtime, so there is no source
+  for such events on the device. That is also why `approval_decision` always
+  answers with a refusal rather than an approval.
 
 ## Commands
 
