@@ -268,6 +268,77 @@ CREATE TABLE IF NOT EXISTS file_changes (
 );
 CREATE INDEX IF NOT EXISTS idx_changes_ts ON file_changes(ts);
 CREATE INDEX IF NOT EXISTS idx_changes_file ON file_changes(file, ts);
+
+-- Удалённое управление /rc. Публикация создаётся только явным /rc и живёт по TTL.
+-- Приватные данные (cwd/project/transcript) здесь не хранятся: только безопасные
+-- метки и снимок capabilities, разрешённый privacy policy проекта.
+CREATE TABLE IF NOT EXISTS rc_publications (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    local_session_key   TEXT NOT NULL UNIQUE,
+    remote_public_id    TEXT,
+    device_id           TEXT,
+    privacy_mode        TEXT NOT NULL DEFAULT 'private'
+                        CHECK (privacy_mode IN ('private', 'crm')),
+    capabilities_json   TEXT NOT NULL DEFAULT '{}',
+    generation          INTEGER NOT NULL DEFAULT 1,
+    last_sequence       INTEGER NOT NULL DEFAULT 0,
+    state               TEXT NOT NULL DEFAULT 'unpublished'
+                        CHECK (state IN (
+                            'unpublished', 'published_idle', 'queued', 'running',
+                            'awaiting_local_approval', 'offline', 'expired',
+                            'revoked', 'closed', 'failed'
+                        )),
+    published_at        INTEGER,
+    last_heartbeat_at   INTEGER,
+    expires_at          INTEGER,
+    closed_at           INTEGER,
+    created_at          INTEGER NOT NULL,
+    updated_at          INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rc_publications_state
+    ON rc_publications(state, updated_at);
+
+-- Receipts удалённых команд. Запись создаётся ДО запуска исполнения; сам факт
+-- наличия receipt для command id защищает от повторного исполнения при повторной
+-- доставке (идемпотентность). Prompt/содержимое команды здесь не дублируется —
+-- только hash payload для сверки и безопасный hash результата.
+CREATE TABLE IF NOT EXISTS rc_command_receipts (
+    command_id      TEXT PRIMARY KEY,
+    sequence        INTEGER NOT NULL,
+    command_type    TEXT NOT NULL
+                    CHECK (command_type IN (
+                        'prompt', 'stop', 'approval_decision',
+                        'git_preflight', 'git_commit', 'git_push'
+                    )),
+    payload_hash    TEXT NOT NULL,
+    state           TEXT NOT NULL DEFAULT 'claimed'
+                    CHECK (state IN (
+                        'claimed', 'running', 'succeeded', 'failed',
+                        'cancelled', 'indeterminate', 'rejected'
+                    )),
+    result_hash     TEXT,
+    claimed_at      INTEGER NOT NULL,
+    started_at      INTEGER,
+    finished_at     INTEGER,
+    updated_at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rc_command_receipts_state
+    ON rc_command_receipts(state, sequence);
+
+-- Исходящая очередь статусов/результатов /rc. Событие покидает устройство только
+-- после подтверждения сервера; payload собирается без prompt/содержимого.
+CREATE TABLE IF NOT EXISTS rc_event_outbox (
+    event_id        TEXT PRIMARY KEY,
+    command_id      TEXT,
+    publication_id  INTEGER,
+    payload         TEXT NOT NULL,
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at INTEGER NOT NULL,
+    last_error      TEXT,
+    created_at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rc_event_outbox_due
+    ON rc_event_outbox(next_attempt_at, created_at);
 """
 )
 

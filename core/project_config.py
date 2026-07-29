@@ -52,6 +52,10 @@ class ProjectPolicy:
     memory_enabled: bool = False
     memory_max_items: int = 6
     memory_max_chars: int = 12000
+    # Удалённое управление /rc — отдельный явный opt-in, по умолчанию выключен.
+    rc_enabled: bool = False
+    rc_allow_presence_in_private: bool = False
+    rc_ttl_minutes: int = 120
 
 
 # Политика по умолчанию — полный запрет.
@@ -105,6 +109,11 @@ def _parse(raw: dict) -> ProjectPolicy:
     if agent_profile not in ("native", "unified"):
         agent_profile = "native"
 
+    # Блок remote_control — публичная обобщённая настройка /rc без CRM URL.
+    remote_control = raw.get("remote_control") or {}
+    if not isinstance(remote_control, dict):
+        remote_control = {}
+
     crm_project_id = raw.get("crm_project_id") or None
     crm_task_id = raw.get("crm_task_id") or None
     # CRM включается только полным набором условий (ТЗ §7).
@@ -127,6 +136,11 @@ def _parse(raw: dict) -> ProjectPolicy:
         memory_max_items=_bounded_int(memory.get("max_items"), default=6, minimum=1, maximum=12),
         memory_max_chars=_bounded_int(
             memory.get("max_context_chars"), default=12000, minimum=2000, maximum=30000
+        ),
+        rc_enabled=_as_bool(remote_control.get("enabled")),
+        rc_allow_presence_in_private=_as_bool(remote_control.get("allow_presence_in_private")),
+        rc_ttl_minutes=_bounded_int(
+            remote_control.get("ttl_minutes"), default=120, minimum=5, maximum=480
         ),
     )
 
@@ -234,3 +248,70 @@ def can_sync_to_crm(policy: ProjectPolicy, data_type: str) -> bool:
 def is_crm_visible(policy: ProjectPolicy) -> bool:
     """Виден ли проект CRM/service API вообще (private/local — никогда)."""
     return policy.mode == "crm" and policy.sync_enabled
+
+
+# ---------- хелперы-гейты /rc (default deny; приватные домены не участвуют) ----------
+#
+# Удалённый prompt — это выполнение на устройстве владельца, поэтому любой канал
+# /rc открывается только полным набором явных условий. Приватный проект может
+# показать лишь presence без пути/имени/содержимого и только при двух явных флагах.
+
+
+def _rc_crm_active(policy: ProjectPolicy) -> bool:
+    """CRM-канал /rc активен: mode crm + sync.enabled + remote_control.enabled."""
+    return policy.mode == "crm" and policy.sync_enabled and policy.rc_enabled
+
+
+def can_publish_rc_presence(policy: ProjectPolicy) -> bool:
+    """Можно ли публиковать присутствие устройства (без содержимого сессии).
+
+    crm — при активном CRM-канале; private — только при обоих явных флагах
+    (enabled + allow_presence_in_private). local никогда не публикуется.
+    """
+    if not policy.rc_enabled:
+        return False
+    if policy.mode == "crm":
+        return policy.sync_enabled
+    if policy.mode == "private":
+        return policy.rc_allow_presence_in_private
+    return False
+
+
+def can_receive_remote_prompts(policy: ProjectPolicy) -> bool:
+    """Можно ли принимать удалённый prompt (RCE на устройстве владельца).
+
+    Только mode crm + sync.enabled + remote_control.enabled + явный send_prompts.
+    """
+    if not _rc_crm_active(policy):
+        return False
+    return bool(policy.sync_flags.get("send_prompts"))
+
+
+def can_stream_rc_messages(policy: ProjectPolicy) -> bool:
+    """Можно ли стримить ответы ассистента в control-plane."""
+    if not _rc_crm_active(policy):
+        return False
+    return bool(policy.sync_flags.get("send_messages"))
+
+
+def can_stream_rc_diffs(policy: ProjectPolicy) -> bool:
+    """Можно ли стримить диффы правок в control-plane."""
+    if not _rc_crm_active(policy):
+        return False
+    return bool(policy.sync_flags.get("send_diffs"))
+
+
+def can_stream_rc_commits(policy: ProjectPolicy) -> bool:
+    """Можно ли стримить metadata commit/push в control-plane."""
+    if not _rc_crm_active(policy):
+        return False
+    return bool(policy.sync_flags.get("send_commits"))
+
+
+def can_execute_rc_git(policy: ProjectPolicy) -> bool:
+    """Можно ли выполнять git_preflight/git_commit/git_push удалённо.
+
+    Только активный CRM-канал; приватный проект не исполняет Git-команды.
+    Стриминг metadata отдельно регулируется can_stream_rc_commits.
+    """
+    return _rc_crm_active(policy)
