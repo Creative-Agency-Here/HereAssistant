@@ -7,7 +7,7 @@ import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import TextIO
+from typing import Protocol, TextIO
 
 from chat_identity import UserRecord, find_user, user_display
 from chat_renderer import B, C, D, G, R, W, X
@@ -18,6 +18,16 @@ AccountsLookup = Callable[[int], Sequence[AccountRecord]]
 UsersLookup = Callable[[], Sequence[UserRecord]]
 WorkspaceLookup = Callable[[int], str]
 ResumeLookup = Callable[[Session], list[ResumableSession]]
+
+
+class RemoteControl(Protocol):
+    """Минимальный контракт координатора /rc — роутер зовёт только это."""
+
+    def is_active(self) -> bool:
+        ...
+
+    def handle_command(self, argument: str) -> None:
+        ...
 
 COMMAND_SPECS: tuple[tuple[str, str], ...] = (
     ("/help", "справка по командам"),
@@ -31,6 +41,7 @@ COMMAND_SPECS: tuple[tuple[str, str], ...] = (
     ("/new", "начать сессию с чистого контекста"),
     ("/resume", "продолжить прошлую сессию"),
     ("/diff", "правки последнего ответа"),
+    ("/rc", "удалённое управление сессией (публикация)"),
     ("/clear", "очистить экран"),
     ("/exit", "закрыть терминальный чат"),
 )
@@ -73,6 +84,7 @@ class CommandRouter:
         output: TextIO = sys.stdout,
         read: Callable[[str], str] = input,
         system: Callable[[str], int] = os.system,
+        rc: RemoteControl | None = None,
     ) -> None:
         self.accounts = accounts
         self.users = users
@@ -81,6 +93,7 @@ class CommandRouter:
         self.output = output
         self.read = read
         self.system = system
+        self.rc = rc
 
     def handle(self, session: Session, line: str) -> bool:
         parts = line.strip().split(maxsplit=1)
@@ -105,10 +118,14 @@ class CommandRouter:
         elif command == "/user":
             self._user(session, argument)
         elif command == "/new":
-            session.session_id = None
-            self._print(f"{G}▸ новая сессия — контекст забыт{X}")
+            if not self._rc_blocked():
+                session.session_id = None
+                self._print(f"{G}▸ новая сессия — контекст забыт{X}")
         elif command == "/resume":
-            self.resume(session, argument)
+            if not self._rc_blocked():
+                self.resume(session, argument)
+        elif command == "/rc":
+            self._rc(argument)
         elif command == "/diff":
             self.diff(session)
         elif command == "/clear":
@@ -131,6 +148,7 @@ class CommandRouter:
   {C}/status{X}            сессия, задачи, Git, диск и деплой
   {C}/tasks{X}             задачи HereCRM выбранного проекта
   {C}/diff{X}              диффы правок последнего ответа
+  {C}/rc{X} [status|stop|off] удалённое управление сессией
   {C}/clear{X}             очистить экран
   {C}/exit{X} (или Ctrl+D) выход
 {D}Просто пиши текст — это уйдёт агенту. Отправляется по Enter.{X}"""
@@ -279,6 +297,8 @@ class CommandRouter:
                 f"  аккаунт: {session.label} {D}({session.provider}){X}  {D}(/account <label>){X}"
             )
             return
+        if self._rc_blocked():
+            return
         account = next(
             (item for item in self.accounts(session.user_id) if item["label"] == argument),
             None,
@@ -296,6 +316,8 @@ class CommandRouter:
         if not argument:
             self._print(f"  проект: {pretty_path(session.cwd)}  {D}(/cwd <путь> — сменить){X}")
             return
+        if self._rc_blocked():
+            return
         path = Path(os.path.expanduser(argument))
         if path.is_dir():
             session.cwd = str(path.resolve())
@@ -310,6 +332,8 @@ class CommandRouter:
                 f"  кто: {session.user_name or session.user_id}  "
                 f"{D}(/user <id|@username> — сменить){X}"
             )
+            return
+        if self._rc_blocked():
             return
         user = find_user(self.users(), argument)
         if user is None:
@@ -328,6 +352,23 @@ class CommandRouter:
         session.session_id = None
         session.permission_mode = "account"
         self._print(f"{G}▸ теперь работает {session.user_name} (workspace и сессия — его){X}")
+
+    def _rc(self, argument: str) -> None:
+        if self.rc is None:
+            self._print(f"{D}/rc недоступен в этом окружении{X}")
+            return
+        # Сетевой логики здесь нет — только вызов координатора.
+        self.rc.handle_command(argument)
+
+    def _rc_blocked(self) -> bool:
+        """Во время активной публикации смена сессии/папки/аккаунта запрещена."""
+        if self.rc is not None and self.rc.is_active():
+            self._print(
+                f"{R}активна публикация /rc — смена недоступна{X} "
+                f"{D}(сначала сними: /rc off){X}"
+            )
+            return True
+        return False
 
     def _print(self, text: str) -> None:
         self.output.write(text + "\n")

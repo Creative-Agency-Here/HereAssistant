@@ -30,6 +30,7 @@ import providers
 from chat_commands import COMMAND_SPECS, CommandRouter
 from chat_identity import find_user as _find_user
 from chat_identity import user_display as _user_display
+from chat_remote_control import RemoteControlCoordinator
 from chat_renderer import (
     ITALIC,
     TTY,
@@ -256,11 +257,24 @@ async def _repl(sess: Session, integration_id: str | None = None):
     client_surface = launch_context.hereassistant_surface(integration_id)
     terminal_app = launch_context.detect_terminal_app()
     terminal_prompt = TerminalPrompt(commands=COMMAND_SPECS)
+
+    # Единый путь запуска промпта для локального и удалённого ввода: координатор
+    # /rc сериализует запуски и зовёт тот же _run_prompt, что и раньше.
+    async def _run_one(prompt: str) -> tuple[bool, str]:
+        return await _run_prompt(
+            sess,
+            prompt,
+            client_surface=client_surface,
+            terminal_app=terminal_app,
+        )
+
+    coordinator = RemoteControlCoordinator(sess, run_prompt=_run_one)
     commands = CommandRouter(
         accounts=_db_accounts,
         users=_db_users,
         default_cwd=config.user_default_cwd,
         resumable=_list_resumable,
+        rc=coordinator,
     )
     title = TerminalTitle()
     summary = task_summary(sess.cwd)
@@ -281,68 +295,77 @@ async def _repl(sess: Session, integration_id: str | None = None):
         f"{overview['repositoriesOnDisk']} на диске · свободно {overview['disk']['freeLabel']}{X}"
     )
     print(f"\n{D}/help — команды · /exit — выход{X}")
-    while True:
-        try:
-            prompt_str = f"\n{B}{M}›{X} "
-            line = await terminal_prompt.read(prompt_str)
-        except (EOFError, KeyboardInterrupt):
-            _farewell()
-            return
-        line = line.strip()
-        if not line:
-            continue
-        if line.startswith("/"):
-            if not commands.handle(sess, line):
-                summary = task_summary(sess.cwd)
-                title.idle(sess.cwd, summary["open"])
+    try:
+        while True:
+            try:
+                prompt_str = f"\n{B}{M}›{X} "
+                line = await terminal_prompt.read(prompt_str)
+            except (EOFError, KeyboardInterrupt):
                 _farewell()
                 return
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("/"):
+                if not commands.handle(sess, line):
+                    summary = task_summary(sess.cwd)
+                    title.idle(sess.cwd, summary["open"])
+                    _farewell()
+                    return
+                summary = task_summary(sess.cwd)
+                title.idle(sess.cwd, summary["open"])
+                if integration_id:
+                    integration_state.write(
+                        integration_id,
+                        state="open",
+                        cwd=sess.cwd,
+                        task_count=summary["open"],
+                        session_id=sess.session_id,
+                    )
+                continue
             summary = task_summary(sess.cwd)
-            title.idle(sess.cwd, summary["open"])
+            title.start(line, max(1, summary["open"]))
             if integration_id:
                 integration_state.write(
                     integration_id,
-                    state="open",
+                    state="working",
                     cwd=sess.cwd,
-                    task_count=summary["open"],
+                    task_count=max(1, summary["open"]),
+                    title=line,
                     session_id=sess.session_id,
                 )
-            continue
-        summary = task_summary(sess.cwd)
-        title.start(line, max(1, summary["open"]))
-        if integration_id:
-            integration_state.write(
-                integration_id,
-                state="working",
-                cwd=sess.cwd,
-                task_count=max(1, summary["open"]),
-                title=line,
-                session_id=sess.session_id,
-            )
-        completed = False
-        answer_text = ""
-        try:
-            completed, answer_text = await _run_prompt(
-                sess,
-                line,
-                client_surface=client_surface,
-                terminal_app=terminal_app,
-            )
-        except KeyboardInterrupt:
-            print(f"\n{Y}⏹ прервано{X}")
-        finally:
-            latest = task_summary(sess.cwd)
-            await title.finish(completed=completed, cwd=sess.cwd, open_tasks=latest["open"])
-            if integration_id:
-                integration_state.write(
-                    integration_id,
-                    state="open" if completed else "error",
-                    cwd=sess.cwd,
-                    task_count=latest["open"],
-                    title=None if completed else line,
-                    session_id=sess.session_id,
-                    preview=answer_text or None,
-                )
+            # Локальный ввод идёт через координатора тем же путём, что удалённый.
+            # Если запуск начался сразу — ждём его (как раньше); если занято —
+            # ввод встаёт в очередь, а терминал остаётся отзывчивым.
+            result = coordinator.submit_local(line)
+            if not result.started_now:
+                print(f"{D}▸ локально, очередь {result.position}{X}")
+                summary = task_summary(sess.cwd)
+                title.idle(sess.cwd, summary["open"])
+                continue
+            completed = False
+            answer_text = ""
+            try:
+                completed, answer_text = await result.item.done
+            except KeyboardInterrupt:
+                coordinator.stop_run()
+                print(f"\n{Y}⏹ прервано{X}")
+            finally:
+                latest = task_summary(sess.cwd)
+                await title.finish(completed=completed, cwd=sess.cwd, open_tasks=latest["open"])
+                if integration_id:
+                    integration_state.write(
+                        integration_id,
+                        state="open" if completed else "error",
+                        cwd=sess.cwd,
+                        task_count=latest["open"],
+                        title=None if completed else line,
+                        session_id=sess.session_id,
+                        preview=answer_text or None,
+                    )
+    finally:
+        # Гарантированное снятие публикации при любом выходе из чата.
+        coordinator.shutdown()
 
 
 def _arg_after(argv, flag):

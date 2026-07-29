@@ -163,7 +163,7 @@ class WakeupListener:
             if self._on_commands_available is not None:
                 try:
                     await self._on_commands_available()
-                except Exception as error:  # noqa: BLE001 — wakeup не должен падать
+                except (OSError, RuntimeError, ValueError, asyncio.TimeoutError) as error:
                     log.warning("RC reconcile callback failed (%s)", type(error).__name__)
 
         self._client = client
@@ -174,7 +174,8 @@ class WakeupListener:
         if self._client is not None:
             try:
                 await self._client.disconnect()
-            except Exception:  # noqa: BLE001 — best effort отключение
-                pass
+            except (OSError, RuntimeError, asyncio.TimeoutError) as error:
+                # Отключение best effort: важен факт закрытия, не его успех.
+                log.debug("WS disconnect: %s", error)
             self._client = None
         self.available = False

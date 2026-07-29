@@ -35,6 +35,9 @@ class Session:
         # Stable only for this terminal chat. CRM turns it into a deterministic
         # UUID and keeps subsequent prompts in one conversation.
         self.crm_conversation_id = uuid.uuid4().int % (2**63 - 1)
+        # Ссылка на активную публикацию /rc (local_session_key в rc_publications).
+        # None — сессия не опубликована. Ставит/снимает координатор /rc.
+        self.rc_publication: str | None = None
 
     @property
     def label(self) -> str:
