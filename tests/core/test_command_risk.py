@@ -142,9 +142,14 @@ def test_rule_8_other_glob(tmp_path: Path) -> None:
 
 def test_rule_8_question_mark(tmp_path: Path) -> None:
     cwd = str(tmp_path)
+    # Маска прямо в системном каталоге наследует его защиту: /opt/fo? раскрывается
+    # там же, где /opt/*. Глубже вложенные пути остаются обычным CONFIRM.
     r = assess("rm -rf /opt/fo?", cwd=cwd, home=str(tmp_path / "h"))
-    assert r.level is RiskLevel.CONFIRM
-    assert "glob_target" in _rules(r)
+    assert r.level is RiskLevel.CATASTROPHIC
+
+    deeper = assess("rm -rf /opt/homebrew/var/cache/*", cwd=cwd, home=str(tmp_path / "h"))
+    assert deeper.level is RiskLevel.CONFIRM
+    assert "glob_target" in _rules(deeper)
 
 
 # ---------- правило 9: неразрешимая подстановка ----------
@@ -605,3 +610,26 @@ def test_sensitive_dotdir_itself_is_catastrophic() -> None:
         assessment = assess(f"rm -rf {target}", cwd="/w/p", home="/Users/tester")
         assert assessment.level is RiskLevel.CATASTROPHIC, target
         assert "sensitive_dotdir" in {finding.rule for finding in assessment.findings}
+
+
+def test_glob_does_not_weaken_protected_directory() -> None:
+    """`rm -rf ~/.ssh/*` уничтожает то же, что `rm -rf ~/.ssh` — уровень равный."""
+    for target in ("~/.ssh/*", "~/*", "$HOME/*", "~/Documents/*", "/etc/*"):
+        assessment = assess(f"rm -rf {target}", cwd="/w/p", home="/Users/tester")
+        assert assessment.level is RiskLevel.CATASTROPHIC, target
+
+
+def test_glob_inside_project_stays_ordinary() -> None:
+    """Глоб в рабочем каталоге не должен становиться катастрофой."""
+    assessment = assess("rm -rf ./build/*", cwd="/w/p", home="/Users/tester")
+
+    assert assessment.level is not RiskLevel.CATASTROPHIC
+
+
+def test_other_users_home_is_not_treated_as_own() -> None:
+    """`~root` лексически не раскрывается: приклеивать его к cwd нельзя."""
+    keys = assess("rm -rf ~root/.ssh", cwd="/w/p", home="/Users/tester")
+    other = assess("rm -rf ~deploy/projects", cwd="/w/p", home="/Users/tester")
+
+    assert keys.level is RiskLevel.CATASTROPHIC
+    assert other.level is RiskLevel.CONFIRM

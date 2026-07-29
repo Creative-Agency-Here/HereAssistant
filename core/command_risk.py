@@ -640,6 +640,24 @@ def _is_temp_path(path: str) -> bool:
     return any(path == d or _is_inside(d, path) for d in _TEMP_DIRS)
 
 
+def _glob_parent(expanded: str) -> str:
+    """Часть пути до первого сегмента с глобом.
+
+    Нужна, чтобы `rm -rf ~/.ssh/*` наследовал защиту каталога `~/.ssh`: сам глоб
+    не делает цель менее опасной.
+    """
+    segments = expanded.split("/")
+    kept: list[str] = []
+    for segment in segments:
+        if "*" in segment or "?" in segment:
+            break
+        kept.append(segment)
+    parent = "/".join(kept)
+    if not parent:
+        return "/" if expanded.startswith("/") else ""
+    return parent
+
+
 def _glob_in_protected(expanded: str) -> bool:
     """Глоб ``*`` непосредственно в защищённом каталоге (пр. 7)."""
     if expanded == "/*":
@@ -661,6 +679,17 @@ def _check_target(
     is_recursive: bool,
 ) -> RiskFinding | None:
     """Проверить одну цель по правилам 1–12.  Вернуть finding или None."""
+    # Чужой домашний каталог (`~root`, `~deploy`) лексически не раскрывается: мы
+    # не знаем его реального пути. Раньше такая цель приклеивалась к cwd и
+    # выглядела своей — `rm -rf ~root/.ssh` оценивался как обычная уборка.
+    if raw_target.startswith("~") and not raw_target.startswith("~/") and raw_target != "~":
+        tail = raw_target.split("/", 1)[1] if "/" in raw_target else ""
+        sensitive = any(tail == dot or tail.startswith(dot + "/") for dot in _SENSITIVE_DOTDIRS)
+        return RiskFinding(
+            rule="sensitive_dotdir" if sensitive else "outside_cwd",
+            target=raw_target,
+            level=RiskLevel.CATASTROPHIC if sensitive else RiskLevel.CONFIRM,
+        )
     expanded = _expand_path(raw_target, home, cwd)
 
     # Безопасные устройства
@@ -687,6 +716,19 @@ def _check_target(
                 target=raw_target,
                 level=RiskLevel.CATASTROPHIC,
             )
+        # Глоб не должен ослаблять защиту каталога, в котором он раскрывается:
+        # `rm -rf ~/.ssh/*` уничтожает ровно то же, что `rm -rf ~/.ssh`.
+        # Раньше ветка глоба возвращала CONFIRM раньше проверок $HOME и ключей,
+        # и такая команда проходила мимо блокировки.
+        parent = _glob_parent(expanded)
+        if parent:
+            inherited = _check_target(parent, cwd=cwd, home=home, is_recursive=True)
+            if inherited is not None and inherited.level is RiskLevel.CATASTROPHIC:
+                return RiskFinding(
+                    rule=inherited.rule,
+                    target=raw_target,
+                    level=RiskLevel.CATASTROPHIC,
+                )
         return RiskFinding(
             rule="glob_target",
             target=raw_target,
