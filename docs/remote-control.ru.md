@@ -68,10 +68,15 @@ English version: [remote-control.md](remote-control.md)
 
 Устройство никогда не открывает входящий порт — все его соединения исходящие.
 
-- **Источник истины — HTTPS.** Ожидающие команды забираются
-  `POST rc/commands/claim` (`device_id`, `last_sequence`); результаты и смены
-  статуса отправляются `POST rc/events`; живость подтверждается
-  `POST rc/heartbeat`.
+- **Источник истины — HTTPS.** Устройство меняет свой credential на короткий
+  access-токен (`POST cli-agent/runner/exchange`), публикует сессию
+  (`POST cli-agent/runner/publications`) и дальше работает по возвращённому
+  идентификатору публикации: список команд —
+  `GET cli-agent/runner/publications/:id/commands`, захват каждой —
+  `POST .../commands/:commandId/claim`, её результат —
+  `POST .../commands/:commandId/result`, события пачкой —
+  `POST .../events`, живость — `POST .../heartbeat`, снятие публикации —
+  `DELETE cli-agent/runner/publications/:id`.
 - **WebSocket — только уведомление.** `WakeupListener` подключается через
   `python-socketio` (опциональная зависимость: её отсутствие означает лишь,
   что клиент работает исключительно на HTTPS-реконсиляции) и слушает одно

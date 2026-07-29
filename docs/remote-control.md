@@ -69,9 +69,15 @@ The device never opens an inbound port; every connection it makes is
 outbound.
 
 - **HTTPS is the source of truth.** Pending commands are pulled with
-  `POST rc/commands/claim` (`device_id`, `last_sequence`); results and status
-  changes are pushed with `POST rc/events`; liveness is reported with
-  `POST rc/heartbeat`.
+  the device exchanges its credential for a short-lived access token
+  (`POST cli-agent/runner/exchange`), publishes the session
+  (`POST cli-agent/runner/publications`) and then works against the returned
+  publication id: list commands with
+  `GET cli-agent/runner/publications/:id/commands`, claim each one with
+  `POST .../commands/:commandId/claim`, report its outcome with
+  `POST .../commands/:commandId/result`, push events in batches with
+  `POST .../events`, report liveness with `POST .../heartbeat` and withdraw the
+  publication with `DELETE cli-agent/runner/publications/:id`.
 - **WebSocket is notify-only.** `WakeupListener` connects with
   `python-socketio` (an optional dependency — its absence just means the
   client relies on the HTTPS reconcile loop only) and listens for a single
