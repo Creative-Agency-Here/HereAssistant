@@ -9,7 +9,10 @@ from webapp.api import repo
 
 async def list_handler(request: web.Request) -> web.Response:
     try:
-        limit = min(int(request.query.get("limit", 50)), 200)
+        # Нижняя граница обязательна: min(-1, 200) даёт -1, а SQLite понимает
+        # LIMIT -1 как «без ограничения» — кап молча обходится, и в ответ уходит
+        # вся таблица вместе с полными диффами.
+        limit = max(1, min(int(request.query.get("limit", 50)), 200))
         offset = max(int(request.query.get("offset", 0)), 0)
     except ValueError:
         return web.json_response({"error": "bad pagination"}, status=400)
