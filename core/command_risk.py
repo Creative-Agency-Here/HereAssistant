@@ -450,8 +450,10 @@ def _assess_simple(
     if not is_destructive:
         return findings
 
-    # Правило 13: pipe stdin
-    if piped:
+    # Правило 13: pipe stdin. Для `tee` не применяется: чтение из конвейера —
+    # его штатный режим, а не признак опасности. Иначе безобидная запись
+    # `echo x | tee notes.txt` давала бы предупреждение, и их перестали бы читать.
+    if piped and posixpath.basename(stripped[0]) != "tee":
         findings.append(RiskFinding(rule="pipe_stdin", target="", level=RiskLevel.CONFIRM))
 
     # Правило 14: нет определимой цели
@@ -555,6 +557,26 @@ def _destructive_info(
 
     if verb == "git" and args and args[0] == "clean":
         return True, [], True
+
+    # Перезапись файла чужими руками: `echo x | tee /etc/passwd` уничтожает
+    # содержимое не хуже rm, но tee не выглядит разрушающим глаголом.
+    if verb == "tee":
+        targets = [a for a in _positional_targets(verb, args) if a]
+        return (bool(targets), targets, False)
+
+    # Синхронизация с удалением: пустой источник вычищает каталог назначения.
+    if verb == "rsync" and any(a == "--delete" or a.startswith("--delete-") for a in args):
+        positional = _positional_targets(verb, args)
+        # Цель — последний позиционный аргумент, источники не трогаем.
+        return (bool(positional), positional[-1:], True)
+
+    # Распаковка поверх каталога: `tar -xf a.tar -C /` перезаписывает системные файлы.
+    if verb in ("tar", "unzip") and any(a in ("-C", "-d", "--directory") for a in args):
+        targets = []
+        for index, a in enumerate(args):
+            if a in ("-C", "-d", "--directory") and index + 1 < len(args):
+                targets.append(args[index + 1])
+        return (bool(targets), targets, True)
 
     if verb in ("chmod", "chown"):
         if any(a in ("-R", "-r", "--recursive") for a in args):
