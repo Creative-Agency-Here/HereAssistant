@@ -120,6 +120,146 @@ def test_opted_in_transcript_is_parsed_only_inside_provider_home(
     assert payload["model"] == "qwen-test"
 
 
+def _turn(lines: list[dict], tmp_path: Path) -> tuple[str, str, str | None]:
+    transcript = tmp_path / "session.jsonl"
+    transcript.write_text(
+        "\n".join(json.dumps(line) for line in lines),
+        encoding="utf-8",
+    )
+    return native_sessions._transcript_turn(transcript, include_prompt=True, include_answer=True)
+
+
+def test_new_question_never_inherits_previous_answer(tmp_path: Path) -> None:
+    """Сообщение из одной картинки — тоже вопрос: оно начинает новый turn."""
+    prompt, answer, _model = _turn(
+        [
+            {"type": "user", "message": {"content": "первый вопрос"}},
+            {"type": "assistant", "message": {"content": "первый ответ"}},
+            {
+                "type": "user",
+                "message": {"content": [{"type": "image", "source": {"data": "AAAA"}}]},
+            },
+            {"type": "assistant", "message": {"content": "ответ на картинку"}},
+        ],
+        tmp_path,
+    )
+
+    assert prompt == "[image]", "картинка помечается маркером, а не разворачивается"
+    assert answer == "ответ на картинку"
+
+
+def test_unknown_block_type_does_not_swallow_neighbouring_text(tmp_path: Path) -> None:
+    prompt, _answer, _model = _turn(
+        [
+            {
+                "type": "user",
+                "message": {
+                    "content": [
+                        {"type": "brand_new_block", "text": "не наш формат"},
+                        {"type": "text", "text": "видимый текст"},
+                    ]
+                },
+            }
+        ],
+        tmp_path,
+    )
+
+    assert prompt == "видимый текст"
+
+
+def test_tool_and_reasoning_blocks_never_leak(tmp_path: Path) -> None:
+    prompt, answer, _model = _turn(
+        [
+            {
+                "type": "user",
+                "message": {"content": [{"type": "text", "text": "запусти тесты"}]},
+            },
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {"type": "thinking", "text": "внутреннее рассуждение"},
+                        {"type": "tool_use", "name": "Bash", "input": {"command": "rm -rf ~"}},
+                        {"type": "tool_result", "content": [{"type": "text", "text": "вывод"}]},
+                        {"type": "text", "text": "готово"},
+                    ]
+                },
+            },
+        ],
+        tmp_path,
+    )
+
+    assert prompt == "запусти тесты"
+    assert answer == "готово"
+    assert "rm -rf" not in answer
+    assert "внутреннее рассуждение" not in answer
+
+
+def test_tool_result_record_does_not_reset_the_question(tmp_path: Path) -> None:
+    """Claude Code кладёт результаты инструментов в user-записи — это не новый вопрос."""
+    prompt, answer, _model = _turn(
+        [
+            {"type": "user", "message": {"content": "почини тест"}},
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {}}]},
+            },
+            {
+                "type": "user",
+                "message": {
+                    "content": [
+                        {"type": "tool_result", "content": [{"type": "text", "text": "1 failed"}]}
+                    ]
+                },
+            },
+            {"type": "assistant", "message": {"content": "починил"}},
+        ],
+        tmp_path,
+    )
+
+    assert prompt == "почини тест", "результат инструмента не должен обнулять вопрос"
+    assert answer == "починил"
+
+
+def test_service_records_do_not_break_the_turn(tmp_path: Path) -> None:
+    prompt, answer, _model = _turn(
+        [
+            {"type": "user", "message": {"content": "настоящий вопрос"}},
+            {"type": "user", "message": {"content": "<environment_context>cwd=/tmp"}},
+            {"type": "assistant", "message": {"content": "настоящий ответ"}},
+        ],
+        tmp_path,
+    )
+
+    assert prompt == "настоящий вопрос"
+    assert answer == "настоящий ответ"
+
+
+def test_broken_and_nested_records_are_tolerated(tmp_path: Path) -> None:
+    transcript = tmp_path / "session.jsonl"
+    transcript.write_text(
+        "\n".join(
+            [
+                "{битый json",
+                json.dumps(["не объект"]),
+                json.dumps(
+                    {
+                        "type": "user",
+                        "message": {"content": {"type": "text", "text": "вложенный блок"}},
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    prompt, _answer, _model = native_sessions._transcript_turn(
+        transcript, include_prompt=True, include_answer=True
+    )
+
+    assert prompt == "вложенный блок"
+
+
 def test_transcript_outside_provider_home_is_never_read(tmp_path: Path, monkeypatch) -> None:
     project = tmp_path / "project"
     project.mkdir()

@@ -81,24 +81,65 @@ def _safe_transcript(
         return None
 
 
-def _text(value: object) -> str:
+# Блоки, текст которых допустимо забирать из чужого transcript.
+_TEXT_BLOCKS = frozenset({"text", "input_text", "output_text"})
+# Картинки не разворачиваем: base64 в CRM не нужен, но сам факт вложения важен —
+# иначе сообщение «посмотри на скрин» выглядит пустым и рвёт границу turn-а.
+_IMAGE_BLOCKS = frozenset({"image", "input_image", "image_url", "file", "input_file"})
+# Инструменты и рассуждения — содержимое, которое privacy-политика не отдаёт наружу.
+_SKIPPED_BLOCKS = frozenset(
+    {
+        "tool_use",
+        "tool_result",
+        "function_call",
+        "function_call_output",
+        "thinking",
+        "redacted_thinking",
+        "reasoning",
+    }
+)
+# Служебные врезки CLI: не пользовательский ввод, границу turn-а не задают.
+_SERVICE_PREFIXES = (
+    "<environment_context>",
+    "<local-command-caveat>",
+    "<command-name>",
+    "<user-prompt-submit-hook>",
+    "<system-reminder>",
+)
+_MAX_BLOCK_DEPTH = 5
+
+
+def _text(value: object, depth: int = 0) -> str:
+    """Собирает пользовательский текст из блока любого формата.
+
+    Обходит вложенность рекурсивно: у каждого CLI своя схема, и новый тип блока
+    не должен обнулять соседний текст. Инструменты и рассуждения пропускаются
+    всегда, картинки сворачиваются в маркер.
+    """
+    if depth > _MAX_BLOCK_DEPTH:
+        return ""
     if isinstance(value, str):
         return value.strip()
+    if isinstance(value, dict):
+        block_type = value.get("type")
+        if block_type in _SKIPPED_BLOCKS:
+            return ""
+        if block_type in _IMAGE_BLOCKS:
+            return "[image]"
+        if block_type is not None and block_type not in _TEXT_BLOCKS:
+            return ""
+        candidate = value.get("text")
+        if candidate is None:
+            candidate = value.get("content")
+        return _text(candidate, depth + 1) if candidate is not None else ""
     if not isinstance(value, list):
         return ""
-    parts: list[str] = []
-    for item in value:
-        if isinstance(item, str):
-            parts.append(item)
-        elif isinstance(item, dict) and item.get("type") in {
-            "text",
-            "input_text",
-            "output_text",
-        }:
-            candidate = item.get("text") or item.get("content")
-            if isinstance(candidate, str):
-                parts.append(candidate)
-    return "\n".join(part.strip() for part in parts if part.strip()).strip()
+    parts = [_text(item, depth + 1) for item in value]
+    return "\n".join(part for part in parts if part).strip()
+
+
+def _is_service_text(content: str) -> bool:
+    return content.startswith(_SERVICE_PREFIXES)
 
 
 def _message(record: dict[str, Any]) -> tuple[str | None, str, str | None]:
@@ -142,7 +183,15 @@ def _transcript_turn(
                 continue
             role, content, observed_model = _message(record)
             model = observed_model or model
-            if role == "user" and content:
+            if role == "user":
+                # Не всякая user-запись — реплика человека: Claude Code кладёт туда
+                # результаты инструментов, CLI дописывают служебные врезки. Такие
+                # записи turn не начинают, иначе настоящий вопрос обнулится.
+                if not content or _is_service_text(content):
+                    continue
+                # Реплика с вложением (`[image]`) границу turn-а задаёт наравне с
+                # текстовой: иначе ответ на картинку припишется к прошлому вопросу
+                # и уйдёт в CRM парой, которой в диалоге не было.
                 prompt = content if include_prompt else ""
                 answer = ""
             elif role == "assistant" and content and include_answer:
