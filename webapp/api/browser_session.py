@@ -45,9 +45,7 @@ def issue(*, crm_user_id: int, tenant_id: str) -> str:
         "tenant_id": str(tenant_id),
         "exp": int(time.time()) + SESSION_TTL_SECONDS,
     }
-    encoded = _encode(
-        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    )
+    encoded = _encode(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8"))
     signature = _encode(hmac.new(key, encoded.encode("ascii"), hashlib.sha256).digest())
     return f"{encoded}.{signature}"
 

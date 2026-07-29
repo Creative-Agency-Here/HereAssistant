@@ -57,9 +57,7 @@ async def config_handler(_request: web.Request) -> web.Response:
     """Возвращает только публичные URL; server-side sync-токен не раскрывается."""
     parsed = urlparse(config.HERECRM_SYNC_URL)
     derived_web_url = (
-        f"{parsed.scheme}://{parsed.netloc}"
-        if parsed.scheme == "https" and parsed.netloc
-        else ""
+        f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme == "https" and parsed.netloc else ""
     )
     crm_web_url = config.HERECRM_WEB_URL or derived_web_url
     web_parsed = urlparse(crm_web_url)

@@ -2,7 +2,6 @@ import json
 import struct
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 PROOF_DIR = ROOT / "docs" / "img" / "activity"
 SCREENSHOTS = [
@@ -23,9 +22,7 @@ def _png_size(path: Path) -> tuple[int, int]:
 
 def test_activity_fixture_locks_all_five_modes_without_secrets() -> None:
     fixture = json.loads(
-        (ROOT / "webapp/front/tests/fixtures/activity-events.json").read_text(
-            encoding="utf-8"
-        )
+        (ROOT / "webapp/front/tests/fixtures/activity-events.json").read_text(encoding="utf-8")
     )
     assert [event["payload"]["kind"] for event in fixture] == [
         "read",
@@ -50,9 +47,9 @@ def test_mobile_proof_images_are_real_retina_screenshots() -> None:
 def test_bilingual_docs_and_readmes_publish_the_proof() -> None:
     english = (ROOT / "docs/mobile-activity-proof.md").read_text(encoding="utf-8")
     russian = (ROOT / "docs/mobile-activity-proof.ru.md").read_text(encoding="utf-8")
-    readmes = (ROOT / "README.md").read_text(encoding="utf-8") + (
-        ROOT / "README.ru.md"
-    ).read_text(encoding="utf-8")
+    readmes = (ROOT / "README.md").read_text(encoding="utf-8") + (ROOT / "README.ru.md").read_text(
+        encoding="utf-8"
+    )
     for name in SCREENSHOTS:
         assert name in english or name in russian
     assert "mobile-activity-proof.md" in readmes

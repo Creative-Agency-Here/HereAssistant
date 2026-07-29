@@ -42,8 +42,7 @@ class CodexProvider(CLIProvider):
         argv += permission_args(self.permission_mode)
         # инструкция языка через config override
         codex_instructions = (
-            config.RU_SYSTEM_INSTRUCTION
-            + "\n\nShell-команды начинай с rtk для сжатия вывода: "
+            config.RU_SYSTEM_INSTRUCTION + "\n\nShell-команды начинай с rtk для сжатия вывода: "
             "rtk git status, rtk ls, rtk grep ..., rtk pytest ... "
             "Для составных команд: rtk sh -c '...'. "
             "Это экономит контекстные токены."

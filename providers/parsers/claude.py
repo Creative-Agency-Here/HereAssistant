@@ -296,23 +296,25 @@ class ClaudeStreamParser:
             step.result = preview
 
     def _record_edit(self, name: str, tool_input: dict[str, Any], tool_id: str | None) -> None:
-        if name not in (
-            "Edit",
-            "Write",
-            "MultiEdit",
-            "NotebookEdit",
-            "edit",
-            "edit_file",
-            "write_file",
-            "notebook_edit",
-        ) or not tool_input:
+        if (
+            name
+            not in (
+                "Edit",
+                "Write",
+                "MultiEdit",
+                "NotebookEdit",
+                "edit",
+                "edit_file",
+                "write_file",
+                "notebook_edit",
+            )
+            or not tool_input
+        ):
             return
         if tool_id and tool_id in self._edit_ids:
             return
         old = _string(
-            tool_input.get("old_string")
-            or tool_input.get("oldString")
-            or tool_input.get("oldText")
+            tool_input.get("old_string") or tool_input.get("oldString") or tool_input.get("oldText")
         )
         new = _string(
             tool_input.get("new_string")

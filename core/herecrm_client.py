@@ -82,11 +82,7 @@ async def _post(path: str, payload: dict[str, str]) -> Any:
 
 
 async def conversations(*, channel: str | None = None, provider: str | None = None) -> Any:
-    params = {
-        key: value
-        for key, value in (("channel", channel), ("provider", provider))
-        if value
-    }
+    params = {key: value for key, value in (("channel", channel), ("provider", provider)) if value}
     return await _get("conversations", params or None)
 
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 from aiohttp import web
 
@@ -33,8 +35,6 @@ async def test_owner_check_happens_before_remote_operation(
         return []
 
     with pytest.raises(web.HTTPForbidden):
-        await crm_activity._response(  # type: ignore[arg-type]
-            {"user": {"id": 200}}, operation
-        )
+        await crm_activity._response(cast(web.Request, {"user": {"id": 200}}), operation)
 
     assert not called

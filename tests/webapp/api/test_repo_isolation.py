@@ -100,7 +100,4 @@ def test_cli_connection_view_returns_only_safe_owned_metadata(
     accounts = repo.list_cli_accounts(100)
 
     assert [item["label"] for item in accounts] == ["own", "shared"]
-    assert all(
-        set(item) == {"provider", "label", "defaultModel", "shared"}
-        for item in accounts
-    )
+    assert all(set(item) == {"provider", "label", "defaultModel", "shared"} for item in accounts)

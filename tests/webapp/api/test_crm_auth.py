@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from typing import cast
 
 import pytest
+from aiohttp.web import Request
 
 from core import config, herecrm_client
 from webapp.api.routes import crm_auth
@@ -28,8 +30,8 @@ async def test_exchange_sets_secure_httponly_cookie(
         return {"userId": 7, "tenantId": "tenant-id"}
 
     monkeypatch.setattr(herecrm_client, "exchange_sso_ticket", exchange)
-    response = await crm_auth.exchange_handler(  # type: ignore[arg-type]
-        FakeRequest({"ticket": f"hat_{'a' * 64}"})
+    response = await crm_auth.exchange_handler(
+        cast(Request, FakeRequest({"ticket": f"hat_{'a' * 64}"}))
     )
 
     assert response.status == 200
@@ -51,12 +53,10 @@ async def test_exchange_rejects_bad_ticket_without_crm_call(
         return {}
 
     monkeypatch.setattr(herecrm_client, "exchange_sso_ticket", exchange)
-    response = await crm_auth.exchange_handler(  # type: ignore[arg-type]
-        FakeRequest({"ticket": "bad"})
-    )
+    response = await crm_auth.exchange_handler(cast(Request, FakeRequest({"ticket": "bad"})))
 
     assert response.status == 400
-    assert json.loads(response.text)["error"] == "bad_ticket"
+    assert json.loads(response.text or "")["error"] == "bad_ticket"
     assert not called
 
 
@@ -64,17 +64,15 @@ async def test_exchange_rejects_bad_ticket_without_crm_call(
 async def test_public_config_contains_urls_but_not_sync_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        config, "HERECRM_SYNC_URL", "https://api.example.com/api/v1"
-    )
+    monkeypatch.setattr(config, "HERECRM_SYNC_URL", "https://api.example.com/api/v1")
     monkeypatch.setattr(config, "HERECRM_WEB_URL", "https://crm.example.com")
     monkeypatch.setattr(config, "HERECRM_SYNC_TOKEN", "has_must_stay_server_side")
 
-    response = await crm_auth.config_handler(None)  # type: ignore[arg-type]
-    body = json.loads(response.text)
+    response = await crm_auth.config_handler(cast(Request, None))
+    body = json.loads(response.text or "")
 
     assert body == {
         "crmApiBase": "https://crm.example.com/api/v1",
         "crmWebUrl": "https://crm.example.com",
     }
-    assert "has_must_stay_server_side" not in response.text
+    assert "has_must_stay_server_side" not in (response.text or "")
