@@ -13,27 +13,12 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from core.command_risk import describe_rule
 from providers.models import RiskAlertDict
 
 _LEVEL_TITLES: dict[str, str] = {
     "CONFIRM": "⚠️ Агент запускает потенциально разрушительную команду",
     "CATASTROPHIC": "🛑 Агент запускает команду с катастрофическим радиусом",
-}
-
-_RULE_TITLES: dict[str, str] = {
-    "protected_root": "системный корень",
-    "protected_recursive": "защищённый системный каталог",
-    "home_root": "домашний каталог целиком",
-    "sensitive_dotdir": "каталог с ключами и учётными данными",
-    "protected_dotdir_exact": "каталог конфигурации",
-    "dev_write": "запись в устройство",
-    "protected_glob": "маска в защищённом каталоге",
-    "glob_target": "маска в цели",
-    "unresolved_substitution": "неразрешимая подстановка в пути",
-    "outside_cwd": "путь вне рабочего каталога",
-    "piped_input": "цели приходят из конвейера",
-    "no_target": "цель не определяется",
-    "empty_wrapper": "команда спрятана за обёрткой",
 }
 
 
@@ -62,11 +47,7 @@ def format_alert(alert: Mapping[str, Any]) -> str:
     tool = str(alert.get("tool") or "").strip()
     if tool:
         lines.append(f"Инструмент: {tool}")
-    reasons = [
-        _RULE_TITLES.get(str(rule), str(rule))
-        for rule in alert.get("rules") or []
-        if str(rule).strip()
-    ]
+    reasons = [describe_rule(str(rule)) for rule in alert.get("rules") or [] if str(rule).strip()]
     if reasons:
         lines.append("Причина: " + ", ".join(reasons))
     targets = [str(target) for target in alert.get("targets") or [] if str(target).strip()]

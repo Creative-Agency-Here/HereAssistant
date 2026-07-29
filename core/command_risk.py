@@ -187,6 +187,15 @@ class RiskAssessment:
         return "\n".join(lines)
 
 
+def describe_rule(rule: str) -> str:
+    """Человекочитаемое название правила.
+
+    Единственный источник описаний: потребители не заводят свои словари, иначе
+    они молча разъезжаются с набором правил и показывают сырые идентификаторы.
+    """
+    return _RULE_DESCRIPTIONS.get(rule, rule)
+
+
 def assess(
     command: str,
     *,

@@ -127,3 +127,21 @@ def test_alerts_from_broken_meta_are_ignored() -> None:
     assert alerts_from_meta(None) == []
     assert alerts_from_meta({"risk_alerts": "не список"}) == []
     assert alerts_from_meta({"risk_alerts": [{"нет": "уровня"}]}) == []
+
+
+def test_every_rule_has_a_human_readable_name() -> None:
+    """Описания правил живут в одном месте: потребитель не заводит свой словарь."""
+    from core import command_risk
+
+    for rule in command_risk._RULE_DESCRIPTIONS:
+        assert command_risk.describe_rule(rule) != rule, f"правило {rule} без перевода"
+    assert command_risk.describe_rule("неизвестное_правило") == "неизвестное_правило"
+
+
+def test_alert_text_translates_real_rule_names() -> None:
+    parser = _claude_parser()
+    parser.consume({"type": "tool_use", "name": "Bash", "input": {"command": "cat x | xargs rm"}})
+
+    text = format_alert(parser.risk_alerts[0])
+
+    assert "pipe_stdin" not in text, "в чат не должны попадать сырые идентификаторы правил"
