@@ -20,6 +20,7 @@ from chat_remote_control import QueuedItem, RemoteControlCoordinator
 from chat_sessions import AccountRecord, Session
 from core import config, db, project_config
 from core.remote_control import publications
+from core.remote_control.control_plane_client import PublicationClosedError
 
 # Приватный проект с явным правом на presence (для публикации в тестах).
 PRESENCE_POLICY = project_config.ProjectPolicy(
@@ -342,3 +343,56 @@ async def test_remote_input_cannot_change_session_settings(
     await result.item.done
     after = (session.label, session.model, session.cwd, session.permission_mode)
     assert before == after
+
+
+# ---------- снятие публикации владельцем из интерфейса ----------
+async def test_publication_closed_by_owner_stops_local_publishing(
+    rc_database: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Сервер отказал heartbeat — координатор снимает публикацию у себя.
+
+    Регрессия: сервер молча принимал heartbeat закрытой публикации и возвращал
+    её в живое состояние, поэтому кнопка «Завершить удалённое управление» не
+    работала, пока в терминале включён /rc. Теперь сервер отвечает 409, а
+    устройство обязано согласиться, а не долбиться в закрытую публикацию.
+    """
+    session = make_session(monkeypatch)
+    tracker = RunTracker()
+    coordinator = make_coordinator(session, tracker)
+
+    class ClosedByOwnerClient:
+        """Минимальный контроль-плейн: публикация уже снята владельцем."""
+
+        def __init__(self) -> None:
+            self.heartbeats = 0
+
+        def configured(self) -> bool:
+            return True
+
+        async def create_publication(self, **_: object) -> str:
+            return "pub-remote-1"
+
+        async def list_commands(self, **_: object) -> list[dict[str, object]]:
+            return []
+
+        async def heartbeat(self, **_: object) -> bool:
+            self.heartbeats += 1
+            raise PublicationClosedError()
+
+    client = ClosedByOwnerClient()
+    coordinator._client = client  # noqa: SLF001 — точка внедрения в тестах
+    coordinator.publish()
+    assert coordinator._active is True  # noqa: SLF001
+
+    # Ждём, пока сетевой цикл упрётся в отказ и снимет публикацию у себя.
+    for _ in range(200):
+        if not coordinator._active:  # noqa: SLF001
+            break
+        await asyncio.sleep(0.01)
+
+    assert coordinator._active is False, 'публикация должна быть снята локально'  # noqa: SLF001
+    assert session.rc_publication is None
+    # Долбиться в закрытую публикацию нельзя: heartbeat не повторяется.
+    before = client.heartbeats
+    await asyncio.sleep(0.05)
+    assert client.heartbeats == before

@@ -35,7 +35,10 @@ from chat_sessions import Session
 from core import config, crm_sync, herecrm_client, project_config
 from core.remote_control import config as rc_config
 from core.remote_control import credential_store, events, git_actions, publications, receipts
-from core.remote_control.control_plane_client import ControlPlaneClient
+from core.remote_control.control_plane_client import (
+    ControlPlaneClient,
+    PublicationClosedError,
+)
 from core.remote_control.credential_store import CredentialStoreError, DeviceCredential
 
 # Запуск одного промпта: принимает текст, возвращает признак успешного завершения.
@@ -265,6 +268,32 @@ class RemoteControlCoordinator:
         self._stop_network()
         tail = f", очередь очищена ({cleared})" if cleared else ""
         self._print(f"{G}▸ публикация снята{X}{D}{tail}{X}")
+
+    def _handle_closed_by_owner(self) -> None:
+        """Публикацию снял владелец из интерфейса — приводим себя в согласие.
+
+        Сервер уже закрыл её, поэтому обращаться к нему нечем и незачем: нужно
+        погасить локальное состояние и дать ждавшим командам терминальный
+        статус. Сеть останавливаем флагом, а не отменой задачи: метод вызывается
+        ИЗ самого сетевого цикла, и cancel() отменил бы текущую корутину.
+        """
+        if not self._active:
+            return
+        try:
+            publications.close(self._key())
+        except (sqlite3.Error, OSError) as error:
+            _log.warning("не удалось закрыть локальную публикацию /rc: %s", error)
+        self._active = False
+        self._session.rc_publication = None
+        cleared = len(self._queue)
+        self._abandon_queued_commands()
+        self._stop.set()
+        tail = f", очередь очищена ({cleared})" if cleared else ""
+        self._print(
+            f"{Y}▸ удалённое управление снято владельцем из интерфейса{X}"
+            f"{D}{tail}. Локальная сессия продолжает работать; "
+            f"чтобы опубликовать снова — {X}{C}/rc{X}"
+        )
 
     def shutdown(self) -> None:
         """Гарантированное снятие публикации (зовётся из finally чата)."""
@@ -724,6 +753,12 @@ class RemoteControlCoordinator:
                         publications.record_heartbeat(self._key())
                         if conversation_id:
                             self._remote_conversation_id = conversation_id
+            except PublicationClosedError:
+                # Владелец снял публикацию из интерфейса. Ловится ДО общего
+                # except: ControlPlaneError наследует RuntimeError, и без этой
+                # ветки цикл вечно долбился бы в закрытую публикацию.
+                self._handle_closed_by_owner()
+                return
             except (OSError, RuntimeError, ValueError, sqlite3.Error, asyncio.TimeoutError) as error:
                 # Недоступный control-plane не должен ронять локальную сессию.
                 _log.debug("heartbeat /rc не доставлен: %s", error)

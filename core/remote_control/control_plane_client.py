@@ -60,6 +60,19 @@ class ControlPlaneError(RuntimeError):
         self.status = status
 
 
+class PublicationClosedError(ControlPlaneError):
+    """Публикацию снял владелец: продолжать её heartbeat бессмысленно.
+
+    Отличается от обычной сетевой ошибки принципиально: сервер не «временно
+    недоступен», а сознательно отказал. Раньше сервер молча принимал такой
+    heartbeat и возвращал закрытую публикацию в живое состояние — кнопка
+    «Завершить удалённое управление» не работала, пока в терминале включён /rc.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("rc_publication_closed", 409)
+
+
 def _parse_expiry(value: object) -> float:
     """Момент истечения access-токена в epoch-секундах (с запасом на скос часов).
 
@@ -368,6 +381,10 @@ class ControlPlaneClient:
             )
             return True
         except ControlPlaneError as error:
+            # 409 — владелец снял публикацию из интерфейса. Это не сетевой сбой:
+            # повторять heartbeat нельзя, публикацию надо снять и локально.
+            if error.status == 409:
+                raise PublicationClosedError() from error
             log.warning("RC heartbeat не доставлен (%s)", error.code)
             return False
 
