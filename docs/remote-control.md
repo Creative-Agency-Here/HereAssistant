@@ -15,6 +15,11 @@ Read this before relying on `/rc`:
   the privacy gates and the single queue that arbitrates local and remote input.
   With no control plane configured, publishing writes a row into the local
   `rc_publications` table and makes no network request at all.
+- **Verified end to end (2026-07-30):** the full loop ran against a real control
+  plane — the device exchanged its credential for a token, published a session, the
+  Telegram bot saw that publication as live, queued a `prompt` command and the device
+  received it. Before that the channel was dead: runner routes sat behind the user
+  guard, so the device token never reached them.
 - **Wired to the network:** when both the control-plane base URL and a device
   credential are present, the terminal chat builds a client, claims commands,
   executes them (`prompt`, `stop`, `git_preflight`, `git_commit`, `git_push`,
