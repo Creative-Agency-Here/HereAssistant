@@ -745,7 +745,15 @@ class RemoteControlCoordinator:
         if publication.get("remote_public_id"):
             return
         policy = self._policy_lookup(self._session.cwd)
-        conversation_id = await self._resolve_crm_conversation_id(policy)
+        # Поиск диалога CRM — необязательное уточнение: он лишь связывает
+        # публикацию с конкретной сессией. Его сбой (недоступная CRM, таймаут,
+        # неожиданный ответ) НЕ должен срывать саму регистрацию публикации,
+        # иначе устройство остаётся невидимым из-за второстепенного шага.
+        try:
+            conversation_id = await self._resolve_crm_conversation_id(policy)
+        except (OSError, RuntimeError, ValueError, KeyError, asyncio.TimeoutError) as error:
+            _log.debug("RC: диалог CRM не определён (%s) — публикуем без привязки", error)
+            conversation_id = None
         remote_id = await client.create_publication(
             public_id=self._key(),
             privacy_mode=str(publication.get("privacy_mode") or "private"),

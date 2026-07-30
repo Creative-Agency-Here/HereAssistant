@@ -142,10 +142,14 @@ def test_control_client_created_only_when_both_url_and_credential_present(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(rc_config, "configured", lambda: True)
+    # Локальный .env может содержать реальный RC_CONTROL_PLANE_URL — тогда без
+    # явной очистки проверка «клиент собран, но не настроен» ничего не проверяет.
+    monkeypatch.delenv("RC_CONTROL_PLANE_URL", raising=False)
+    monkeypatch.setattr(rc_config, "control_plane_url", lambda: "")
     cred = credential()
     client, device_id = resolve_control_client(credential_loader=lambda: cred)
     assert client is not None
-    assert client.configured() is False  # base_url по умолчанию пуст в этом окружении теста
+    assert client.configured() is False
     assert device_id == cred.device_id
 
 
@@ -492,6 +496,10 @@ async def test_publication_registered_on_server_and_id_stored(
 ) -> None:
     """Без серверного идентификатора адресовать команды и heartbeat нечем."""
     session = make_session(monkeypatch, cwd=str(tmp_path))
+    # Тест не должен зависеть от локального .env: если на машине настроен синк
+    # с CRM, поиск диалога полез бы в сеть и проверка регистрации публикации
+    # перестала бы проверять именно регистрацию.
+    monkeypatch.setattr(chat_remote_control.herecrm_client, "configured", lambda: False)
     coordinator = make_coordinator(session, RunTracker(), policy=crm_git_policy())
     client = PublishingClient()
     coordinator._client = client  # noqa: SLF001

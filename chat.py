@@ -48,7 +48,7 @@ from chat_renderer import (
 )
 from chat_sessions import Session
 from chat_sessions import list_resumable as _list_resumable
-from core import config, crm_sync, db, integration_state, launch_context, project_config
+from core import config, crm_sync, db, integration_state, launch_context, logging_setup, project_config
 from core.remote_control import outbox as rc_outbox
 from core.workspace_status import task_summary, workspace_overview
 from terminal_input import TerminalPrompt
@@ -452,6 +452,8 @@ async def _run_with_sync(sess: Session, integration_id: str | None = None) -> No
 
 
 def main():
+    # Логи только в файл: фоновая строка поверх ввода ломает набор текста.
+    logging_setup.setup_quiet()
     # Дружелюбно к ошибкам: не роняем сырой traceback (при запуске из меню
     # manage.py он мелькал и стирался перерисовкой). Показываем причину и,
     # если это терминал, ждём Enter — чтобы её можно было прочитать.

@@ -39,3 +39,35 @@ def setup() -> logging.Logger:
     logging.getLogger("aiogram.dispatcher").setLevel(logging.INFO)
 
     return logging.getLogger("bridge")
+
+def setup_quiet() -> logging.Logger:
+    """Логирование для терминального интерфейса: только файл, без консоли.
+
+    В TUI любая строка, напечатанная фоновой задачей (доставка событий /rc,
+    синхронизация, heartbeat), попадает поверх строки ввода и ломает её —
+    вплоть до того, что человек перестаёт видеть, что набирает. Поэтому здесь
+    консольный обработчик не подключается вовсе: диагностику смотреть в файле
+    ``.runtime/logs/chat.log``, а не в окне чата.
+    """
+    config.init_dirs()
+    handler = logging.handlers.TimedRotatingFileHandler(
+        config.LOGS_DIR / "chat.log",
+        when="midnight",
+        interval=1,
+        backupCount=config.LOG_RETENTION_DAYS,
+        encoding="utf-8",
+        utc=False,
+    )
+    handler.suffix = "%Y-%m-%d"
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)-7s %(name)-10s %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.handlers = [handler]
+    # lastResort печатает WARNING+ в stderr, если хендлеров нет; он тоже ломает ввод.
+    logging.lastResort = logging.NullHandler()
+    return logging.getLogger("bridge")
