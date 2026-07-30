@@ -32,7 +32,7 @@ from typing import Any, Optional, TextIO
 
 from chat_renderer import B, C, D, G, R, W, X, Y
 from chat_sessions import Session
-from core import crm_sync, herecrm_client, project_config
+from core import config, crm_sync, herecrm_client, project_config
 from core.remote_control import config as rc_config
 from core.remote_control import credential_store, events, git_actions, publications, receipts
 from core.remote_control.control_plane_client import ControlPlaneClient
@@ -169,8 +169,8 @@ class RemoteControlCoordinator:
         policy_lookup: PolicyLookup = project_config.policy_for,
         control_client: Any = None,
         device_id: Optional[str] = None,
-        device_name: str = "Это устройство",
-        device_kind: str = "desktop",
+        device_name: Optional[str] = None,
+        device_kind: Optional[str] = None,
         credential_store_factory: Callable[
             [], credential_store.CredentialStore
         ] = credential_store.default_store,
@@ -182,8 +182,10 @@ class RemoteControlCoordinator:
         self._policy_lookup = policy_lookup
         self._client = control_client
         self._device_id = device_id or stable_device_id(session)
-        self._device_name = device_name
-        self._device_kind = device_kind
+        # Имя и тип машины берутся из настроек контура: иначе в терминале
+        # видно безликое «Это устройство», хотя в CRM у него уже есть имя.
+        self._device_name = device_name or config.HEREASSISTANT_CONTOUR_NAME or socket.gethostname()
+        self._device_kind = device_kind or config.HEREASSISTANT_CONTOUR_KIND or "desktop"
         # Хранилище device credential инжектируется для тестируемости; по
         # умолчанию — то же Keychain/файл-0600, что и у остального /rc.
         self._credential_store_factory = credential_store_factory
