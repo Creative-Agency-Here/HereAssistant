@@ -396,3 +396,62 @@ async def test_publication_closed_by_owner_stops_local_publishing(
     before = client.heartbeats
     await asyncio.sleep(0.05)
     assert client.heartbeats == before
+
+
+async def test_republish_after_owner_closed_starts_network_again(
+    rc_database: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """После снятия владельцем повторный /rc снова поднимает сеть.
+
+    _start_network() выходит, пока ссылка на задачу не пуста, поэтому обработчик
+    закрытия обязан её обнулить: иначе публикация после повторного /rc выглядела
+    бы живой, но устройство молча не слало бы heartbeat и не забирало команды.
+    """
+    session = make_session(monkeypatch)
+    tracker = RunTracker()
+    coordinator = make_coordinator(session, tracker)
+
+    class ClosedOnceClient:
+        """Первый heartbeat отвергается, дальше канал снова исправен."""
+
+        def __init__(self) -> None:
+            self.heartbeats = 0
+            self.reject = True
+
+        def configured(self) -> bool:
+            return True
+
+        async def create_publication(self, **_: object) -> str:
+            return "pub-remote-1"
+
+        async def list_commands(self, **_: object) -> list[dict[str, object]]:
+            return []
+
+        async def heartbeat(self, **_: object) -> bool:
+            self.heartbeats += 1
+            if self.reject:
+                raise PublicationClosedError()
+            return True
+
+        async def close_publication(self, **_: object) -> None:
+            return None
+
+    client = ClosedOnceClient()
+    coordinator._client = client  # noqa: SLF001 — точка внедрения в тестах
+    coordinator.publish()
+    for _ in range(200):
+        if not coordinator._active:  # noqa: SLF001
+            break
+        await asyncio.sleep(0.01)
+    assert coordinator._active is False  # noqa: SLF001
+
+    client.reject = False
+    before = client.heartbeats
+    assert coordinator.publish() is True
+    for _ in range(200):
+        if client.heartbeats > before:
+            break
+        await asyncio.sleep(0.01)
+
+    assert client.heartbeats > before, 'после повторного /rc heartbeat не пошёл'
+    coordinator.shutdown()

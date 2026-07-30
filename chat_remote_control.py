@@ -288,6 +288,10 @@ class RemoteControlCoordinator:
         cleared = len(self._queue)
         self._abandon_queued_commands()
         self._stop.set()
+        # Ссылку на задачу обязательно обнулить: цикл сейчас завершится сам, но
+        # _start_network() выходит, пока ссылка не пуста, — иначе повторный /rc
+        # не поднял бы сеть, и устройство молча перестало бы слать heartbeat.
+        self._net_task = None
         tail = f", очередь очищена ({cleared})" if cleared else ""
         self._print(
             f"{Y}▸ удалённое управление снято владельцем из интерфейса{X}"
